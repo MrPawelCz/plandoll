@@ -13,7 +13,8 @@ function bed(b, { pillows, throwSlot }) {
   b.box('frame', 'f:white', [0, slabTop + mattH / 2, mz0 + md / 2], [mw, mattH, md], 0.045, { seg: 2, top: 3 });
   // duvet: covers the mattress from the pillows to the foot, hangs over the sides, folds from a seeded wave
   const phase = b.rng() * 6, dz0 = mz0 + 0.62, dlen = mz0 + md + 0.01 - dz0, dh = mattH * 0.9;
-  const warp = (x, z) => 0.016 * Math.sin(x * 11 + phase) * Math.cos(z * 4.5 + phase * 0.5) + 0.011 * Math.sin(z * 14 + x * 3 + phase) + 0.006 * Math.sin(x * 23 + z * 7);
+  const fold = [0.9, 1.15, 1.7][b.ql]; // folds are stronger at high quality so that they read from a distance
+  const warp = (x, z) => fold * (0.016 * Math.sin(x * 11 + phase) * Math.cos(z * 4.5 + phase * 0.5) + 0.011 * Math.sin(z * 14 + x * 3 + phase) + 0.006 * Math.sin(x * 23 + z * 7) + 0.012 * Math.sin((x * 0.9 + z * 1.6) * 8 + phase * 1.7));
   b.add('bedding', roundBox(mw + 0.07, dh, dlen, 0.04, { seg: 2, top: 16, warp }), 'f:bedding', M(0, mattTop - dh / 2 + 0.04 * h, dz0 + dlen / 2));
   // turned-down edge of the duvet near the pillows
   b.add('bedding', roundBox(mw + 0.07, 0.05 * k, 0.17, 0.022, { seg: 2, top: 6, warp: (x) => 0.006 * Math.sin(x * 17 + phase) }), 'f:bedding', M(0, mattTop + 0.04 * h + 0.004, dz0 + 0.07));

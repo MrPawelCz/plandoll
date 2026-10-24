@@ -4,7 +4,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
 import { SPECS, specOf } from '../../src/furniture/specs.js';
-import { buildPiece, piecesImplemented, HAS_BUILDER, applyLook } from '../../src/furniture/index.js';
+import { buildPiece, buildFallbackPiece, piecesImplemented, HAS_BUILDER, applyLook } from '../../src/furniture/index.js';
 
 const ids = piecesImplemented();
 const AX = { w: 0, d: 1, h: 2 };
@@ -34,14 +34,44 @@ test('at least fourteen types are implemented and all of them are in the contrac
   for (const id of HAS_BUILDER) assert.ok(specOf(id), `${id} is not in specs.js`);
 });
 
-test('an unknown type throws, a type without a builder still builds a safe block', () => {
+test('every type of tier 1, 2 and 3 has a code builder', () => {
+  for (const s of SPECS) assert.ok(HAS_BUILDER.has(s.id), `${s.id} has no builder`);
+  assert.equal(buildPiece('toilet').userData.builder, 'code');
+});
+
+test('an unknown type throws, and the plain block of any type has every slot and fits its size', () => {
   assert.throws(() => buildPiece('nope'));
-  const missing = SPECS.find((s) => !HAS_BUILDER.has(s.id));
-  if (missing) {
-    const g = buildPiece(missing.id, { size: missing.size });
-    assert.ok(meshes(g).length >= 1);
-    assert.equal(g.userData.type, missing.id);
+  assert.throws(() => buildFallbackPiece('nope'));
+  for (const spec of SPECS) {
+    const g = buildFallbackPiece(spec.id, { size: spec.size });
+    assert.equal(g.userData.type, spec.id);
+    assert.equal(g.userData.builder, 'fallback');
+    const ms = meshes(g), box = new THREE.Box3().setFromObject(g).getSize(new THREE.Vector3());
+    for (const slot of spec.slots.length ? spec.slots : ['body']) assert.ok(ms.some((m) => m.userData.slot === slot), `${spec.id}: fallback lacks slot ${slot}`);
+    assert.ok(box.x <= spec.size[0] * 1.03 && box.y <= spec.size[2] * 1.03 && box.z <= spec.size[1] * 1.03, `${spec.id}: fallback too big`);
   }
+});
+
+test('kitchen-sink: the worktop sits 0.2 m below the top and the tap reaches it, at every allowed height', () => {
+  const spec = specOf('kitchen-sink');
+  for (const h of [1.05, 1.1, 1.2]) {
+    const g = buildPiece('kitchen-sink', { size: [spec.size[0], spec.size[1], h], seed: 4 });
+    const top = new THREE.Box3().setFromObject(meshes(g).find((m) => m.userData.slot === 'worktop'));
+    const tap = new THREE.Box3().setFromObject(meshes(g).find((m) => m.userData.slot === 'tap'));
+    assert.ok(Math.abs(top.max.y - (h - 0.2)) < 0.002, `worktop top ${top.max.y} for height ${h}`);
+    assert.ok(tap.max.y > h - 0.03 && tap.max.y <= h * 1.03, `tap top ${tap.max.y} for height ${h}`);
+  }
+});
+
+test('the bowl of the sink is cut into the worktop and the washbasin has one basin per 0.95 m', () => {
+  const sink = buildPiece('kitchen-sink', { seed: 1 }), wt = meshes(sink).find((m) => m.userData.slot === 'worktop');
+  // no worktop triangle covers the middle of the bowl (x = -0.29, z = 0.03 for the default size): sample it with a downward ray
+  const ray = new THREE.Raycaster(new THREE.Vector3(-0.29, 2, 0.03), new THREE.Vector3(0, -1, 0));
+  assert.equal(ray.intersectObject(wt).length, 0, 'the worktop is solid over the bowl');
+  const control = new THREE.Raycaster(new THREE.Vector3(0.5, 2, -0.22), new THREE.Vector3(0, -1, 0)); // the strip behind the bowl must be hit
+  assert.ok(control.intersectObject(wt).length >= 1, 'the ray test does not reach the worktop at all');
+  const basinAt = (w) => { const g = buildPiece('washbasin', { size: [w, 0.5, 0.85] }); return meshes(g).find((m) => m.userData.slot === 'basin').geometry.attributes.position.count; };
+  assert.ok(basinAt(1.2) > basinAt(0.65) * 1.6, 'a wide washbasin has two basins');
 });
 
 for (const id of ids) {

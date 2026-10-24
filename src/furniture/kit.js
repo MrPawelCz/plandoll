@@ -31,11 +31,12 @@ export function M(x = 0, y = 0, z = 0, rx = 0, ry = 0, rz = 0) {
 const OWN = {
   'k:brass': () => new THREE.MeshStandardMaterial({ color: '#b99654', roughness: 0.34, metalness: 0.85 }),
   'k:black': () => new THREE.MeshStandardMaterial({ color: '#2a2b2e', roughness: 0.5, metalness: 0.55 }),
-  'k:screen': () => new THREE.MeshStandardMaterial({ color: '#0d0f12', roughness: 0.12, metalness: 0.2 }),
-  'k:mirror': () => new THREE.MeshStandardMaterial({ color: '#dfe6e8', roughness: 0.03, metalness: 1 }),
+  'k:screen': () => new THREE.MeshStandardMaterial({ color: '#3a4755', roughness: 0.1, metalness: 0.25, emissive: '#16202b', emissiveIntensity: 0.2 }),
+  'k:mirror': () => new THREE.MeshStandardMaterial({ color: '#f2f6f7', roughness: 0.05, metalness: 0.4, emissive: '#8ea2ab', emissiveIntensity: 0.14 }),
   'k:shade': () => new THREE.MeshStandardMaterial({ color: '#f1e6d2', roughness: 0.9, metalness: 0, emissive: '#e9b872', emissiveIntensity: 0.28, side: THREE.DoubleSide }),
   'k:paper': () => new THREE.MeshStandardMaterial({ color: '#ffffff', roughness: 0.82, metalness: 0 }),
   'k:ceramic': () => new THREE.MeshStandardMaterial({ color: '#ece7de', roughness: 0.3, metalness: 0 }),
+  'k:chrome': () => new THREE.MeshStandardMaterial({ color: '#d5dade', roughness: 0.22, metalness: 0.75 }),
 };
 const matCache = new Map();
 const BOOST = 1 / 0.72; // a textured material is tinted by colour / texture average; an override colour is lifted the same way, roughly
@@ -153,6 +154,27 @@ export function taperBox(wt, dt, wb, db, h) {
 export const cylinder = (rt, rb, h, seg, open = false) => new THREE.CylinderGeometry(rt, rb, h, seg, 1, open);
 export const lathe = (profile, seg) => new THREE.LatheGeometry(profile.map(([r, y]) => new THREE.Vector2(r, y)), seg);
 
+// Tube along a smooth path through the given [x, y, z] points (taps, pipes, rails).
+export function tubePath(points, radius, o = {}) {
+  const curve = new THREE.CatmullRomCurve3(points.map((p) => new THREE.Vector3(p[0], p[1], p[2])), false, 'centripetal');
+  return new THREE.TubeGeometry(curve, o.seg ?? 14, radius, o.radial ?? 6, false);
+}
+
+// Rounded rectangle outline (w x d, corner radius r) as a THREE.Shape in the XY plane, optionally appended to an existing path.
+export function roundedRectShape(w, d, r, shape = new THREE.Shape()) {
+  const x = w / 2, y = d / 2, c = Math.min(r, x - 1e-4, y - 1e-4);
+  shape.moveTo(-x + c, -y);
+  shape.lineTo(x - c, -y);
+  shape.absarc(x - c, -y + c, c, -Math.PI / 2, 0, false);
+  shape.lineTo(x, y - c);
+  shape.absarc(x - c, y - c, c, 0, Math.PI / 2, false);
+  shape.lineTo(-x + c, y);
+  shape.absarc(-x + c, y - c, c, Math.PI / 2, Math.PI, false);
+  shape.lineTo(-x, -y + c);
+  shape.absarc(-x + c, -y + c, c, Math.PI, Math.PI * 1.5, false);
+  return shape;
+}
+
 export function flipped(g) {
   const f = g.clone();
   const ix = f.index;
@@ -252,29 +274,65 @@ export function leafCluster(count, rng, o = {}) {
   return list.length ? mergeGeometries(list, false) : null;
 }
 
-// Procedural art for pictures: soft colour blocks on a ground, from a seed. Returns a THREE.DataTexture (no DOM).
-export function artTexture(seed, w = 72, h = 96) {
+// Glossy panel (mirror, screen) in the XY plane facing +z: a vertical tone gradient from `lo` (bottom) to `hi` (top) and two soft
+// diagonal highlight bands, stored as vertex colours so that the panel reads as a polished surface without an environment map.
+export function glossPlane(w, h, { lo = 0.8, hi = 1, streak = 0.12 } = {}) {
+  const g = new THREE.PlaneGeometry(w, h, 12, 10), p = g.attributes.position, col = new Float32Array(p.count * 3);
+  for (let i = 0; i < p.count; i++) {
+    const x = p.getX(i) / w + 0.5, v = p.getY(i) / h + 0.5, e = x + 0.45 * v;
+    const k = clamp(lo + (hi - lo) * v + streak * Math.exp(-(((e - 0.42) / 0.07) ** 2)) + streak * 0.5 * Math.exp(-(((e - 0.6) / 0.035) ** 2)), 0, 1);
+    col[i * 3] = col[i * 3 + 1] = col[i * 3 + 2] = k;
+  }
+  g.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  return g;
+}
+
+const ART_PALETTES = [
+  ['#f1e9db', '#c8553d', '#2d4a5a', '#e0a458', '#7a9e7e'],
+  ['#eef0ee', '#264653', '#2a9d8f', '#e9c46a', '#f4a261'],
+  ['#f5efe6', '#3d405b', '#e07a5f', '#81b29a', '#f2cc8f'],
+  ['#e8ecef', '#1d3557', '#457b9d', '#a8dadc', '#e63946'],
+  ['#f3ede2', '#5f6f52', '#a9b388', '#b99470', '#4a3f35'],
+];
+
+// Procedural art for pictures: one of four readable motifs (abstract landscape, stripes, circles with an arch, rainbow arches) in a
+// seeded palette with smooth edges. Returns a THREE.DataTexture (no DOM); v runs up the picture.
+export function artTexture(seed, w = 96, h = 128) {
   const rng = mulberry32(seed), data = new Uint8Array(w * h * 4);
-  const pal = ['#d9c7a8', '#7f9a8d', '#c97b63', '#3e5c76', '#e6dccb', '#a18a6f', '#2f3b4a', '#d4a373'];
-  const col = () => new THREE.Color(pal[Math.floor(rng() * pal.length)]);
-  const bg = col(), shapes = [];
-  const kind = Math.floor(rng() * 3);
-  for (let i = 0; i < 4; i++) shapes.push({ c: col(), x: rng(), y: rng(), r: 0.12 + rng() * 0.22, w: 0.25 + rng() * 0.5, h: 0.1 + rng() * 0.3 });
-  const bands = [col(), col()];
+  const pal = ART_PALETTES[Math.floor(rng() * ART_PALETTES.length)].map((c) => new THREE.Color(c));
+  const kind = Math.floor(rng() * 4), ph = rng() * 6.28, ph2 = rng() * 6.28, px = 0.3 + rng() * 0.4, asp = h / w;
+  const cuts = []; // stripe edges
+  { let t = 0; const ws = Array.from({ length: 6 }, () => 0.6 + rng()), sum = ws.reduce((x, y) => x + y, 0); for (const x of ws) { t += x / sum; cuts.push(t); } }
+  const aa = 1.6 / w, cov = (dist) => clamp(0.5 - dist / aa, 0, 1);
+  const order = [1, 2, 3, 4, 2, 1];
   for (let j = 0; j < h; j++) {
     for (let i = 0; i < w; i++) {
-      const u = i / (w - 1), v = j / (h - 1);
-      let c = bg.clone();
-      if (kind === 0) { // horizon with sun
-        c = (v < 0.58 ? bands[0] : bands[1]).clone().lerp(bg, v < 0.58 ? v * 0.7 : 0.2);
-        const dx = u - shapes[0].x, dy = v - 0.35;
-        if (dx * dx + dy * dy < 0.018) c = shapes[1].c.clone();
-      } else if (kind === 1) { // colour fields
-        for (const s of shapes) if (Math.abs(u - s.x) < s.w / 2 && Math.abs(v - s.y) < s.h / 2) c = s.c.clone();
-      } else { // circles
-        for (const s of shapes) { const dx = u - s.x, dy = (v - s.y) * 0.75; if (dx * dx + dy * dy < s.r * s.r * 0.5) c = s.c.clone(); }
+      const u = (i + 0.5) / w, v = (j + 0.5) / h, c = pal[0].clone();
+      if (kind === 0) {
+        c.lerp(pal[3], clamp(0.55 - v * 0.5, 0, 0.5));
+        c.lerp(pal[1], cov(Math.hypot(u - px, (v - 0.68) * asp) - 0.13));
+        c.lerp(pal[2], cov(v - (0.46 + 0.07 * Math.sin(u * 6 + ph))));
+        c.lerp(pal[4], cov(v - (0.3 + 0.07 * Math.sin(u * 4 + ph2))));
+        c.lerp(pal[1].clone().multiplyScalar(0.8), cov(v - (0.1 + 0.02 * Math.sin(u * 9))));
+      } else if (kind === 1) {
+        if (u > 0.1 && u < 0.9 && v > 0.1 && v < 0.9) {
+          const x = (u - 0.1) / 0.8;
+          let k = 0; while (k < cuts.length - 1 && x > cuts[k]) k++;
+          c.copy(pal[order[k]]);
+          if (k > 0 && Math.abs(x - cuts[k - 1]) < 0.012) c.copy(pal[0]);
+        }
+      } else if (kind === 2) {
+        c.lerp(pal[1], cov(Math.hypot(u - 0.42, (v - 0.62) * asp) - 0.27));
+        c.lerp(pal[3], cov(Math.hypot(u - 0.64, (v - 0.46) * asp) - 0.16));
+        const inArch = v < 0.26 ? Math.abs(u - 0.5) - 0.28 : Math.hypot(u - 0.5, (v - 0.26) * asp) - 0.28;
+        c.lerp(pal[2], cov(inArch) * (v < 0.5 ? 1 : 0));
+      } else {
+        for (let r = 0; r < 4; r++) {
+          const R = 0.42 - r * 0.09, dd = v < 0.18 ? Math.abs(u - 0.5) - R : Math.hypot(u - 0.5, (v - 0.18) * asp) - R;
+          c.lerp(pal[1 + r], cov(dd));
+        }
       }
-      const k = (j * w + i) * 4, g = 0.96 + 0.04 * Math.sin((i * 12.9898 + j * 78.233) * 3.7);
+      const k = (j * w + i) * 4, g = 0.988 + 0.012 * Math.sin((i * 12.9898 + j * 78.233) * 3.7);
       const sc = c.convertLinearToSRGB();
       data[k] = clamp(sc.r * 255 * g, 0, 255); data[k + 1] = clamp(sc.g * 255 * g, 0, 255); data[k + 2] = clamp(sc.b * 255 * g, 0, 255); data[k + 3] = 255;
     }

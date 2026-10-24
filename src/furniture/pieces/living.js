@@ -1,5 +1,5 @@
 // Living room pieces: sofas, armchair, coffee table, TV unit, TV, bookshelf, rug. Local frame: front +z, centre of the footprint, y up.
-import { bookRow, M, deg, clamp, lerp } from '../kit.js';
+import { bookRow, glossPlane, M, deg, clamp, lerp } from '../kit.js';
 
 // Shared by sofas and the armchair: legs, plinth, arms, back shell, seat and back cushions, scatter pillows.
 function sofaBody(b, { seats, cushionSlot, armW, backD, legH, scatter }) {
@@ -17,8 +17,15 @@ function sofaBody(b, { seats, cushionSlot, armW, backD, legH, scatter }) {
   for (let i = 0; i < seats; i++) {
     const cx = -innerW / 2 + cw * (i + 0.5);
     b.add(cushionSlot, b.cush(cw - 0.012, 0.16, sd, { r: 0.05, puff: 0.03, dent: 0.012 }), 'f:cushion', M(cx, seatBase + 0.075, tz + 0.006));
+    // piping along the front edge of the seat cushion and the top edge of the back cushion (a thin cord, coarse on purpose)
+    if (b.ql > 0) b.cyl(cushionSlot, 'f:cushion', [cx, seatBase + 0.075 + 0.066, tz + 0.006 + sd / 2 - 0.013], 0.0058, 0.0058, cw - 0.07, { seg: 8, rot: [0, 0, Math.PI / 2] });
     const bh = h - 0.04 - seatTop - 0.02, th = 0.17, a = deg(-12), cz = -d / 2 + backD + th * 0.5 + 0.01 - (bh / 2) * Math.sin(-a);
-    b.add(cushionSlot, b.cush(cw - 0.012, bh, th, { r: 0.05, puff: 0.025, dent: 0.01 }), 'f:cushion', M(cx, seatTop - 0.015 + (bh / 2) * Math.cos(a), cz, a));
+    const yc = seatTop - 0.015 + (bh / 2) * Math.cos(a);
+    b.add(cushionSlot, b.cush(cw - 0.012, bh, th, { r: 0.05, puff: 0.025, dent: 0.01 }), 'f:cushion', M(cx, yc, cz, a));
+    if (b.ql > 0) { // piping along the top front edge of the back cushion
+      const ly = bh / 2 - 0.015, lz = th / 2 - 0.012;
+      b.cyl(cushionSlot, 'f:cushion', [cx, yc + ly * Math.cos(a) - lz * Math.sin(a), cz + ly * Math.sin(a) + lz * Math.cos(a)], 0.0055, 0.0055, cw - 0.07, { seg: 8, rot: [0, 0, Math.PI / 2] });
+    }
   }
   if (scatter) {
     const pw = Math.min(0.4, innerW * 0.34);
@@ -58,8 +65,9 @@ export function tvUnit(b) {
 
 export function tv(b) {
   const { w, d, h } = b;
-  b.box('frame', 'k:black', [0, 0.03 + (h - 0.03) / 2, -d / 2 + 0.017], [w, h - 0.03, 0.034], 0.006);
-  b.box('screen', 'k:screen', [0, 0.03 + (h - 0.03) / 2, -d / 2 + 0.036], [w - 0.024, h - 0.03 - 0.024, 0.004], 0.002);
+  const bz = 0.02, sh = h - 0.03 - 2 * bz, yc = 0.03 + (h - 0.03) / 2;
+  b.box('frame', 'k:black', [0, yc, -d / 2 + 0.017], [w, h - 0.03, 0.034], 0.007);
+  b.add('screen', glossPlane(w - 2 * bz, sh, { lo: 0.62, hi: 1, streak: 0.5 }), 'k:screen', M(0, yc, -d / 2 + 0.0345), { uv: 'keep' });
   for (const s of [-1, 1]) b.box('frame', 'k:black', [s * w * 0.3, 0.015, 0], [0.2, 0.03, d], 0.006);
 }
 

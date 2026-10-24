@@ -7,9 +7,10 @@ import { builders as sleep } from './pieces/sleep.js';
 import { builders as dining } from './pieces/dining.js';
 import { builders as decor } from './pieces/decor.js';
 import { builders as kitchen } from './pieces/kitchen.js';
+import { builders as bath } from './pieces/bath.js';
 import { builders as extras } from './pieces/extras.js';
 
-const BUILDERS = { ...living, ...sleep, ...dining, ...decor, ...kitchen, ...extras };
+const BUILDERS = { ...living, ...sleep, ...dining, ...decor, ...kitchen, ...bath, ...extras };
 export const HAS_BUILDER = new Set(Object.keys(BUILDERS));
 export const piecesImplemented = () => [...HAS_BUILDER].filter((id) => specOf(id)).sort();
 export { applyLook, materialFor };
@@ -22,13 +23,16 @@ function fallback(b) {
   slots.forEach((slot, i) => b.box(slot, keys[i % keys.length], [0, hh * (i + 0.5), 0], [w - 0.002 * i, hh, d - 0.002 * i], Math.min(0.01, hh / 3)));
 }
 
-export function buildPiece(type, opts = {}) {
+function make(type, opts, build) {
   const spec = specOf(type);
   if (!spec) throw new Error(`unknown furniture type "${type}"`);
   const b = pieceBuilder(spec, opts);
-  (BUILDERS[type] ?? fallback)(b);
+  build(b);
   const g = b.finish();
-  g.userData.builder = BUILDERS[type] ? 'code' : 'fallback';
+  g.userData.builder = build === fallback ? 'fallback' : 'code';
   return g;
 }
 
+export const buildPiece = (type, opts = {}) => make(type, opts, BUILDERS[type] ?? fallback);
+// The plain block of the spec size with every slot, for any type (used when a builder is missing or fails).
+export const buildFallbackPiece = (type, opts = {}) => make(type, opts, fallback);

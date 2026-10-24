@@ -1,6 +1,6 @@
 // Decor pieces: lamps (with emitters), plants, pictures, mirror, curtain.
 import * as THREE from 'three';
-import { artTexture, leafCluster, lathe, pleated, M, deg, clamp } from '../kit.js';
+import { artTexture, glossPlane, leafCluster, lathe, pleated, M, deg, clamp } from '../kit.js';
 
 // Scales a geometry about the vertical axis (x, z) and in y so that it fits the given reach and top, in place.
 function fit(g, rx, rz, top) {
@@ -52,17 +52,20 @@ function plant(b, o) {
     const trunkH = h * o.trunk;
     b.cyl('leaves', 'f:wood', [0, base + trunkH / 2, 0], 0.016, 0.024, trunkH, { seg: 8 });
   }
-  const g = leafCluster(count, b.rng, o.leaf(b, base));
-  if (g) {
-    g.translate(0, base + (o.start ? o.start * h : 0), 0);
+  const tiers = o.tiers ?? 1;
+  for (let k = 0; k < tiers; k++) {
+    const g = leafCluster(Math.max(4, Math.round(count / tiers)), b.rng, o.leaf(b, base, k));
+    if (!g) continue;
+    g.translate(0, base + (o.start ? o.start * h : 0) + (o.tierRise ?? 0) * h * k, 0);
     fit(g, reach, reach, h);
     b.add('leaves', g, 'f:leaf1', null, { uv: 'keep' });
   }
 }
 
+// Three tiers of leaves on the trunk: broad and spreading low, shorter and more upright higher up.
 export const plantLarge = (b) => plant(b, {
-  potH: () => 0.3, potR: (bb) => Math.min(0.2, bb.w * 0.36), trunk: 0.5, count: 44, start: 0.3,
-  leaf: (bb, base) => ({ len: 0.36, tilt: 0.7, tiltUp: -0.1, rise: bb.h - base - 0.45 - 0.3 * bb.h * 0.3, radius: 0.05, shrink: 0.7, wide: 1.0 }),
+  potH: () => 0.3, potR: (bb) => Math.min(0.2, bb.w * 0.36), trunk: 0.66, count: 48, start: 0.28, tiers: 3, tierRise: 0.17,
+  leaf: (bb, base, k) => ({ len: 0.36 - 0.04 * k, tilt: 1.0 - 0.2 * k, rise: 0.1 * bb.h, radius: 0.05 - 0.008 * k, shrink: 0.85, wide: 1.0 }),
 });
 export const plantSmall = (b) => plant(b, {
   potH: () => 0.12, potR: (bb) => Math.min(0.085, bb.w * 0.36), trunk: 0, count: 15, start: 0,
@@ -79,7 +82,7 @@ function picture(b, frameKey) {
   // a pale mount around the picture, then the picture itself on a thin board
   b.box('canvas', 'f:top', [0, h / 2, -d / 2 + 0.006], [w - 2 * f + 0.004, h - 2 * f + 0.004, 0.012], 0.002, { uv: 'keep' });
   const m = Math.min(w, h) * 0.09, pw = w - 2 * f - 2 * m, ph = h - 2 * f - 2 * m;
-  const tex = artTexture(b.seed * 31 + Math.round(w * 100), 72, Math.max(24, Math.round(72 * ph / pw)));
+  const tex = artTexture(b.seed * 31 + Math.round(w * 100), 96, Math.max(32, Math.round(96 * ph / pw)));
   b.add('canvas', new THREE.PlaneGeometry(pw, ph), new THREE.MeshStandardMaterial({ map: tex, roughness: 0.85 }), M(0, h / 2, -d / 2 + 0.0125), { uv: 'keep' });
 }
 export const artLarge = (b) => picture(b, 'f:wood');
@@ -87,12 +90,13 @@ export const artSmall = (b) => picture(b, 'k:black');
 
 export function mirror(b) {
   const { w, d, h } = b;
-  const f = 0.028;
-  b.box('frame', 'k:black', [0, h - f / 2, 0], [w, f, d], 0.004);
-  b.box('frame', 'k:black', [0, f / 2, 0], [w, f, d], 0.004);
-  b.box('frame', 'k:black', [-(w / 2 - f / 2), h / 2, 0], [f, h - 2 * f, d], 0.004);
-  b.box('frame', 'k:black', [w / 2 - f / 2, h / 2, 0], [f, h - 2 * f, d], 0.004);
-  b.add('glass', new THREE.PlaneGeometry(w - 2 * f + 0.004, h - 2 * f + 0.004), 'k:mirror', M(0, h / 2, d / 2 - 0.008), { uv: 'keep' });
+  const f = 0.026;
+  b.box('frame', 'k:brass', [0, h - f / 2, 0], [w, f, d], 0.004);
+  b.box('frame', 'k:brass', [0, f / 2, 0], [w, f, d], 0.004);
+  b.box('frame', 'k:brass', [-(w / 2 - f / 2), h / 2, 0], [f, h - 2 * f, d], 0.004);
+  b.box('frame', 'k:brass', [w / 2 - f / 2, h / 2, 0], [f, h - 2 * f, d], 0.004);
+  b.box('glass', 'k:paper', [0, h / 2, d / 2 - 0.014], [w - 2 * f + 0.004, h - 2 * f + 0.004, 0.006], 0.001); // silvered backing, slightly recessed
+  b.add('glass', glossPlane(w - 2 * f, h - 2 * f, { lo: 0.78, hi: 1, streak: 0.14 }), 'k:mirror', M(0, h / 2, d / 2 - 0.0105), { uv: 'keep' });
 }
 
 export function curtain(b) {
