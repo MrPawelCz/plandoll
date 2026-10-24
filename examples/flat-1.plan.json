@@ -1,0 +1,55 @@
+{
+  "version": 1,
+  "name": "One-bedroom flat with study (48 m2 gross)",
+  "units": "m",
+  "meta": { "source": "synthetic", "notes": "Hand-written reference example. CC0." },
+  "levels": [
+    {
+      "id": "L0",
+      "name": "Flat",
+      "height": 2.7,
+      "walls": [
+        { "id": "w1", "from": [0, 0], "to": [8, 0], "kind": "exterior" },
+        { "id": "w2", "from": [8, 0], "to": [8, 6], "kind": "exterior" },
+        { "id": "w3", "from": [0, 6], "to": [8, 6], "kind": "exterior" },
+        { "id": "w4", "from": [0, 0], "to": [0, 6], "kind": "exterior" },
+        { "id": "w5", "from": [5, 0], "to": [5, 3] },
+        { "id": "w6", "from": [0, 3], "to": [8, 3] },
+        { "id": "w7", "from": [2, 3], "to": [2, 6] },
+        { "id": "w8", "from": [4, 3], "to": [4, 6] }
+      ],
+      "openings": [
+        { "id": "front", "wall": "w3", "type": "door", "offset": 0.55, "width": 0.9 },
+        { "id": "d-hall-living", "wall": "w6", "type": "door", "offset": 0.6, "width": 0.9 },
+        { "id": "d-living-study", "wall": "w6", "type": "door", "offset": 4.2, "width": 0.8, "hinge": "end", "opens_to": "right" },
+        { "id": "d-hall-bath", "wall": "w7", "type": "door", "offset": 1.2, "width": 0.8 },
+        { "id": "d-living-bed", "wall": "w5", "type": "door", "offset": 1.0, "width": 0.9 },
+        { "id": "win-liv-1", "wall": "w1", "type": "window", "offset": 1.0, "width": 1.6, "height": 1.3 },
+        { "id": "win-liv-2", "wall": "w1", "type": "window", "offset": 3.2, "width": 1.2, "height": 1.3 },
+        { "id": "win-liv-w", "wall": "w4", "type": "window", "offset": 1.2, "width": 1.2, "height": 1.3 },
+        { "id": "win-bed-n", "wall": "w1", "type": "window", "offset": 6.0, "width": 1.4, "height": 1.3 },
+        { "id": "win-bed-e", "wall": "w2", "type": "window", "offset": 1.0, "width": 1.2, "height": 1.3 },
+        { "id": "win-bath", "wall": "w3", "type": "window", "offset": 2.7, "width": 0.6, "height": 0.6, "sill": 1.3 },
+        { "id": "win-study", "wall": "w3", "type": "window", "offset": 5.0, "width": 1.6, "height": 1.3 }
+      ],
+      "rooms": [
+        { "id": "living", "name": "Living room", "use": "living", "polygon": [[0, 0], [5, 0], [5, 3], [0, 3]], "floor": "wood", "area": 13.4 },
+        { "id": "bedroom", "name": "Bedroom", "use": "bedroom", "polygon": [[5, 0], [8, 0], [8, 3], [5, 3]], "floor": "wood", "area": 7.8 },
+        { "id": "hall", "name": "Hall", "use": "hall", "polygon": [[0, 3], [2, 3], [2, 6], [0, 6]], "floor": "tile", "area": 5 },
+        { "id": "bath", "name": "Bathroom", "use": "bathroom", "polygon": [[2, 3], [4, 3], [4, 6], [2, 6]], "floor": "tile", "area": 5.2 },
+        { "id": "study", "name": "Study", "use": "office", "polygon": [[4, 3], [8, 3], [8, 6], [4, 6]], "floor": "wood", "area": 10.6 }
+      ],
+      "furniture": [
+        { "id": "f1", "type": "sofa", "center": [3.6, 2.35], "rotation": 180 },
+        { "id": "f2", "type": "table-coffee", "center": [3.6, 1.45] },
+        { "id": "f3", "type": "table-dining", "center": [1.5, 1.2], "size": [1.6, 0.9] },
+        { "id": "f4", "type": "bed-double", "center": [6.75, 1.5], "rotation": 90 },
+        { "id": "f5", "type": "wardrobe", "center": [5.56, 0.45], "size": [1.0, 0.6] },
+        { "id": "f6", "type": "desk", "center": [6.6, 5.5], "size": [1.4, 0.7], "rotation": 180 },
+        { "id": "f7", "type": "chair", "center": [6.6, 4.9] },
+        { "id": "f8", "type": "bathtub", "center": [3.55, 5.0], "size": [1.6, 0.7], "rotation": 90 },
+        { "id": "f9", "type": "toilet", "center": [2.55, 3.45] }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,91 @@
+# Design: data and modules
+
+Working title: planstage. This file is the contract between the parts that are built in parallel. If you need to change it, change it here first and say so in your notes.
+
+## 1. Pipeline
+
+```
+plan JSON (planwalk v1, see docs/SPEC.md and docs/PROMPT.md)
+  -> analyzePlan / modelOf   (src/core/validate.js)       validated plan, units converted to metres
+  -> buildModel              (src/model/geometry.js)      walls with thickness, openings with positions, rooms, colliders
+  -> autoFurnish             (src/layout, pure functions) layout = list of pieces with positions
+  -> buildScene              (src/render + src/furniture) THREE objects: shell (walls, floors) + one object per piece
+  -> look                    (src/look)                   light, shadows, post-processing, backdrop, quality level
+  -> frame
+```
+
+The page never sends anything anywhere. No network requests, no localStorage, sessionStorage, cookies or IndexedDB.
+
+## 2. Coordinates and angles
+
+- Plan space: x to the right, y down the page, metres. World (three.js): x = plan x, z = plan y, y up. A level's floor is at `level.elevation`.
+- `rot` is degrees clockwise as drawn on the plan (the same as planwalk `furniture.rotation`). In three.js set `object.rotation.y = -rot * Math.PI / 180`.
+- Every piece is built in its local frame: x = width, z = depth, y up, FRONT faces +z, BACK is -z, origin at the centre of the footprint on the floor. With `rot = 0` the front looks down the page (south). `rot = 90` looks west, `180` north, `270` east.
+  So a sofa with its back on the north wall (small y) has `rot = 0`; with its back on the east wall `rot = 90`; on the south wall `rot = 180`; on the west wall `rot = 270`.
+- Beds follow the same rule: width along x, headboard at -z, foot at +z. (The old planwalk bed has the long side along x: do not mix them. `src/furniture/legacy.js` exists only as a stop-gap until a type has a new builder.)
+
+## 3. The three documents
+
+**Plan** is the planwalk v1 JSON (walls, openings, rooms, optional stairs). Furniture in an input plan is ignored: the layout comes from the engine.
+
+**Layout** is plain data, the thing an editor will change later:
+
+```json
+{
+  "version": 1,
+  "seed": 1,
+  "levels": [
+    {
+      "id": "L0",
+      "pieces": [
+        { "id": "p1", "type": "sofa3", "room": "main", "x": 3.2, "y": 1.4, "rot": 90,
+          "size": [2.1, 0.95, 0.85], "elev": 0, "on": null, "colors": { "upholstery": "#c9b8a6" } }
+      ]
+    }
+  ]
+}
+```
+
+- `type` is an id from `src/furniture/specs.js`. `x`, `y` are the centre of the footprint in plan metres. `size` is optional (default: the spec) and must stay inside `range`.
+- `elev` is the height of the piece's bottom above the level floor (default 0; wall-mounted pieces use `place.elevation`; for a ceiling lamp it is the bottom of the hanging part).
+- `on` is the id of the piece this one sits on (props on tables, shelves, nightstands); then `x`, `y`, `elev` are absolute anyway. It lets an editor move the child with its parent.
+- `colors` maps a slot name to a `#rrggbb` colour or a material key of the material library (`src/render/materials.js` today, the new library later). Missing slots use the piece's default.
+- Limits: at most 400 pieces per level and 1500 in total; ids unique; every number finite. `autoFurnish` returns exactly this shape and nothing else.
+
+**Style** is also plain data:
+
+```json
+{ "preset": "amber", "t": 0.735, "quality": "auto", "wall": "plaster-warm", "floors": { "main": "oak-smoked" } }
+```
+
+`t` is the time of day from 0 (06:00) to 1 (23:00). `quality` is `auto`, `high`, `medium` or `low`.
+
+## 4. Furniture (src/furniture)
+
+- `specs.js` is pure data for every type (size, range, placement rules, rooms, slots, emitters, triangle budget). It is the single source for the layout engine and for the tests of the builders.
+- A builder is `buildPiece(type, { size, colors, seed, quality }) -> THREE.Group`. The group carries `userData = { type, size, tris, slots: [...], emitters: [...] }`. Meshes carry `userData.slot`. Static geometry is merged per slot, so a piece costs a handful of draw calls, not dozens.
+- `emitters` are `{ pos: [x, y, z] (local), color, power }` for lamps. The look decides how many become real lights (a small fixed number) and how many are only glow.
+- Everything is built from code. No model files, no texture files, no fonts, no network. Randomness only through a seeded generator (`mulberry32(seed)`), never `Math.random`.
+- Loops use counters with limits. A piece that hits a limit sets `userData.truncated = true` instead of freezing the page.
+
+## 5. Layout engine (src/layout)
+
+Pure functions, no three.js, no DOM, runs in Node. Input: the built model (`buildModel` output) plus options `{ seed }`. Output: a layout (section 3).
+Room type comes from the room name (Polish and English, case and diacritics insensitive) or `room.use`, else from the geometry (area, doors, windows, neighbours). Placement honours `specs.js` (`place.against`, `clearFront`, `clearSide`, `rooms`), keeps door zones free (0.8 m in front and behind each door, plus the swing), keeps tall pieces away from windows, and is deterministic for the same input and seed.
+
+## 6. Look (src/look, src/app)
+
+The look module owns the stage (sky, light rig, backdrop, base), the time-of-day keyframes, the post-processing chain and the quality levels. The app shell owns the page: canvas, the three presets (`amber`, `clear`, `lamplit`), the time slider, the quality switch, the error card when WebGL2 is missing.
+
+## 7. Tests and tools
+
+- `npm test` runs every `tests/**/*.test.mjs` with node:test. Chrome tests skip without Chrome, unless `PLANSTAGE_REQUIRE_CHROME=1`.
+- `tools/shot.mjs` takes screenshots with headless Chrome (software GL). Run it through the Chrome lock and with `nice -n 19`. The page sets `window.__done = true` and `window.__stats` when it has rendered `frames` frames.
+- `tools/gen-plans.mjs` writes synthetic plans: `node tools/gen-plans.mjs --seed 401 --count 14 --out DIR` (7 families, deterministic).
+
+## 8. Design decisions
+
+- `kitchen-sink`: `size[2]` (default 1.1, range 1.05 to 1.2) includes the tap. The worktop sits at `size[2] - 0.2` (0.9 by default, level with `kitchen-base`), the tap rises 0.2 above it. The layout engine only cares about the footprint, so nothing else changes.
+- Completeness in `checkLayout` (`REQUIRED_SETS` in `src/layout/check.js`): a room is complete when it holds the pieces of its recipe. Small rooms are excused from three pieces, to keep the recipes honest about space: a wardrobe is required from 10 m2 of interior, a nightstand from 2.4 m of width, a shower or bathtub from 3.5 m2. Living rooms always need a sofa, a TV unit, a coffee table and a rug; kitchens a fridge, sink, hob and base cabinet; bathrooms a toilet and a washbasin.
+- `layout.seed` changes colours only. Positions come from the recipes without randomness, so every seed gives the same arrangement. Layout variants per seed belong to the editor.
+- The input plan's own furniture is ignored: the engine furnishes, `src/render/compose.js` places the pieces (one `buildPiece` group per layout piece, `rotation.y = -rot * PI / 180`, `y = level elevation + elev`), and lamp emitters go to `stage.setEmitters`.

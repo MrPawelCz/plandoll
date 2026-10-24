@@ -1,0 +1,61 @@
+{
+  "version": 1,
+  "name": "Minimal duplex",
+  "units": "m",
+  "meta": { "source": "synthetic", "notes": "Test fixture: two levels, one straight stair. CC0." },
+  "levels": [
+    {
+      "id": "L0",
+      "name": "Ground",
+      "height": 2.7,
+      "walls": [
+        { "id": "g1", "from": [0, 0], "to": [8, 0], "kind": "exterior" },
+        { "id": "g2", "from": [8, 0], "to": [8, 5], "kind": "exterior" },
+        { "id": "g3", "from": [8, 5], "to": [0, 5], "kind": "exterior" },
+        { "id": "g4", "from": [0, 5], "to": [0, 0], "kind": "exterior" },
+        { "id": "g5", "from": [4, 0], "to": [4, 5], "kind": "interior" }
+      ],
+      "openings": [
+        { "id": "gd1", "wall": "g3", "type": "door", "offset": 1.0, "width": 0.9 },
+        { "id": "gd2", "wall": "g5", "type": "passage", "offset": 2.0, "width": 1.0 },
+        { "id": "gw1", "wall": "g1", "type": "window", "offset": 1.5, "width": 1.4 },
+        { "id": "gw2", "wall": "g1", "type": "window", "offset": 5.5, "width": 1.4 }
+      ],
+      "rooms": [
+        { "id": "r-hall", "name": "Hall", "polygon": [[0, 0], [4, 0], [4, 5], [0, 5]], "floor": "tile", "ceiling": true },
+        { "id": "r-living", "name": "Living", "polygon": [[4, 0], [8, 0], [8, 5], [4, 5]], "floor": "wood", "ceiling": true }
+      ],
+      "stairs": [
+        { "id": "st1", "from": [1.0, 1.0], "to": [1.0, 3.6], "width": 1.0, "steps": 14, "to_level": "L1" }
+      ],
+      "furniture": [
+        { "id": "f1", "type": "sofa", "center": [6.0, 3.9], "rotation": 0 },
+        { "id": "f2", "type": "table-coffee", "center": [6.0, 2.6], "rotation": 0 }
+      ]
+    },
+    {
+      "id": "L1",
+      "name": "Upper",
+      "height": 2.6,
+      "walls": [
+        { "id": "u1", "from": [0, 0], "to": [8, 0], "kind": "exterior" },
+        { "id": "u2", "from": [8, 0], "to": [8, 5], "kind": "exterior" },
+        { "id": "u3", "from": [8, 5], "to": [0, 5], "kind": "exterior" },
+        { "id": "u4", "from": [0, 5], "to": [0, 0], "kind": "exterior" },
+        { "id": "u5", "from": [4, 0], "to": [4, 5], "kind": "interior" }
+      ],
+      "openings": [
+        { "id": "ud1", "wall": "u5", "type": "door", "offset": 3.6, "width": 0.9 },
+        { "id": "uw1", "wall": "u3", "type": "window", "offset": 5.0, "width": 1.4 }
+      ],
+      "rooms": [
+        { "id": "r-landing", "name": "Landing", "polygon": [[0, 0], [4, 0], [4, 5], [0, 5]], "floor": "carpet", "ceiling": true },
+        { "id": "r-bed", "name": "Bedroom", "polygon": [[4, 0], [8, 0], [8, 5], [4, 5]], "floor": "wood", "ceiling": true }
+      ],
+      "stairs": [],
+      "furniture": [
+        { "id": "f3", "type": "bed-double", "center": [6.4, 2.0], "rotation": 90 }
+      ]
+    }
+  ]
+}

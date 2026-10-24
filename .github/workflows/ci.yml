@@ -1,0 +1,24 @@
+name: ci
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    env:
+      PLANSTAGE_REQUIRE_CHROME: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      # recent runner images restrict unprivileged user namespaces, which keeps Chrome's sandbox from starting
+      - run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+      - run: npm ci
+      - run: npm test
+      - run: npm run build
+      - name: The built page stays small
+        run: test "$(wc -c < dist/planstage.html)" -le 1300000

@@ -1,0 +1,22 @@
+{
+  "name": "planstage",
+  "version": "0.0.1",
+  "description": "Turn a floor plan into a furnished, lit miniature of the flat. Work in progress.",
+  "type": "module",
+  "license": "MIT",
+  "author": "Paweł Czerwiński (https://github.com/MrPawelCz)",
+  "private": true,
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "test": "node tools/test.mjs",
+    "validate": "node tools/validate.mjs",
+    "build": "node tools/build.mjs",
+    "start": "node tools/serve.mjs dist 8080"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2",
+    "three": "0.186.1"
+  }
+}

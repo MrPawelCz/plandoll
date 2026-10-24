@@ -1,0 +1,116 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "planwalk.plan.v1",
+  "title": "planwalk plan v1",
+  "description": "A floor plan as data: levels with walls, openings, rooms, optional stairs and furniture. 2D plan space: x to the right, y downward (like an image).",
+  "type": "object",
+  "required": ["version", "levels"],
+  "additionalProperties": false,
+  "properties": {
+    "version": { "const": 1 },
+    "name": { "type": "string", "maxLength": 120 },
+    "units": { "enum": ["m", "cm", "mm", "ft", "in"], "default": "m" },
+    "levels": { "type": "array", "minItems": 1, "maxItems": 12, "items": { "$ref": "#/$defs/level" } },
+    "meta": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "source": { "enum": ["image", "pdf", "sketch", "synthetic", "manual"] },
+        "scale_note": { "type": "string", "maxLength": 1000 },
+        "notes": { "type": "string", "maxLength": 2000 },
+        "generator": { "type": "string", "maxLength": 200 }
+      }
+    }
+  },
+  "$defs": {
+    "point": { "type": "array", "prefixItems": [{ "type": "number" }, { "type": "number" }], "minItems": 2, "maxItems": 2 },
+    "id": { "type": "string", "pattern": "^[A-Za-z0-9_.-]{1,40}$" },
+    "level": {
+      "type": "object",
+      "required": ["id", "walls"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "name": { "type": "string", "maxLength": 80 },
+        "elevation": { "type": "number", "description": "Floor height above ground in plan units. Default: sum of the heights (plus slab) of the levels listed before this one." },
+        "height": { "type": "number", "exclusiveMinimum": 0, "description": "Floor to ceiling. Default 2.7 m." },
+        "slab": { "type": "number", "minimum": 0, "description": "Floor slab thickness. Default 0.2 m." },
+        "walls": { "type": "array", "minItems": 3, "maxItems": 600, "items": { "$ref": "#/$defs/wall" } },
+        "openings": { "type": "array", "maxItems": 600, "items": { "$ref": "#/$defs/opening" } },
+        "rooms": { "type": "array", "maxItems": 150, "items": { "$ref": "#/$defs/room" } },
+        "stairs": { "type": "array", "maxItems": 24, "items": { "$ref": "#/$defs/stair" } },
+        "furniture": { "type": "array", "maxItems": 400, "items": { "$ref": "#/$defs/furniture" } }
+      }
+    },
+    "wall": {
+      "type": "object",
+      "required": ["id", "from", "to"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "from": { "$ref": "#/$defs/point" },
+        "to": { "$ref": "#/$defs/point" },
+        "thickness": { "type": "number", "exclusiveMinimum": 0, "description": "Default by kind: exterior 0.30 m, interior 0.12 m, partition 0.08 m." },
+        "kind": { "enum": ["exterior", "interior", "partition"], "default": "interior" },
+        "height": { "type": "number", "exclusiveMinimum": 0, "description": "Override of the level height (e.g. a parapet)." }
+      }
+    },
+    "opening": {
+      "type": "object",
+      "required": ["id", "wall", "type", "offset", "width"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "wall": { "$ref": "#/$defs/id" },
+        "type": { "enum": ["door", "window", "passage"] },
+        "offset": { "type": "number", "minimum": 0, "description": "Distance along the wall, from its 'from' end to the near edge of the opening." },
+        "width": { "type": "number", "exclusiveMinimum": 0 },
+        "height": { "type": "number", "exclusiveMinimum": 0, "description": "Defaults: door 2.05 m, window 1.2 m, passage 2.1 m." },
+        "sill": { "type": "number", "minimum": 0, "description": "Height of the lower edge. Defaults: window 0.9 m, door and passage 0." },
+        "hinge": { "enum": ["start", "end"], "default": "start", "description": "Doors only: which end of the opening carries the hinge (start = near the wall's 'from' end)." },
+        "opens_to": { "enum": ["left", "right"], "default": "left", "description": "Doors only: side of the wall the leaf swings toward, looking from 'from' to 'to' on the plan seen from above (y down)." }
+      }
+    },
+    "room": {
+      "type": "object",
+      "required": ["id", "polygon"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "name": { "type": "string", "maxLength": 80 },
+        "polygon": { "type": "array", "minItems": 3, "maxItems": 120, "items": { "$ref": "#/$defs/point" }, "description": "Vertices along the wall centerlines, closed implicitly, any orientation." },
+        "use": { "enum": ["living", "bedroom", "kitchen", "bathroom", "hall", "balcony", "storage", "office", "dining", "other"] },
+        "floor": { "enum": ["wood", "tile", "carpet", "stone", "concrete", "none"], "default": "wood" },
+        "ceiling": { "type": "boolean", "default": true },
+        "area": { "type": "number", "exclusiveMinimum": 0, "description": "Declared area in plan units squared (for cross-checking against the polygon)." }
+      }
+    },
+    "stair": {
+      "type": "object",
+      "required": ["id", "from", "to", "width", "steps"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "from": { "$ref": "#/$defs/point", "description": "Centre of the step line at this level's floor (the lowest step line when the stair goes up)." },
+        "to": { "$ref": "#/$defs/point", "description": "Centre of the step line at the far end (the highest step line when the stair goes up)." },
+        "width": { "type": "number", "exclusiveMinimum": 0 },
+        "steps": { "type": "integer", "minimum": 2, "maximum": 40 },
+        "to_level": { "$ref": "#/$defs/id", "description": "Level the far end of the stair reaches. Omit it when the stair leads to a floor that is not part of this plan (a drawing of one floor): the stair is then drawn as steps that connect to nothing." },
+        "rise": { "type": "number", "description": "Only without to_level: height from the first to the last step line, in plan units; negative when the stair goes down from this level. Not 0. Default: the level height plus the slab, upward." }
+      }
+    },
+    "furniture": {
+      "type": "object",
+      "required": ["id", "type", "center"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "type": { "enum": ["bed-double", "bed-single", "sofa", "armchair", "table-dining", "table-coffee", "chair", "desk", "wardrobe", "kitchen-counter", "fridge", "stove", "sink", "bathtub", "shower", "toilet", "basin", "tv-unit", "bookshelf", "plant", "rug"] },
+        "center": { "$ref": "#/$defs/point" },
+        "size": { "type": "array", "prefixItems": [{ "type": "number", "exclusiveMinimum": 0 }, { "type": "number", "exclusiveMinimum": 0 }], "minItems": 2, "maxItems": 2, "description": "[width along local x, depth along local y]. Defaults by type." },
+        "rotation": { "type": "number", "default": 0, "description": "Degrees, clockwise on the plan seen from above." },
+        "height": { "type": "number", "exclusiveMinimum": 0 }
+      }
+    }
+  }
+}

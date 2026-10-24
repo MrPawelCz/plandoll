@@ -1,0 +1,2 @@
+# One line ending everywhere: the generated files (dist/, skill/planwalk/) are compared byte for byte by the tests and by CI.
+* text=auto eol=lf
