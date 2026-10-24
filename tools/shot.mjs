@@ -1,11 +1,12 @@
-// Headless Chrome (software GL, so slow: 2 to 20 s per frame) screenshots of the built single file.
-//   node tools/shot.mjs [--size 1600x900] [--html dist/planstage.html] [--out shots] [--timeout 300] [--quality 86] [--eval JS] [--strict] name=hash[:frames] ...
+// Headless Chrome (software GL, so slow: 2 to 20 s per frame) screenshots of the built single file or of a published address.
+//   node tools/shot.mjs [--size 1600x900] [--html dist/planstage.html | --html https://host/path/] [--out shots] [--timeout 300] [--quality 86] [--eval JS] [--strict] name=hash[:frames] ...
 // On a small machine run it under a lock so that only one browser runs at a time.
 // --plan FILE injects that plan JSON as window.__plan before the page loads (use "plan=ext" in the hash to show it).
 // Page contract: the URL hash carries options (for example "preset=amber&t=0.7&cam=close"); the tool appends "&frames=N" (default 3). After N
 // rendered frames the page sets window.__done = true and window.__stats = { ... }; a fatal error sets window.__fail = "message".
 // Output: out/name.jpg per job, one JSON line per job on stdout, then the console errors and warnings, every request that is not a
-// local file, data or blob URL (NETWORK), and the browser storage in use (STORAGE). --strict exits 1 when any of those is non-empty.
+// local file, data or blob URL (NETWORK; with an https address, requests to that address itself are allowed), and the browser storage in use
+// (STORAGE). --strict exits 1 when any of those is non-empty.
 import { spawn } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -25,7 +26,9 @@ for (let i = 0; i < argv.length; i++) {
 if (!jobs.length) { console.error('usage: node tools/shot.mjs [--size WxH] [--html FILE] [--out DIR] [--timeout S] [--quality Q] [--eval JS] [--strict] name=hash[:frames] ...'); process.exit(2); }
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const [W, H] = opt.size.split('x').map(Number);
-const html = resolve(opt.html ?? join(root, 'dist/planstage.html'));
+const live = /^https?:\/\//i.test(opt.html ?? '');
+const html = live ? opt.html : resolve(opt.html ?? join(root, 'dist/planstage.html'));
+const own = live ? new URL(html).origin + '/' : null;
 const out = resolve(opt.out);
 mkdirSync(out, { recursive: true });
 
@@ -55,7 +58,7 @@ try {
     if (m.id && pend.has(m.id)) { const p = pend.get(m.id); pend.delete(m.id); m.error ? p.rej(new Error(m.error.message)) : p.res(m.result); return; }
     if (m.method === 'Runtime.consoleAPICalled' && ['error', 'warning'].includes(m.params.type)) logs.add(`${m.params.type}: ${m.params.args.map(text).join(' ')}`);
     else if (m.method === 'Runtime.exceptionThrown') logs.add(`EXC: ${text(m.params.exceptionDetails.exception ?? { value: m.params.exceptionDetails.text })}`);
-    else if (m.method === 'Network.requestWillBeSent') { const u = m.params.request.url; if (!/^(file|data|blob|about):/.test(u)) requests.add(u.slice(0, 200)); }
+    else if (m.method === 'Network.requestWillBeSent') { const u = m.params.request.url; if (!/^(file|data|blob|about):/.test(u) && !(own && u.startsWith(own))) requests.add(u.slice(0, 200)); }
     else if (m.method === 'Network.webSocketCreated') requests.add(`ws: ${m.params.url}`);
   });
   await send('Page.enable'); await send('Runtime.enable'); await send('Network.enable');
@@ -67,7 +70,7 @@ try {
     const hash = co >= 0 ? rest.slice(0, co) : rest, frames = co >= 0 ? rest.slice(co + 1) : '3';
     await send('Page.navigate', { url: 'about:blank' }); await sleep(300);
     const t0 = Date.now();
-    await send('Page.navigate', { url: `${pathToFileURL(html).href}#${hash}${hash ? '&' : ''}frames=${frames}` });
+    await send('Page.navigate', { url: `${live ? html : pathToFileURL(html).href}#${hash}${hash ? '&' : ''}frames=${frames}` });
     let done = false;
     for (let k = 0; k < Number(opt.timeout) * 2 && !done; k++) {
       await sleep(500);
