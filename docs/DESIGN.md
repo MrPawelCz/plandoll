@@ -107,6 +107,42 @@ An editor changes the Layout document (section 3, format unchanged, version 1) a
 Pure functions, no three.js, no DOM, runs in Node. Input: the built model (`buildModel` output) plus options `{ seed }`. Output: a layout (section 3).
 Room type comes from the room name (Polish and English, case and diacritics insensitive) or `room.use`, else from the geometry (area, doors, windows, neighbours). Placement honours `specs.js` (`place.against`, `clearFront`, `clearSide`, `rooms`), keeps door zones free (0.8 m in front and behind each door, plus the swing), keeps tall pieces away from windows, and is deterministic for the same input and seed.
 
+## 5a. Editor (src/editor)
+
+Pure functions, no DOM, no three.js, no storage and no network. They run in Node and in the page; the page keeps one state and replaces it with the state an operation returns. `src/editor/index.js` is the public API.
+
+**State.** `{ layout, selection, history }`: `layout` is the document of section 3, `selection` is a piece id or null, `history` is `{ past, future, key }` (layouts, at most 200 steps). Updates are immutable: an operation builds a new state that shares every unchanged piece with the old one and never touches its input. Treat piece objects as read-only (their boxes are cached per object).
+
+**Operations.** Every operation returns `{ state, ok, reason?, problems? }`, never throws, and hands back the input state itself when it fails. Reasons: `bad-state`, `unknown-id`, `unknown-type`, `unknown-level`, `bad-number`, `bad-slot`, `bad-color`, `no-change`, `fixed-size`, `no-room`, `limit-level`, `limit-total`, `nothing-to-undo`, `nothing-to-redo`, plus the hard problems of strict mode (below).
+
+| call | effect |
+| --- | --- |
+| `createState(layout)` | fresh state with an empty history (anything that is not a layout becomes an empty one) |
+| `addPiece(state, { type, x, y, rot?, level?, room?, size?, colors?, elev? }, opts)` | new piece with a fresh id (`p<n>`), spec size clamped to `range`, mounting height from `place`, selected; a prop finds the piece under it |
+| `movePiece(state, id, x, y, opts)` | moves the centre; what stands on the piece comes along; the room follows the centre |
+| `rotatePiece(state, id, deg, opts)` / `turnPiece(state, id, delta, opts)` | new angle / angle change in degrees clockwise; what stands on the piece turns around its centre |
+| `deletePiece(state, id)` | removes the piece and everything that stands on it (one undo step brings all back) |
+| `resizePiece(state, id, size, opts)` | `size` is `[w, d, h]` or a partial `{ w, d, h }`, clamped to `range`; an axis without a range is fixed; the footprint grows around the centre; props on top follow the new height |
+| `recolorPiece(state, id, slot, color, opts)` | `color` is `#rrggbb` (stored lower case), a material library key, or `null` for the default |
+| `resetToAuto(state, model, { seed?, allowedTypes? })` | the layout engine furnishes the plan again (one undo step, selection cleared) |
+| `loadLayout(state, layout)` | replaces the layout (a loaded file), one undo step |
+| `selectPiece(state, id \| null)`, `selectedPiece`, `findPiece`, `pieceAt(layout, level, x, y)` | selection and picking (the topmost piece under a point) |
+| `undo(state)`, `redo(state)`, `canUndo`, `canRedo` | history; a new operation clears the redo list |
+
+Options of the placing operations: `model` (the built plan; without it only overlaps and props are checked), `mode` (`soft`: snap and report problems, accept; `strict`: also refuse hard problems; `off`: no snapping and no checks), `snap` (`false`, or overrides for `grid`, `angle`, `wallGap`, `wallReach`, `wallAngle`), `coalesceKey`. Operations that carry the same `coalesceKey` in a row share one undo step (one drag of one piece); another key, no key, an undo or a redo ends the series.
+
+**Rules** (`rules.js`). Snapping, in this order: the angle to 15 degrees (a move keeps the angle), the position to a 5 cm grid, and then, for pieces that stand with their back to a wall (`place.against` back or back-or-free, wall-mounted and window pieces), the back to the nearest wall of the room within 20 cm when the piece is turned at most 20 degrees from facing away from that wall: the gap becomes 2 cm (4 mm for wall-mounted pieces) and the angle becomes the wall's. Results are rounded to the millimetre. `placementProblems(model, layout, level, piece)` lists `{ kind, with? }`:
+
+- `outside-room`: the footprint is not inside the room's floor polygon.
+- `overlap`: another piece blocks it (turned rectangles, heights, props and rugs follow the engine's `blocks` rule).
+- `door-zone`, `stair`: inside the zones of `levelZones` (0.8 m in front of and behind each door plus the swing; stairs with a margin).
+- `tall-before-window`: a tall or wall-mounted piece in front of a window.
+- `floating-prop`: a prop (`place.mode` surface or `on` set) whose support is missing, of the wrong type, at the wrong height or too far from the centre.
+
+`strict` mode refuses `overlap`, `outside-room` and `floating-prop` (`HARD_KINDS`); the other kinds are warnings in every mode. A prop moved onto another piece that accepts it changes its `on` and `elev`; dropped on bare floor it has no support.
+
+**Saving and loading** (`io.js`). `serializeLayout(layout)` gives JSON text with a fixed key order, sorted colour slots and one piece per line (or `null` for something that is not a layout); the same layout always gives the same text. `parseLayout(text, model?, { strict? })` returns `{ ok, layout, errors, warnings }`. Errors make the file unusable: not text, more than 2 000 000 characters, not JSON, version other than 1, no list of levels, more than 20 levels, more than 400 pieces on a level or 1500 in all. Warnings list what was repaired or left out, at most 60 of them: sizes moved into their range, unknown colour slots and invalid colours, heights of props moved onto their support, duplicate ids, unknown types, non-finite numbers, supports that are missing, of the wrong type or part of a loop, and (with a model) levels, rooms or pieces that are not in the plan. With `strict` any warning counts as an error. Only the known keys of a piece are read, so keys such as `__proto__` cannot reach the result.
+
 ## 6. Look (src/look, src/app)
 
 The look module owns the stage (sky, light rig, backdrop, base), the time-of-day keyframes, the post-processing chain and the quality levels. The app shell owns the page: canvas, the three presets (`amber`, `clear`, `lamplit`), the time slider, the quality switch, the error card when WebGL2 is missing.
