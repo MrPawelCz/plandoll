@@ -1,5 +1,5 @@
 // Camera framing: where the camera must stand so that a box (the extent of the model) fits a rectangle of the screen with
-// a margin. Pure maths on a camera that keeps its viewing direction, so the viewer and the tests share one answer.
+// a margin. Pure maths on a camera that keeps its viewing direction, so the page and the tests share one answer.
 import * as THREE from 'three';
 
 const rad = (d) => (d * Math.PI) / 180;

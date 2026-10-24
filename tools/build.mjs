@@ -57,10 +57,11 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.`;
 
 const html = `<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
 <!--
 ${NOTICE}
 -->
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${TITLE}</title><meta name="description" content="Turn a floor plan into a furnished, lit miniature of the flat, in your browser."><link rel="icon" href="data:,">
+<meta name="viewport" content="width=device-width,initial-scale=1"><title>${TITLE}</title><meta name="description" content="Turn a floor plan into a furnished, lit miniature of the flat, in your browser."><link rel="icon" href="data:,">
 <style>html,body{margin:0;height:100%;background:#e9dfcf;overflow:hidden}canvas{display:block}noscript{font:14px/1.4 ui-rounded,system-ui,sans-serif;color:#4a3b2a;display:block;padding:24px}</style>
 </head><body><noscript>This page needs JavaScript. Ta strona potrzebuje JavaScriptu.</noscript><script>${code}</script></body></html>
 `;

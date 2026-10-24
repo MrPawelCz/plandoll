@@ -1,6 +1,6 @@
 // Child process of hostile.test.mjs: builds one hostile input, validates it and prints one JSON line.
 //   node --max-old-space-size=256 tests/core/hostile-child.mjs <case> [repo-root]
-// The optional repo root lets the same cases run against another checkout (to compare before and after a change).
+// The optional repo root lets the same cases run against another checkout.
 import { resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 

@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { TEXTURE_SPECS, textureKeys, generateTexture } from '../../src/render/textures.js';
 
-// The contract the viewer relies on: sizes may only shrink, world and avg stay.
+// The contract the page relies on: sizes may only shrink, world and avg stay.
 const CONTRACT = {
   'floor-wood': { size: 1024, world: 2.0, normalSize: 512, avg: [201, 162, 122] },
   'floor-tile': { size: 1024, world: 1.2, normalSize: 512, avg: [217, 221, 224] },

@@ -1,6 +1,6 @@
 # Plan format and validation (v1)
 
-The plan format, the validator and the test plan generator come from planwalk, a public repository by the same author (MIT licence, described in `THIRD_PARTY_LICENSES.md`). A plan is a small JSON file. It is made from an image or a PDF of a floor plan that a chat with an image model reads (see `docs/PROMPT.md`), the validator checks it, and the page builds a model of the flat from it. The validator is an isomorphic ES module with no dependencies, no DOM and no network access.
+The plan format, the validator and the test plan generator come from planwalk, a public repository by the same author (MIT licence, described in `THIRD_PARTY_LICENSES.md`). A plan is a small JSON file. It is made from an image or a PDF of a floor plan (`docs/PROMPT.md` has a prompt for that), the validator checks it, and the page builds a model of the flat from it. The validator is an isomorphic ES module with no dependencies, no DOM and no network access.
 
 ## 1. Coordinate system and units
 
@@ -44,7 +44,7 @@ Issue = { code: 'E008', path: 'levels[0].rooms[2]', id?: 'bath', message: 'what 
 Skipped = { kind: 'level' | 'wall' | 'opening' | 'room' | 'stair' | 'furniture', id?: string, path: 'levels[1].openings[8]', why: string, reason: 'invalid' | 'wall-skipped' | 'level-skipped' }
 ```
 
-`plan` is an object or a text (see "Text input" below). `ok` is true when `errors` is empty. `normalized` is `normalizePlan(plan)` when nothing had to be left out of the plan, else `null`. Messages are concrete (ids, names, coordinates, values) and every issue has a `fix` sentence, because the output is meant to be pasted back into a chat so that the AI can repair the JSON.
+`plan` is an object or a text (see "Text input" below). `ok` is true when `errors` is empty. `normalized` is `normalizePlan(plan)` when nothing had to be left out of the plan, else `null`. Messages are concrete (ids, names, coordinates, values) and every issue has a `fix` sentence, because the output is meant to be pasted back and fixed.
 
 **Tolerant reading.** A pasted answer is rarely perfect, so one stray property or one bad element does not make a plan unusable.
 - A property the schema does not know (a `furniture` list inside a room, `notes`, `comment`) is warning W116: it is ignored and does not appear in `normalized` (`ignored` lists them), and a number that is not finite inside it is no error. `"$schema"` and keys that start with `x-` are allowed without a word. With `strict: true` (command line `--strict`) any other unknown property is error E002. A wrong type or value of a known property is always E002. The keys that every object has (`__proto__`, `constructor`, `toString`) stay errors in both modes.
