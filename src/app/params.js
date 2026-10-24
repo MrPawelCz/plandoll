@@ -30,8 +30,9 @@ export function parseParams(hash, env = {}) {
   const tRaw = kv.t !== undefined && kv.t !== '' ? Number(kv.t) : NaN;
   const t = Number.isFinite(tRaw) ? Math.min(1, Math.max(0, tRaw)) : preset.t;
   const frames = Math.min(60, Math.max(1, Math.floor(Number(kv.frames)) || 4));
+  const seedRaw = Math.floor(Number(kv.seed)), seed = Number.isFinite(seedRaw) ? Math.min(999999, Math.max(1, seedRaw)) : 1;
   const lang = kv.lang === 'pl' || kv.lang === 'en' ? kv.lang : (/^pl/i.test(env.language ?? '') ? 'pl' : 'en');
-  return { preset: presetName, t, q: parseQualityParam(kv.q), cam: kv.cam === 'close' ? 'close' : 'main', plan: parsePlanParam(kv.plan), frames, lang, ui: kv.ui !== '0', live: kv.live === '1', tmSet: kv.t !== undefined };
+  return { preset: presetName, t, q: parseQualityParam(kv.q), cam: kv.cam === 'close' ? 'close' : 'main', plan: parsePlanParam(kv.plan), frames, lang, ui: kv.ui !== '0', live: kv.live === '1', tmSet: kv.t !== undefined, seed, merge: kv.merge !== '0' };
 }
 
 // Hash string for a parameter object (inverse of parseParams for the fields the page changes).
@@ -40,6 +41,7 @@ export function buildHash(p) {
   if (p.q && p.q !== 'auto') parts.push(`q=${p.q}`);
   if (p.cam === 'close') parts.push('cam=close');
   if (p.plan?.name && p.plan.name !== 'flat-1') parts.push(`plan=${p.plan.name}`);
+  if (p.seed && p.seed !== 1) parts.push(`seed=${p.seed}`);
   if (p.lang) parts.push(`lang=${p.lang}`);
   return parts.join('&');
 }

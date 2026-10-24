@@ -6,9 +6,28 @@ import { sunPosition } from './timeofday.js';
 import { getLevel } from './quality.js';
 
 export const MAX_POINT_LIGHTS = 6;
-export const LAMP_BASE_INTENSITY = 4.2; // candela-ish for an emitter with power 1 (a table lamp); a floor lamp is about 2
+export const LAMP_BASE_INTENSITY = 6.5; // candela-ish for an emitter with power 1 (a table lamp); a floor lamp is about 2
 
 const toVec = (p) => (Array.isArray(p) ? new THREE.Vector3(p[0], p[1], p[2]) : new THREE.Vector3(p.x, p.y, p.z));
+
+// The n emitters that light the most of the home: the strongest first, then each next one is the emitter farthest from the ones
+// already taken (distance weighted by the square root of its power), so that the few real lights spread over the rooms.
+export function spreadPick(list, n) {
+  const left = list.slice().sort((a, b) => (b.power ?? 1) - (a.power ?? 1)), out = [];
+  if (!left.length || n <= 0) return out;
+  out.push(left.shift());
+  while (out.length < n && left.length) {
+    let best = 0, bestScore = -1;
+    left.forEach((e, i) => {
+      const p = toVec(e.pos); let d = Infinity;
+      for (const o of out) d = Math.min(d, p.distanceTo(toVec(o.pos)));
+      const score = d * Math.sqrt(Math.max(0.05, e.power ?? 1));
+      if (score > bestScore + 1e-9) { bestScore = score; best = i; }
+    });
+    out.push(left.splice(best, 1)[0]);
+  }
+  return out;
+}
 
 export function createRig({ group, renderer = null, quality = 'medium', target = [4, 0.8, 3], radius = 7 }) {
   const hemi = new THREE.HemisphereLight('#ffffff', '#222222', 0.5);
@@ -37,7 +56,7 @@ export function createRig({ group, renderer = null, quality = 'medium', target =
   let lampK = 0;
 
   function layoutEmitters() {
-    const sorted = emitters.slice().sort((a, b) => (b.power ?? 1) - (a.power ?? 1)).slice(0, Math.min(MAX_POINT_LIGHTS, level.maxLights));
+    const sorted = spreadPick(emitters, Math.min(MAX_POINT_LIGHTS, level.maxLights));
     pool.forEach((p, i) => {
       const e = sorted[i];
       p.light.visible = !!e;

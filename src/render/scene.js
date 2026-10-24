@@ -1,9 +1,9 @@
-// three.js scene graph for a model: named groups (level:, wall:, opening:, room:, stair:, furniture:) plus the stage
-// (lights, sky, base plate, ground). All names double as GLB node names.
+// three.js scene graph for a model: named groups (level:, wall:, opening:, room:, stair:, furniture:). All names double as GLB node names.
+// The presentation scene (light, base, backdrop) is in src/look/stage.js.
 import * as THREE from 'three';
 import { mat, floorMat, floorName, texScale } from './materials.js';
 import { buildFurniture, SCENE_MESHES } from '../furniture/legacy.js';
-import { levelOffsets, modelExtent } from '../model/geometry.js';
+import { levelOffsets } from '../model/geometry.js';
 import { boxGeometry, setBoxUV } from './uv.js';
 import { roomArea, formatArea } from '../model/areas.js';
 
@@ -318,76 +318,5 @@ export class PlanScene {
         if (o.isLine) { o.geometry.dispose(); o.material.dispose(); } else if (o.geometry.userData?.shared !== true && !o.geometry.parameters) o.geometry.dispose();
       }
     });
-  }
-}
-
-export class Stage {
-  constructor(scene) {
-    this.scene = scene;
-    this.hemi = new THREE.HemisphereLight('#f6f8fb', '#d9d0c3', 1.85);
-    this.sun = new THREE.DirectionalLight('#fff2e0', 1.55);
-    this.sun.castShadow = true;
-    this.sun.shadow.mapSize.set(2048, 2048);
-    this.sun.shadow.bias = -0.0004;
-    this.sun.shadow.normalBias = 0.03;
-    this.sun.shadow.radius = 3;
-    scene.add(this.hemi, this.sun, this.sun.target);
-    this.plate = new THREE.Mesh(UNIT_BOX, mat('plate'));
-    this.plate.name = 'plate';
-    this.plate.receiveShadow = true;
-    const groundGeometry = new THREE.PlaneGeometry(600, 600);
-    const guv = groundGeometry.getAttribute('uv'); // the 600 m square carries 600 m of texture
-    for (let i = 0; i < guv.count; i++) guv.setXY(i, guv.getX(i) * 600 * texScale('ground'), guv.getY(i) * 600 * texScale('ground'));
-    this.ground = new THREE.Mesh(groundGeometry, mat('ground'));
-    this.ground.name = 'ground';
-    this.ground.rotation.x = -Math.PI / 2;
-    this.ground.receiveShadow = true;
-    this.ground.visible = false;
-    scene.add(this.plate, this.ground);
-    const c = document.createElement('canvas');
-    c.width = 4; c.height = 256;
-    const ctx = c.getContext('2d');
-    const grad = ctx.createLinearGradient(0, 0, 0, 256);
-    grad.addColorStop(0, '#eaf0f6');
-    grad.addColorStop(1, '#cfd8e3');
-    ctx.fillStyle = grad;
-    ctx.fillRect(0, 0, 4, 256);
-    this.sky = new THREE.CanvasTexture(c);
-    this.sky.colorSpace = THREE.SRGBColorSpace;
-    scene.background = this.sky;
-    this.walk = false;
-  }
-
-  fit(model, explode = 0) {
-    const e = modelExtent(model, explode);
-    const cx = (e.minX + e.maxX) / 2, cz = (e.minZ + e.maxZ) / 2, cyy = (e.minY + e.maxY) / 2;
-    const R = Math.max(2, 0.5 * Math.hypot(e.maxX - e.minX, e.maxY - e.minY, e.maxZ - e.minZ)) * 1.05;
-    const dir = new THREE.Vector3(-0.55, 1.2, 0.3).normalize();
-    this.sun.position.set(cx + dir.x * R * 3, cyy + dir.y * R * 3, cz + dir.z * R * 3);
-    this.sun.target.position.set(cx, cyy, cz);
-    const cam = this.sun.shadow.camera;
-    cam.left = -R; cam.right = R; cam.top = R; cam.bottom = -R; cam.near = 0.5; cam.far = R * 7;
-    cam.updateProjectionMatrix();
-    const w = e.maxX - e.minX, d = e.maxZ - e.minZ;
-    const pm = Math.max(1.2, 0.12 * Math.max(w, d));
-    const base = model.levels.length ? Math.min(model.levels[0].elevation, e.minY + model.levels[0].slab) : 0; // lower when a stair goes down out of the plan
-    this.plate.scale.set(w + 2 * pm, 0.3, d + 2 * pm);
-    this.plate.position.set(cx, base - 0.02 - 0.15, cz);
-    this.ground.position.set(cx, base - 0.02, cz);
-    return { cx, cy: cyy, cz, R };
-  }
-
-  setMaterials(look) {
-    this.ground.material = mat('ground', look);
-    // The textured look gets a stronger sun and less ambient light: more contrast between lit and shaded surfaces.
-    this.hemi.intensity = look === 'textured' ? 1.4 : 1.85;
-    this.sun.intensity = look === 'textured' ? 2.1 : 1.55;
-  }
-
-  setWalk(on) {
-    this.walk = on;
-    this.plate.visible = !on;
-    this.ground.visible = on;
-    this.scene.fog = on ? new THREE.Fog('#d9e1ea', 30, 140) : null;
   }
 }

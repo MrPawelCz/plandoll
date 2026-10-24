@@ -6,7 +6,7 @@ import { readFileSync } from 'node:fs';
 import * as THREE from 'three';
 import { validatePlan } from '../../src/core/validate.js';
 import { buildModel } from '../../src/model/geometry.js';
-import { PlanScene, Stage } from '../../src/render/scene.js';
+import { PlanScene } from '../../src/render/scene.js';
 import { mat, texScale, textureSet } from '../../src/render/materials.js';
 import { TEXTURE_SPECS } from '../../src/render/textures.js';
 
@@ -112,17 +112,6 @@ test('textured materials keep the clay colours: tint times texture average is cl
     const avg = new THREE.Color().setRGB(r / 255, g / 255, b / 255, THREE.SRGBColorSpace);
     for (const c of ['r', 'g', 'b']) assert.ok(Math.abs(m.color[c] * avg[c] - clay[c]) < 0.03, `${name} ${c}: ${m.color[c] * avg[c]} vs ${clay[c]}`);
   }
-});
-
-test('the ground plane of the stage follows the look', () => {
-  const stage = new Stage(new THREE.Scene());
-  const clay = stage.ground.material;
-  stage.setMaterials('textured');
-  assert.ok(stage.ground.material.map, 'textured ground');
-  stage.setMaterials('clay');
-  assert.equal(stage.ground.material, clay);
-  const uv = stage.ground.geometry.getAttribute('uv');
-  assert.ok(Math.abs(Math.max(...Array.from({ length: uv.count }, (_, i) => uv.getX(i))) - 600 * texScale('ground')) < 1e-6, 'the 600 m plane carries 600 m of texture');
 });
 
 test('textured materials read the glTF normal maps with a negative y scale; only the ceiling glows', () => {

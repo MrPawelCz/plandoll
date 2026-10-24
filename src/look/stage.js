@@ -153,15 +153,19 @@ export function createStage(options = {}) {
   function refreshShadowCasters(root) {
     root.updateMatrixWorld(true);
     const lv = getLevel(state.quality), cands = [];
-    root.traverse((o) => {
-      if (!o.isMesh || o.parent === group) return;
-      if (o.userData.psCast === undefined) o.userData.psCast = o.castShadow;
-      o.castShadow = false;
-      if (!o.userData.psCast) return;
-      const g = o.geometry; if (!g.boundingSphere) g.computeBoundingSphere(); o.getWorldScale(_v);
-      const r = g.boundingSphere.radius * Math.max(_v.x, _v.y, _v.z);
-      if (r >= lv.shadowCutoff) cands.push({ o, r, i: cands.length });
-    });
+    (function walk(o) { // hidden objects (and what hangs under them) do not take part
+      if (!o.visible) return;
+      if (o.isMesh && o.parent !== group) {
+        if (o.userData.psCast === undefined) o.userData.psCast = o.castShadow;
+        o.castShadow = false;
+        if (o.userData.psCast) {
+          const g = o.geometry; if (!g.boundingSphere) g.computeBoundingSphere(); o.getWorldScale(_v);
+          const r = g.boundingSphere.radius * Math.max(_v.x, _v.y, _v.z);
+          if (r >= lv.shadowCutoff) cands.push({ o, r, i: cands.length });
+        }
+      }
+      for (const c of o.children) walk(c);
+    })(root);
     cands.sort((a, b) => b.r - a.r || a.i - b.i);
     cands.slice(0, lv.shadowMax).forEach((c) => { c.o.castShadow = true; });
     state.casters = Math.min(cands.length, lv.shadowMax); return state.casters;
