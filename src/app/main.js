@@ -93,7 +93,7 @@ try {
   // ---------- camera and post ----------
   let W = window.innerWidth, H = window.innerHeight;
   const camera = new THREE.PerspectiveCamera(27, W / H, 0.5, 160);
-  function frameCamera() { const c = cameraFor(ext, W / H, params.cam, focus); camera.fov = c.fov; camera.aspect = W / H; camera.position.set(...c.pos); camera.lookAt(...c.target); camera.updateProjectionMatrix(); }
+  function frameCamera() { const c = cameraFor(ext, W / H, params.cam, focus); camera.fov = c.fov; camera.aspect = W / H; camera.position.set(...c.pos); camera.lookAt(...c.target); camera.updateProjectionMatrix(); stage.fitBackdrop(W / H); }
   frameCamera();
   const post = createPost({ renderer, scene, camera, width: W, height: H, quality: level, devicePixelRatio: dpr });
 

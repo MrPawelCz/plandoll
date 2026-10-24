@@ -6,6 +6,7 @@ import { sample, clock } from './timeofday.js';
 import { getPreset, DEFAULT_PRESET } from './presets.js';
 import { createRig } from './rig.js';
 import { getLevel } from './quality.js';
+import { backdropCrop } from './crop.js';
 import { mat } from '../render/materials.js';
 import { setTextureAnisotropy } from '../render/materials.js';
 
@@ -134,6 +135,8 @@ export function createStage(options = {}) {
   washWalls();
   setTextureAnisotropy(getLevel(quality).anisotropy);
 
+  function fitBackdrop(aspect) { const c = backdropCrop(aspect, bg.width / bg.height); bgTex.repeat.set(...c.repeat); bgTex.offset.set(...c.offset); }
+
   const state = { preset: null, t: 0, quality: getLevel(quality).id, look: null, clockText: '', lampK: 0 };
   let lastBg = '';
   function applyTime(t) {
@@ -177,5 +180,5 @@ export function createStage(options = {}) {
 
   setPreset(options.preset);
   applyTime(options.t ?? getPreset(options.preset).t);
-  return { group, rig, state, background: bgTex, applyTime, setPreset, setQuality, setEmitters, refreshShadowCasters, dispose };
+  return { group, rig, state, background: bgTex, applyTime, fitBackdrop, setPreset, setQuality, setEmitters, refreshShadowCasters, dispose };
 }
