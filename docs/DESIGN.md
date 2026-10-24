@@ -69,6 +69,39 @@ The page never sends anything anywhere. No network requests, no localStorage, se
 - Everything is built from code. No model files, no texture files, no fonts, no network. Randomness only through a seeded generator (`mulberry32(seed)`), never `Math.random`.
 - Loops use counters with limits. A piece that hits a limit sets `userData.truncated = true` instead of freezing the page.
 
+## Editing pieces (src/furniture)
+
+An editor changes the Layout document (section 3, format unchanged, version 1) and asks the furniture module for the data it needs and for rebuilt pieces. Nothing here touches the plan.
+
+**Fields of a layout piece an editor may change**
+
+| field | what it is | allowed values |
+| --- | --- | --- |
+| `x`, `y` | centre of the footprint, plan metres | finite numbers; keeping pieces apart and inside the room is the editor's job |
+| `rot` | degrees clockwise as drawn on the plan | any finite number (turn in steps of 90 or freely) |
+| `size` | `[w, d, h]` in metres | each axis that has a range in `specs.js` (`range.w`, `range.d`, `range.h`) inside it, every other axis the default; `clampSize` does this |
+| `colors` | `{ slot: colour }` | slots from `spec.slots`; a colour is `#rrggbb`, a material of the library as `lib:<key>`, or a kit material `f:<name>`; a slot that is missing (delete the key) keeps the default |
+| `elev` | height of the bottom edge above the level floor | edited for `wall-mount` and `ceiling` pieces, default `place.elevation` (`elevation` in the catalogue); for a `surface` piece it is the height of the top of the piece it sits on and follows `on`; every other piece stays at 0 |
+| `on` | id of the piece it sits on | only for `surface` pieces, and only a piece whose type is in `place.onTop` (`onTop` in the catalogue); `x`, `y`, `elev` stay absolute |
+
+`type` is not edited in place: a different type is a new piece (remove one, add one), chosen from the catalogue.
+
+**Library keys for `colors`.** `lib:plaster-warm`, `lib:plaster-cool`, `lib:limewash`, `lib:oak`, `lib:oak-smoked`, `lib:walnut`, `lib:tile-grey`, `lib:stone-light`, `lib:boucle`, `lib:linen`, `lib:velvet`, `lib:leather`, `lib:lacquer-white` (`MATERIAL_KEYS` in `src/render/library.js`). A `#rrggbb` colour is the colour the surface should have on the whole: a textured surface keeps its structure and is tinted towards it. A slot with vertex colours (books, leaves, stems) multiplies the tint with them, so books stay varied.
+
+**Data for the interface (pure functions, no three.js in `catalog.js`)**
+
+- `catalog(lang)` (`src/furniture/catalog.js`): the list of pieces to choose from, `{ id, group, groupLabel, tier, label, size, range, slots: [{ name, label }], rooms, mode, elevation, onTop }`, ordered by group (the order of `GROUPS`), tier and id; `lang` is `'en'` or `'pl'`. `catalogGroups(lang)` gives the same as `[{ group, label, items }]`. Tier 3 entries (sideboard, vase, small wardrobe, sofa bed, wall shelf, bathroom cabinet and the other extras) are never placed by `autoFurnish`, which uses tiers 1 and 2; they are there for the person who edits.
+- `defaultSizeOf(type)`, `clampSize(type, size)` (millimetres, held inside the range, a value that is not a finite number is replaced by the default of that axis), `isResizable(type)`, `resizableAxes(type)`, `slotLabel(type, slot, lang)`.
+- `paletteOf(type, slot)` (`src/furniture/palettes.js`): `{ id, label, colors: [{ hex, name: { en, pl } }] }` with 8 to 12 colours, chosen from the material the builder uses for the slot (wood, fabric, painted, metal, ceramic and gloss, greens, glass and screens, picture tint). `defaultColorOf(type, slot)`: the `#rrggbb` the builder gives the slot; it is read from a piece built by the code, in the flat colour of the clay look (the textured look dresses a few materials richer), and for a slot with vertex colours it is the average.
+
+**Rebuilding.** `rebuildPiece(group, { size, colors, quality, look })` (`src/furniture/index.js`) returns a new group for the same piece with the changes applied:
+
+- `size` entries that are not finite numbers keep the current value; the result is held inside the range. `colors` is merged into the colours the piece already has (`userData.colors`); `null` brings the default back; unknown slots and invalid colours are dropped. `quality` and `look` default to what the piece had (`userData.quality`, `userData.lookName`, the latter set by `applyLook`).
+- The new group takes the place of the old one: position, rotation, scale, visibility and name are copied, it sits at the same index among the children of the same parent, and every field of `userData` other than the ones the builder owns (`type`, `size`, `tris`, `slots`, `emitters`, `truncated`, `builder`, `seed`, `quality`, `colors`, `lookName`) is kept, so `pieceId`, `levelId`, `elev` and `pieceType` survive. The seed is kept, so a rebuild without changes gives the same geometry.
+- `userData.emitters` come from the new build (local positions). A list of lights in world space made from the old group has to be made again from the new one (`emittersOf` in `src/render/compose.js`).
+- The geometries of the old group are disposed; materials are shared and stay. Children that a caller added to the old group are not carried over. Rebuild a piece when its size or colours change, not on every pointer move: a drag of the position only moves the group.
+- Tinted materials are cached by colour; the cache is bounded (about 1500 entries, the oldest half is dropped when it overflows), so a free colour picker does not grow memory without limit.
+
 ## 5. Layout engine (src/layout)
 
 Pure functions, no three.js, no DOM, runs in Node. Input: the built model (`buildModel` output) plus options `{ seed }`. Output: a layout (section 3).

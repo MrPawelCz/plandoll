@@ -39,6 +39,24 @@ export const sofa3 = sofaOf((w) => clamp(Math.round((w - 0.32) / 0.6), 3, 4));
 export const sofa2 = sofaOf((w) => clamp(Math.round((w - 0.32) / 0.62), 2, 3));
 export const armchair = (b) => sofaBody(b, { seats: 1, cushionSlot: 'cushion', armW: 0.14, backD: 0.19, legH: 0.14, scatter: false });
 
+// A sofa with slimmer arms and a lower frame; the front panel of the pull-out base stands a little proud of the seat base.
+export function sofaBed(b) {
+  const { w, d } = b, armW = 0.12, legH = 0.11;
+  sofaBody(b, { seats: clamp(Math.round((w - 0.32) / 0.62), 2, 4), cushionSlot: 'cushions', armW, backD: 0.2, legH, scatter: true });
+  b.box('upholstery', 'f:fabric', [0, legH + 0.075, d / 2 - 0.002], [w - 2 * armW - 0.03, 0.11, 0.02], 0.008, { seg: 2 });
+}
+
+// Two floating boards joined by slim side posts, a dark back panel and a row of books on the lower board. y = 0 is the bottom edge.
+export function shelfWall(b) {
+  const { w, d, h } = b;
+  const t = 0.03, post = 0.022, backT = 0.012;
+  for (const y of [t / 2, h - t / 2]) b.box('board', 'f:wood', [0, y, 0], [w, t, d], 0.008, { seg: 2 });
+  for (const s of [-1, 1]) b.box('board', 'f:wood', [s * (w / 2 - post / 2), h / 2, 0], [post, h - 2 * t, d], 0.004);
+  b.box('board', 'f:dark', [0, h / 2, -d / 2 + backT / 2], [w - 2 * post, h - 2 * t, backT], 0.002);
+  const row = bookRow(w - 2 * post - 0.02, h - 2 * t - 0.03, d - 0.07, b.rng, { fill: 0.55, gap: 0.09, lean: true });
+  if (row) b.add('books', row, 'k:paper', M(0, t + 0.001, 0.01), { shadow: true });
+}
+
 export function coffeeTable(b) {
   const { w, d, h } = b;
   b.box('top', 'f:wood', [0, h - 0.022, 0], [w, 0.044, d], 0.014, { seg: 2, top: 2 });
@@ -106,4 +124,4 @@ export function rug(b) {
   for (let i = 0; i < n; i++) b.plain('fabric', 'f:rug', [lerp(-w / 2 + 0.3, w / 2 - 0.3, (i + 0.5) / n), y, 0], [0.012, hh, d - 0.5]);
 }
 
-export const builders = { sofa3, sofa2, armchair, 'coffee-table': coffeeTable, 'tv-unit': tvUnit, tv, bookshelf, rug };
+export const builders = { sofa3, sofa2, armchair, 'coffee-table': coffeeTable, 'tv-unit': tvUnit, tv, bookshelf, rug, 'sofa-bed': sofaBed, 'shelf-wall': shelfWall };

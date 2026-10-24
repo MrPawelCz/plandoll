@@ -59,12 +59,28 @@ export function materialFor(key, tint = null, vcol = false, look = 'clay') {
   }
   if (vcol) m.vertexColors = true;
   matCache.set(id, m);
+  if (matCache.size > CACHE_LIMIT) trimCache();
   return m;
 }
 export function disposeKitMaterials() { for (const m of matCache.values()) m.dispose(); matCache.clear(); }
+export const materialCacheSize = () => matCache.size;
+
+// An editor can ask for any colour, so the cache of tinted clones is bounded: the oldest half goes when it grows past the limit
+// (a dropped clone is rebuilt on demand; meshes that still hold one keep it). The shared own materials stay.
+const CACHE_LIMIT = 1500;
+function trimCache() {
+  let drop = Math.floor(matCache.size / 2);
+  for (const k of [...matCache.keys()]) {
+    if (drop <= 0) break;
+    if (k.startsWith('own|')) continue;
+    matCache.delete(k); drop--;
+  }
+}
 
 // Swaps the materials of built pieces to a look ('clay' or 'textured'); tinted and vertex-colour meshes keep their tint.
+// The look is noted on the root (userData.lookName) so that a later rebuild of the piece can dress it the same way.
 export function applyLook(root, look = 'clay') {
+  root.userData.lookName = look;
   root.traverse((o) => { const L = o.isMesh && o.userData.look; if (L) o.material = materialFor(L.mat, L.tint, L.vcol, look); });
 }
 

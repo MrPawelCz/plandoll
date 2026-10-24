@@ -2,7 +2,7 @@
 // Local frame as everywhere: front +z, back (the wall side) -z, centre of the footprint, y up; fittings stay inside the spec size.
 import * as THREE from 'three';
 import { mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
-import { lathe, tubePath, roundedRectShape, M, clamp } from '../kit.js';
+import { lathe, tubePath, roundedRectShape, glossPlane, M, clamp } from '../kit.js';
 
 const scaleXZ = (sx, sz) => new THREE.Matrix4().makeScale(sx, 1, sz);
 
@@ -109,4 +109,19 @@ export function bathtub(b) {
   b.cyl('fittings', 'k:chrome', [-w / 2 + wall + 0.012, rimH - 0.1, 0], 0.022, 0.022, 0.008, { seg: 12, rot: [0, 0, Math.PI / 2] }); // overflow
 }
 
-export const builders = { toilet, washbasin, shower, bathtub };
+// Wall cabinet with a mirror door: carcass, a door with the mirror inset and a bar handle on the free edge. Everything stays inside the
+// depth of the spec (a thin piece: the front of the handle is the front of the piece).
+export function bathroomCabinet(b) {
+  const { w, d, h } = b;
+  const wall = 0.018, door = 0.016, front = d / 2 - 0.008, bodyZ0 = -d / 2, bodyZ1 = front - door, bodyD = bodyZ1 - bodyZ0;
+  b.box('body', 'f:white', [0, h / 2, bodyZ0 + 0.006], [w, h, 0.012], 0.002);
+  for (const s of [-1, 1]) b.box('body', 'f:white', [s * (w / 2 - wall / 2), h / 2, (bodyZ0 + bodyZ1) / 2], [wall, h, bodyD], 0.003);
+  for (const y of [wall / 2, h - wall / 2]) b.box('body', 'f:white', [0, y, (bodyZ0 + bodyZ1) / 2], [w - 2 * wall, wall, bodyD], 0.003);
+  if (h > 0.62) b.box('body', 'f:white', [0, h * 0.5, (bodyZ0 + bodyZ1) / 2 + 0.01], [w - 2 * wall, 0.014, bodyD - 0.02], 0.002); // inner shelf
+  b.box('body', 'f:white', [0, h / 2, front - door / 2], [w - 0.004, h - 0.004, door], 0.004);
+  b.box('mirror', 'k:paper', [0, h / 2, front + 0.0004], [w - 0.05, h - 0.05, 0.002], 0.0005);
+  b.add('mirror', glossPlane(w - 0.05, h - 0.05, { lo: 0.78, hi: 1, streak: 0.14 }), 'k:mirror', M(0, h / 2, front + 0.0016), { uv: 'keep' });
+  b.box('handle', 'k:chrome', [-(w / 2 - 0.03), h / 2, d / 2 - 0.0045], [0.012, Math.min(0.2, h * 0.3), 0.009], 0.003);
+}
+
+export const builders = { toilet, washbasin, shower, bathtub, 'bathroom-cabinet': bathroomCabinet };

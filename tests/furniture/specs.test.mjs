@@ -11,8 +11,8 @@ test('ids are unique, kebab-case and found by specOf', () => {
   assert.equal(specOf('constructor'), null);
 });
 
-test('tier counts match the spec table (26 / 10 / 12)', () => {
-  assert.deepEqual([byTier(1).length, byTier(2).length, byTier(3).length], [26, 10, 12]);
+test('tier counts match the spec table (26 / 10 / 16)', () => {
+  assert.deepEqual([byTier(1).length, byTier(2).length, byTier(3).length], [26, 10, 16]);
 });
 
 test('sizes, ranges and budgets are sane', () => {

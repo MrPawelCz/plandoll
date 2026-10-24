@@ -86,6 +86,10 @@ export const SPECS = [
   P('bench', 'hall', 3, 'Bench', 'Ławka', [1.0, 0.35, 0.45], { range: { w: [0.6, 1.6] }, place: { against: 'back-or-free', clearFront: 0.6 }, rooms: ['hall', 'bedroom'], slots: ['seat', 'frame'], tall: false, maxTris: 2500 }),
   P('kitchen-island', 'kitchen', 3, 'Kitchen island', 'Wyspa kuchenna', [1.6, 0.9, 0.9], { range: { w: [1.2, 2.6] }, place: { against: 'free', clearFront: 1.0, clearSide: 1.0 }, rooms: ['kitchen'], slots: ['body', 'fronts', 'worktop'], tall: false, maxTris: 5000, legacy: 'counter' }),
   P('bar-stool', 'kitchen', 3, 'Bar stool', 'Hoker', [0.38, 0.38, 0.75], { place: { against: 'free' }, rooms: ['kitchen', 'dining'], slots: ['seat', 'frame'], tall: false, maxTris: 2500, legacy: 'chair' }),
+  P('wardrobe-small', 'sleep', 3, 'Small wardrobe', 'Szafa mała', [0.9, 0.55, 1.9], { range: { w: [0.6, 1.2], h: [1.5, 2.2] }, place: { against: 'back', clearFront: 0.8 }, rooms: ['bedroom', 'hall', 'kids'], slots: ['body', 'doors', 'handles'], maxTris: 3500 }),
+  P('sofa-bed', 'living', 3, 'Sofa bed', 'Sofa rozkładana', [1.9, 0.95, 0.85], { range: { w: [1.6, 2.4] }, place: { clearFront: 0.9 }, rooms: ['living', 'office', 'kids'], slots: ['upholstery', 'legs', 'cushions'] }),
+  P('shelf-wall', 'living', 3, 'Wall shelf', 'Półka ścienna', [0.9, 0.2, 0.5], { range: { w: [0.5, 1.6] }, place: { mode: 'wall-mount', against: 'back', elevation: 1.3 }, rooms: ['living', 'bedroom', 'office', 'hall', 'kids'], slots: ['board', 'books'], tall: false, maxTris: 4000 }),
+  P('bathroom-cabinet', 'bath', 3, 'Bathroom cabinet', 'Szafka łazienkowa', [0.6, 0.15, 0.7], { range: { w: [0.4, 1.0], h: [0.5, 0.9] }, place: { mode: 'wall-mount', against: 'back', elevation: 1.2 }, rooms: ['bath', 'wc'], slots: ['body', 'mirror', 'handle'], tall: false, maxTris: 2500 }),
 ];
 
 export const SPEC_BY_ID = Object.fromEntries(SPECS.map((s) => [s.id, s]));
