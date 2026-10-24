@@ -1,4 +1,4 @@
-// Page parameters from the address hash: #preset&t=0.7&q=high&cam=close&plan=flat-1&frames=3&lang=pl&ui=0&live=1
+// Page parameters from the address hash: #preset&t=0.7&q=high&cam=close&az=90&pol=45&plan=flat-1&frames=3&lang=pl&ui=0&live=1
 // A bare word is the preset name (so "#amber" works). Pure functions, no DOM: tested in Node.
 import { isPreset, getPreset, DEFAULT_PRESET } from '../look/presets.js';
 import { parseQualityParam } from '../look/quality.js';
@@ -32,7 +32,9 @@ export function parseParams(hash, env = {}) {
   const frames = Math.min(60, Math.max(1, Math.floor(Number(kv.frames)) || 4));
   const seedRaw = Math.floor(Number(kv.seed)), seed = Number.isFinite(seedRaw) ? Math.min(999999, Math.max(1, seedRaw)) : 1;
   const lang = kv.lang === 'pl' || kv.lang === 'en' ? kv.lang : (/^pl/i.test(env.language ?? '') ? 'pl' : 'en');
-  return { preset: presetName, t, q: parseQualityParam(kv.q), cam: kv.cam === 'close' ? 'close' : 'main', plan: parsePlanParam(kv.plan), frames, lang, ui: kv.ui !== '0', live: kv.live === '1', tmSet: kv.t !== undefined, seed, merge: kv.merge !== '0' };
+  const num = (v) => (v !== undefined && v !== '' && Number.isFinite(Number(v)) ? Number(v) : null);
+  // az (degrees round the model, 0 = from the south, 90 = from the east) and pol (degrees from the vertical) set the view the page opens with
+  return { preset: presetName, t, q: parseQualityParam(kv.q), cam: kv.cam === 'close' ? 'close' : 'main', plan: parsePlanParam(kv.plan), frames, lang, ui: kv.ui !== '0', live: kv.live === '1', tmSet: kv.t !== undefined, seed, merge: kv.merge !== '0', az: num(kv.az), pol: num(kv.pol) };
 }
 
 // Hash string for a parameter object (inverse of parseParams for the fields the page changes).

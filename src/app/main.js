@@ -1,10 +1,10 @@
 // Page shell: reads the address parameters, builds the plan scene, the stage (light, base, backdrop) and the post chain, draws.
-// Parameters: #preset&t=&q=&cam=&plan=&frames=&lang=&ui=&live= (see params.js). No network, no storage, no external files.
+// Parameters: #preset&t=&q=&cam=&az=&pol=&plan=&frames=&lang=&ui=&live= (see params.js). No network, no storage, no external files.
+// The model can be turned round (camera.js): the outer walls that face the camera are cut low (render/cutaway.js).
 import * as THREE from 'three';
 import { analyzePlan, modelOf } from '../core/validate.js';
 import { buildModel, modelExtent } from '../model/geometry.js';
 import { PlanScene } from '../render/scene.js';
-import { setBoxUV } from '../render/uv.js';
 import { createStage } from '../look/stage.js';
 import { createPost } from '../look/post.js';
 import { resolveQuality } from '../look/quality.js';
@@ -13,7 +13,9 @@ import { createLoop } from './loop.js';
 import { createUI, showErrorCard } from './ui.js';
 import { autoFurnish } from '../layout/index.js';
 import { piecesImplemented } from '../furniture/index.js';
-import { composeLayout, cutawayPieces, emittersOf, focusRoom, mergeByMaterial, setLampGlow, disposeComposed, wallCutHeight, WALL_PART } from '../render/compose.js';
+import { composeLayout, cutawayPieces, emittersOf, focusRoom, mergeByMaterial, setLampGlow, disposeComposed } from '../render/compose.js';
+import { applyWallCut } from '../render/cutaway.js';
+import { createCameraController, stateFrom, positionOf, nearSides, sameSides, sidesKey, viewOf } from './camera.js';
 import flat from '../../examples/flat-1.plan.json';
 import duplex from '../../examples/duplex-1.plan.json';
 
@@ -43,6 +45,7 @@ try {
   const env = { cores: navigator.hardwareConcurrency, touch: navigator.maxTouchPoints > 0, width: window.innerWidth, height: window.innerHeight, memory: navigator.deviceMemory };
   const S = { preset: params.preset, t: params.t, q: params.q, lang: params.lang };
   let level = resolveQuality(S.q, env);
+  S.level = level; S.autoLevel = resolveQuality('auto', env); // the controls show which level Auto would pick on this device
 
   const renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'high-performance' });
   renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.VSMShadowMap; // the soft shadow type of this three.js version
@@ -61,39 +64,45 @@ try {
   ps.setLabels(false); ps.setArcs(false); ps.setCeilings(false);
   scene.add(ps.group);
 
-  // cutaway: the walls on the north and west edges stay tall, those on the south and east edges are low, partitions in between
-  const place = (m, y0, y1) => { m.position.y = (y0 + y1) / 2; m.scale.y = Math.max(1e-4, y1 - y0); const f = m.pw?.uv; if (f) setBoxUV(m.geometry, f.u, (y0 + y1) / 2, f.w, f.sx, y1 - y0, f.sz, f.k, f.swap); };
-  ps.cutH = 1.1;
-  for (const c of ps.cuttables) {
-    const m = c.mesh, x = m.position.x, z = m.position.z, e = 0.3;
-    const h = wallCutHeight(x, z, ext, e);
-    if (c.y0 >= h - 1e-4) m.visible = false; else { place(m, c.y0, Math.min(c.y1, h)); m.visible = true; }
-    if (h === WALL_PART && Math.max(c.mesh.scale.x, c.mesh.scale.z) > 3.5) m.castShadow = false; // a long low partition facing the sun would drown the rooms behind it
-    ps._placeCap(c);
-  }
-
   // ---------- stage ----------
   const stage = createStage({ renderer, scene, bounds: ext, quality: level, preset: S.preset, t: S.t });
   // ---------- furniture: the engine lays the rooms out, compose builds the pieces (rebuilt when the quality changes) ----------
   const layout = autoFurnish(model, { seed: params.seed, allowedTypes: piecesImplemented() });
   const focus = focusRoom(model, layout);
+
+  // ---------- camera: turns round the model; the outer walls that face it are cut low, the others stay tall ----------
+  let W = window.innerWidth, H = window.innerHeight;
+  const camera = new THREE.PerspectiveCamera(27, W / H, 0.5, 160);
+  let pose = cameraFor(ext, W / H, params.cam, focus), cam = null;
+  const home0 = stateFrom(pose.pos, pose.target);
+  let current = { ...home0, azimuth: params.az ?? home0.azimuth, polar: params.pol ?? home0.polar }; // the view the controller reports
+  let near = nearSides(current.azimuth);
+  applyWallCut(ps, ext, near);
+
   let furn = null;
   function furnish() {
     if (furn) disposeComposed(furn.group, furn.merged?.group);
     furn = composeLayout({ model, layout, quality: level, look: 'textured', seed: params.seed });
-    furn.hidden = cutawayPieces(furn.pieces, ext); // hung pieces behind the low walls would float
-    furn.emitters = emittersOf(furn.pieces);
-    if (params.merge) { furn.merged = mergeByMaterial(furn); furn.group.visible = false; scene.add(furn.merged.group); } // one mesh per material: far fewer draw calls
+    settle();
     scene.add(furn.group);
+  }
+  // After the pieces or the set of near walls changed: hide what the cutaway would spoil, rebuild the merged meshes and the lights.
+  function settle() {
+    furn.hidden = cutawayPieces(furn.pieces, ext, viewOf(current), near); // hung pieces behind the low walls would float
+    furn.emitters = emittersOf(furn.pieces);
+    if (furn.merged) { disposeComposed(furn.merged.group); furn.merged = null; }
+    if (params.merge) { furn.merged = mergeByMaterial(furn); furn.group.visible = false; scene.add(furn.merged.group); } // one mesh per material: far fewer draw calls
     stage.setEmitters(furn.emitters);
     stage.refreshShadowCasters(scene);
   }
   furnish();
 
-  // ---------- camera and post ----------
-  let W = window.innerWidth, H = window.innerHeight;
-  const camera = new THREE.PerspectiveCamera(27, W / H, 0.5, 160);
-  function frameCamera() { const c = cameraFor(ext, W / H, params.cam, focus); camera.fov = c.fov; camera.aspect = W / H; camera.position.set(...c.pos); camera.lookAt(...c.target); camera.updateProjectionMatrix(); stage.fitBackdrop(W / H); }
+  function frameCamera() {
+    pose = cameraFor(ext, W / H, params.cam, focus);
+    if (cam) { cam.rehome(stateFrom(pose.pos, pose.target)); current = cam.state; }
+    camera.fov = pose.fov; camera.aspect = W / H;
+    camera.position.set(...positionOf(current, pose.target)); camera.lookAt(...pose.target); camera.updateProjectionMatrix(); stage.fitBackdrop(W / H);
+  }
   frameCamera();
   const post = createPost({ renderer, scene, camera, width: W, height: H, quality: level, devicePixelRatio: dpr });
 
@@ -105,16 +114,27 @@ try {
   }
   function setPreset(name, keepT) { const p = stage.setPreset(name); S.preset = p.id; if (!keepT) S.t = p.t; applyAll(); ui?.update(S); redraw(); }
   function setTime(t) { S.t = Math.min(1, Math.max(0, t)); applyAll(); ui?.update(S); redraw(); }
-  function setQ(q) { S.q = q; level = resolveQuality(q, env); stage.setQuality(level); furnish(); post.setQuality(level); applyAll(); ui?.update(S); redraw(); }
+  function setQ(q) { S.q = q; level = resolveQuality(q, env); S.level = level; stage.setQuality(level); furnish(); post.setQuality(level); applyAll(); ui?.update(S); redraw(); }
   function setLang(l) { S.lang = l; ui?.update(S); }
-  const ui = params.ui ? createUI({ onPreset: (n) => setPreset(n), onTime: setTime, onQuality: setQ, onLang: setLang }, S) : null;
+  // the camera reports every change of the view; a change in the set of near edges re-cuts the walls and the pieces (not every frame of a turn)
+  function onCamera(s) {
+    current = s;
+    camera.position.set(...positionOf(s, pose.target)); camera.lookAt(...pose.target);
+    const n = nearSides(s.azimuth, near);
+    if (!sameSides(n, near)) { near = n; applyWallCut(ps, ext, near); settle(); }
+    redraw();
+  }
+  const ui = params.ui ? createUI({ onPreset: (n) => setPreset(n), onTime: setTime, onQuality: setQ, onLang: setLang, onReset: () => cam?.reset(true) }, S) : null;
+  cam = createCameraController({ element: renderer.domElement, home: home0, initial: { azimuth: params.az, polar: params.pol }, target: pose.target, fov: pose.fov, onChange: onCamera, onGesture: () => ui?.hideHint() });
   applyAll();
+  // Arrow keys turn the model (see camera.js); Shift + left or right moves the time of day, 1 to 3 pick a mood.
   addEventListener('keydown', (e) => {
-    if (e.key === 'ArrowRight') setTime(S.t + 0.02); else if (e.key === 'ArrowLeft') setTime(S.t - 0.02);
+    if (e.shiftKey && e.key === 'ArrowRight') setTime(S.t + 0.02); else if (e.shiftKey && e.key === 'ArrowLeft') setTime(S.t - 0.02);
     else if (['1', '2', '3'].includes(e.key)) setPreset(['amber', 'clear', 'lamplit'][Number(e.key) - 1]);
   });
   addEventListener('resize', () => { W = window.innerWidth; H = window.innerHeight; frameCamera(); post.resize(W, H); redraw(); });
   window.__setT = setTime; window.__setPreset = setPreset; window.__setQuality = setQ;
+  window.__camera = { get azimuth() { return cam.state.azimuth; }, get polar() { return cam.state.polar; }, get distance() { return cam.state.distance; }, get near() { return sidesKey(near); }, get busy() { return cam.busy; }, set: (azimuth, polar) => cam.set({ azimuth, polar }), reset: () => cam.reset(false) };
 
   // ---------- loop: the first N frames (frames=N, 4 by default) are drawn at once and measured, then a frame is drawn whenever the picture changes ----------
   function frame(n) {
@@ -135,7 +155,7 @@ try {
     const rest = times.slice(1), avg = rest.length ? rest.reduce((a, b) => a + b, 0) / rest.length : times[0];
     let meshes = 0, lights = 0; (function walk(o) { if (!o.visible) return; if (o.isMesh) meshes++; if (o.isLight) lights++; o.children.forEach(walk); })(scene);
     window.__stats = { drawCalls: renderer.info.render.calls, triangles: renderer.info.render.triangles, textures: renderer.info.memory.textures, frameMs: Math.round(avg), quality: level, preset: S.preset, t: +S.t.toFixed(3),
-      luminance: luminance(), msFirst: Math.round(times[0]), frames: params.frames, geometries: renderer.info.memory.geometries, visibleMeshes: meshes, lights, rendererRenderCalls: renderCalls, shadowCasters: stage.state.casters, pieces: furn.pieces.size, hiddenPieces: furn.hidden, mergedMeshes: furn.merged?.meshes ?? 0, emitters: furn.emitters.length, size: post.size, pixelRatio: post.pixelRatio, plan: params.plan.name };
+      luminance: luminance(), msFirst: Math.round(times[0]), frames: params.frames, geometries: renderer.info.memory.geometries, visibleMeshes: meshes, lights, rendererRenderCalls: renderCalls, shadowCasters: stage.state.casters, pieces: furn.pieces.size, hiddenPieces: furn.hidden, mergedMeshes: furn.merged?.meshes ?? 0, emitters: furn.emitters.length, azimuth: Math.round(current.azimuth), near: sidesKey(near), size: post.size, pixelRatio: post.pixelRatio, plan: params.plan.name };
     window.__done = true;
   }
   loop = createLoop({ draw: frame, frames: params.frames, live: params.live });

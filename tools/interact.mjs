@@ -67,15 +67,18 @@ async function tap(x, y) {
     await send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y }] }); await sleep(80); await send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
   }
 }
-async function drag(x0, y0, x1, y1) {
+// hold: milliseconds to rest before letting go (a slow release does not start the page's inertia, so the turn is exactly what was dragged)
+async function drag(x0, y0, x1, y1, hold = 0) {
   const n = 12, at = (k) => [x0 + ((x1 - x0) * k) / n, y0 + ((y1 - y0) * k) / n];
   if (opt.desktop) {
     await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: x0, y: y0 }); await send('Input.dispatchMouseEvent', { type: 'mousePressed', x: x0, y: y0, button: 'left', clickCount: 1 });
     for (let k = 1; k <= n; k++) { const [x, y] = at(k); await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y, button: 'left' }); await sleep(30); }
+    if (hold) await sleep(hold);
     await send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: x1, y: y1, button: 'left', clickCount: 1 });
   } else {
     await send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: x0, y: y0 }] });
     for (let k = 1; k <= n; k++) { const [x, y] = at(k); await send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x, y }] }); await sleep(30); }
+    if (hold) await sleep(hold);
     await send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
   }
 }
@@ -178,6 +181,53 @@ try {
   await tap(lb.x + lb.w / 2, lb.y + lb.h / 2); await sleep(400);
   const l1 = await ev('document.querySelector("#ps-ui label.time span").textContent');
   record('tap language', l0 !== l1, { label: `${l0} -> ${l1}` });
+
+  // 7. the labels of the controls and the first-visit hint
+  const ui = JSON.parse(await ev(`JSON.stringify({ hint: document.querySelector('#ps-hint')?.textContent ?? null, quality: document.querySelector('#ps-ui label.quality span')?.textContent ?? null, auto: [...document.querySelectorAll('#ps-ui select option')].map((o) => o.textContent)[0] ?? null, reset: document.querySelector('#ps-ui button.reset')?.textContent ?? null, help: (document.querySelector('#ps-quality-help')?.textContent ?? '').length })`));
+  record('labels and hint', !!ui.hint && !!ui.quality && /:/.test(ui.auto ?? '') && !!ui.reset && ui.help > 80, { ...ui, bar: await rectOf('#ps-ui') });
+
+  // 8. turn the model by about 90 degrees: a drag over the picture (a finger on the phone, the mouse on the desktop) must change the picture
+  const turnAz = () => ev('window.__camera ? window.__camera.azimuth : -1');
+  const wrap = (d) => ((d % 360) + 540) % 360 - 180;
+  const upToBar = await ev(`Math.floor(document.querySelector('#ps-ui').getBoundingClientRect().top)`);
+  const dragPx = Math.round(0.45 * Math.min(W, H)), y = Math.round(upToBar * 0.35), x0 = Math.round(W * 0.2);
+  const a0 = await turnAz(), f4 = await frames(), picBefore = pic;
+  await drag(x0, y, Math.min(W - 10, x0 + dragPx), y, 150);
+  await waitFor('window.__camera && window.__camera.busy === false', 60);
+  const r5 = await redrawn(f4);
+  const a1 = await turnAz(), near1 = await ev('window.__camera.near');
+  const hintGone = await ev('!document.querySelector("#ps-hint")');
+  const pic5 = await picture('5-turned');
+  const turned = Math.abs(wrap(a1 - a0));
+  record('turn the model', a0 >= 0 && turned > 45 && turned < 140 && pic5 !== picBefore && r5.ok !== false && hintGone, { azimuth: `${a0.toFixed(0)} -> ${a1.toFixed(0)}`, turned: Math.round(turned), nearEdges: near1, hintGone, redrawnFrames: r5.counts ? `${f4} -> ${await frames()}` : 'not reported', pictureChanged: pic5 !== picBefore });
+  pic = pic5;
+
+  // 9. a double tap on the picture goes back to the starting view
+  const f5 = await frames();
+  await tap(x0, y); await sleep(90); await tap(x0, y);
+  await waitFor('window.__camera && window.__camera.busy === false', 60);
+  const r6 = await redrawn(f5);
+  const a2 = await turnAz(), pic6 = await picture('6-double-tap');
+  record('double tap resets the view', Math.abs(wrap(a2 - a0)) < 2 && pic6 !== pic && r6.ok !== false, { azimuth: `${a1.toFixed(0)} -> ${a2.toFixed(0)}`, start: a0.toFixed(0), pictureChanged: pic6 !== pic });
+  pic = pic6;
+
+  // 10. turn again and use the reset button of the controls
+  const f6 = await frames();
+  await drag(x0, y, Math.min(W - 10, x0 + dragPx), y, 150);
+  await waitFor('window.__camera && window.__camera.busy === false', 60);
+  await redrawn(f6);
+  const a3 = await turnAz(), picTurned = await picture('7-turned-again'), f7 = await frames();
+  const rb = await rectOf('#ps-ui button.reset');
+  await tap(rb.x + rb.w / 2, rb.y + rb.h / 2);
+  await waitFor('window.__camera && window.__camera.busy === false', 60);
+  const r7 = await redrawn(f7);
+  const a4 = await turnAz(), pic7 = await picture('8-reset-button');
+  record('reset button', Math.abs(wrap(a3 - a0)) > 45 && Math.abs(wrap(a4 - a0)) < 2 && pic7 !== picTurned && r7.ok !== false, { azimuth: `${a3.toFixed(0)} -> ${a4.toFixed(0)}`, pictureChanged: pic7 !== picTurned });
+
+  // 11. at rest the page draws nothing: no frames, nothing queued
+  await sleep(1500);
+  const idle0 = await frames(); await sleep(3000); const idle1 = await frames();
+  record('no frames at rest', idle1 === idle0 && (await ev('window.__camera.busy')) === false, { framesAtRest: idle1 - idle0, over: '3 s' });
 } catch (e) {
   record('run', false, { error: String(e.message ?? e).slice(0, 300) });
 } finally {

@@ -10,7 +10,7 @@ import { buildModel, modelExtent } from '../../src/model/geometry.js';
 import { autoFurnish } from '../../src/layout/index.js';
 import { piecesImplemented } from '../../src/furniture/index.js';
 import { specOf } from '../../src/furniture/specs.js';
-import { composeLayout, emittersOf, cutawayPieces, focusRoom, mergeByMaterial, setLampGlow, wallCutHeight, WALL_LOW, WALL_PART } from '../../src/render/compose.js';
+import { composeLayout, emittersOf, cutawayPieces, focusRoom, mergeByMaterial, setLampGlow, wallCutHeight, WALL_LOW, WALL_PART, NEAR_DEFAULT } from '../../src/render/compose.js';
 import { generatePlan } from '../../tools/gen-plans.mjs';
 
 const ctx = new Proxy({}, {
@@ -177,4 +177,19 @@ test('focusRoom picks the room with the most pieces and stays inside the plan', 
     assert.ok(Math.max(...counts.values()) >= 3, `${name}: furnished rooms`);
   }
   assert.equal(focusRoom({ levels: [] }, { levels: [] }), null);
+});
+
+test('cutaway for another side: the default near set changes nothing, the opposite set hides pieces on the other walls', () => {
+  for (const name of ['flat-1', 'duplex-1']) {
+    const model = modelOfPlan(example(name)), layout = furnish(model), mext = modelExtent(model);
+    const c = composeLayout({ model, layout, quality: 'low', look: 'clay' });
+    const hiddenIds = (view, near) => { cutawayPieces(c.pieces, mext, view, near); return [...c.pieces].filter(([, g]) => !g.visible).map(([id]) => id).sort(); };
+    const main = hiddenIds(undefined, undefined);
+    assert.deepEqual(hiddenIds([0.5, 0.7], NEAR_DEFAULT), main, `${name}: the default set is the main view`);
+    const north = hiddenIds([-0.5, -0.7], { north: true, west: true });
+    assert.ok(main.length > 0 && north.length > 0, `${name}: pieces are hidden in both views`);
+    assert.notDeepEqual(north, main, `${name}: another side hides other pieces`);
+    for (const id of north) { const g = c.pieces.get(id), spec = specOf(g.userData.pieceType); assert.ok(['wall-mount', 'window', 'floor', 'corner'].includes(spec.place.mode), id); }
+    assert.deepEqual(hiddenIds(undefined, undefined), main, `${name}: going back gives the first answer again`);
+  }
 });

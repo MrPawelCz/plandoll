@@ -41,3 +41,40 @@ test('controls: three mood buttons with own names, language switch, no old names
   moods[1].listeners.click(); assert.deepEqual(calls.at(-1), ['preset', 'clear']);
   assert.equal(doc.documentElement.lang, 'pl');
 });
+
+const everyNode = (n) => [n, ...n.children.flatMap(everyNode)];
+
+test('controls: the quality choice has a visible name, Auto says which level it picked, and a description is attached', () => {
+  const doc = makeDoc(); const calls = [];
+  const state = { preset: 'amber', t: 0.5, q: 'auto', level: 'low', lang: 'en' };
+  const ui = createUI({ onPreset() {}, onTime() {}, onQuality: (q) => calls.push(q), onLang() {}, onReset() {} }, state, doc);
+  const nodes = everyNode(ui.root), label = nodes.find((n) => n.className === 'quality'), select = nodes.find((n) => n.tag === 'select');
+  const help = nodes.find((n) => n.id === 'ps-quality-help');
+  assert.ok(texts(label).includes('Image quality'), 'a visible name beside the choice');
+  assert.deepEqual(select.options.map((o) => o.textContent), ['Auto: low', 'High', 'Medium', 'Low']);
+  assert.equal(select.attrs['aria-describedby'], help.id);
+  assert.equal(label.title, help.textContent); assert.equal(select.title, help.textContent);
+  for (const word of ['High', 'Low', 'sharper', 'battery']) assert.ok(help.textContent.includes(word), word);
+  ui.update({ level: 'medium' });
+  assert.equal(select.options[0].textContent, 'Auto: medium', 'without autoLevel it follows the level in use');
+  ui.update({ q: 'high', level: 'high', autoLevel: 'low' });
+  assert.equal(select.options[0].textContent, 'Auto: low', 'with a level chosen by hand, Auto still names what it would pick');
+  ui.update({ lang: 'pl', q: 'auto', level: 'low', autoLevel: 'low' });
+  assert.ok(texts(label).includes('Jakość obrazu'));
+  assert.deepEqual(select.options.map((o) => o.textContent), ['Auto: niska', 'Wysoka', 'Średnia', 'Niska']);
+  for (const word of ['Wysoka', 'Niska', 'ostrzejszy', 'baterii']) assert.ok(help.textContent.includes(word), word);
+  assert.ok(!`${help.textContent}${label.title}`.match(/[\u2013\u2014]/), 'no long dashes');
+});
+
+test('controls: the reset button calls back, and the first-visit hint goes away for good', () => {
+  const doc = makeDoc(); const calls = [];
+  const ui = createUI({ onPreset() {}, onTime() {}, onQuality() {}, onLang() {}, onReset: () => calls.push('reset') }, { preset: 'amber', t: 0.5, q: 'auto', level: 'low', lang: 'en' }, doc);
+  const reset = everyNode(ui.root).find((n) => n.className === 'reset');
+  assert.equal(reset.textContent, 'Reset view'); assert.ok(reset.title.length > 5);
+  reset.listeners.click(); assert.deepEqual(calls, ['reset']);
+  assert.equal(doc.getElementById('ps-hint').textContent, 'Drag to turn');
+  ui.update({ lang: 'pl' }); assert.equal(doc.getElementById('ps-hint').textContent, 'Przeciągnij, żeby obrócić'); assert.equal(reset.textContent, 'Reset widoku');
+  ui.hideHint(); assert.equal(doc.getElementById('ps-hint'), null);
+  ui.update({ lang: 'en' }); ui.hideHint(); // no hint left: nothing throws
+  assert.equal(doc.getElementById('ps-hint'), null);
+});

@@ -7,13 +7,24 @@ import { buildPiece, applyLook } from '../furniture/index.js';
 import { hashStr } from '../furniture/kit.js';
 import { specOf } from '../furniture/specs.js';
 
-// Wall heights of the cutaway view: the walls on the north and west edges stay tall, those on the south and east edges are low,
-// partitions in between are half height.
+// Wall heights of the cutaway view: the outer walls that face the camera are low, the other outer walls stay tall, partitions in
+// between are half height. `near` says which edges of the plan face the camera ({ north, south, west, east } as booleans, see
+// nearSides in src/app/camera.js); the default is the main view of the page, from the south-east.
 export const WALL_LOW = 0.62, WALL_PART = 1.0;
-export function wallCutHeight(x, z, ext, edge = 0.3) {
-  if (z < ext.minZ + edge || x < ext.minX + edge) return Infinity;
-  if (z > ext.maxZ - edge || x > ext.maxX - edge) return WALL_LOW;
-  return WALL_PART;
+export const NEAR_DEFAULT = Object.freeze({ south: true, east: true });
+// The edges of the plan that the point (x, z) lies on, within `edge` metres of the extent ([] for the inside).
+export function edgeSides(x, z, ext, edge = 0.3) {
+  const out = [];
+  if (z < ext.minZ + edge) out.push('north');
+  if (z > ext.maxZ - edge) out.push('south');
+  if (x < ext.minX + edge) out.push('west');
+  if (x > ext.maxX - edge) out.push('east');
+  return out;
+}
+export function wallCutHeight(x, z, ext, edge = 0.3, near = NEAR_DEFAULT) {
+  const sides = edgeSides(x, z, ext, edge);
+  if (!sides.length) return WALL_PART;
+  return sides.every((s) => near?.[s]) ? WALL_LOW : Infinity; // a corner stays tall as long as one of its two walls faces away
 }
 
 const pieceSeed = (id, seed) => (hashStr(String(id)) ^ Math.imul((Number(seed) | 0) + 0x9e3779b9, 2654435761)) >>> 0;
@@ -64,8 +75,9 @@ export function emittersOf(pieces) {
 //    the air, and curtains behind a low wall;
 //  - tall furniture with its back to the viewer (or to a low outer wall): it would show a blank back and cover the room behind it.
 //    Lamps stay, their light is part of the picture.
-// `view` is the horizontal direction from the model towards the camera (x, z), the default is the main view of the page.
-export function cutawayPieces(pieces, ext, view = [0.5, 0.7]) {
+// `view` is the horizontal direction from the model towards the camera (x, z), the default is the main view of the page;
+// `near` the edges that face the camera (see wallCutHeight).
+export function cutawayPieces(pieces, ext, view = [0.5, 0.7], near = NEAR_DEFAULT) {
   const vl = Math.hypot(view[0], view[1]) || 1, vx = view[0] / vl, vz = view[1] / vl;
   let hidden = 0;
   for (const g of pieces.values()) {
@@ -76,7 +88,7 @@ export function cutawayPieces(pieces, ext, view = [0.5, 0.7]) {
     if (!hung && !tallBack) continue;
     const size = g.userData.size, back = new THREE.Vector3(0, 0, -1).applyQuaternion(g.quaternion);
     const reach = size[1] / 2 + 0.08;
-    const h = wallCutHeight(g.position.x + back.x * reach, g.position.z + back.z * reach, ext);
+    const h = wallCutHeight(g.position.x + back.x * reach, g.position.z + back.z * reach, ext, 0.3, near);
     const away = hung ? g.userData.elev >= h - 0.02 || (mode === 'window' && h < 1.5) : h === WALL_LOW || back.x * vx + back.z * vz > 0.35;
     if (away) { g.visible = false; hidden++; }
   }
