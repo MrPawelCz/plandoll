@@ -33,7 +33,7 @@ function P(id, group, tier, en, pl, size, o = {}) {
 }
 
 export const SPECS = [
-  // ---- tier 1: living, dining, sleeping, working, decor (the first night) ----
+  // ---- living, dining, sleeping, working and decor ----
   P('sofa2', 'living', 1, 'Two-seat sofa', 'Sofa 2-osobowa', [1.6, 0.9, 0.85], { range: { w: [1.4, 1.9] }, place: { clearFront: 0.9 }, rooms: ['living'], slots: ['upholstery', 'legs', 'cushions'], legacy: 'sofa' }),
   P('sofa3', 'living', 1, 'Three-seat sofa', 'Sofa 3-osobowa', [2.1, 0.95, 0.85], { range: { w: [1.9, 2.8] }, place: { clearFront: 0.9 }, rooms: ['living'], slots: ['upholstery', 'legs', 'cushions'], legacy: 'sofa' }),
   P('armchair', 'living', 1, 'Armchair', 'Fotel', [0.85, 0.85, 0.85], { place: { against: 'free', clearFront: 0.6 }, rooms: ['living', 'bedroom', 'office'], slots: ['upholstery', 'legs', 'cushion'], legacy: 'sofa' }),
@@ -61,7 +61,7 @@ export const SPECS = [
   P('desk', 'work', 1, 'Desk', 'Biurko', [1.3, 0.65, 0.75], { range: { w: [1.0, 1.8] }, place: { against: 'back', clearFront: 0.9 }, rooms: ['office', 'bedroom', 'kids', 'living'], slots: ['top', 'frame'], tall: false, legacy: 'desk' }),
   P('desk-chair', 'work', 1, 'Desk chair', 'Krzesło biurowe', [0.55, 0.55, 0.95], { place: { against: 'free' }, rooms: ['office', 'bedroom', 'kids', 'living'], slots: ['upholstery', 'base'], tall: false, maxTris: 3500, legacy: 'chair' }),
 
-  // ---- tier 2: kitchen and bathroom ----
+  // ---- kitchen and bathroom ----
   P('kitchen-base', 'kitchen', 2, 'Base cabinet', 'Szafka dolna', [0.6, 0.6, 0.9], { range: { w: [0.3, 1.2] }, place: { against: 'back', clearFront: 1.0 }, rooms: ['kitchen'], slots: ['body', 'fronts', 'worktop', 'handles'], tall: false, maxTris: 4000, legacy: 'counter' }),
   P('kitchen-sink', 'kitchen', 2, 'Sink cabinet', 'Szafka ze zlewem', [1.2, 0.6, 1.1], { range: { w: [0.8, 1.6], h: [1.05, 1.2] }, place: { against: 'back', clearFront: 1.0 }, rooms: ['kitchen'], slots: ['body', 'fronts', 'worktop', 'basin', 'tap'], tall: false, maxTris: 5000, legacy: 'counter' }),
   P('kitchen-hob', 'kitchen', 2, 'Hob cabinet', 'Szafka z płytą', [0.6, 0.6, 0.9], { range: { w: [0.6, 0.9] }, place: { against: 'back', clearFront: 1.0 }, rooms: ['kitchen'], slots: ['body', 'fronts', 'worktop', 'hob', 'handles'], tall: false, maxTris: 4500, legacy: 'stove' }),
@@ -73,7 +73,7 @@ export const SPECS = [
   P('bathtub', 'bath', 2, 'Bathtub', 'Wanna', [1.7, 0.75, 0.58], { range: { w: [1.5, 1.9] }, place: { against: 'back', clearFront: 0.6 }, rooms: ['bath'], slots: ['shell', 'fittings'], tall: false, maxTris: 5000, legacy: 'bathtub' }),
   P('washing-machine', 'bath', 2, 'Washing machine', 'Pralka', [0.6, 0.6, 0.85], { place: { against: 'back', clearFront: 0.7 }, rooms: ['bath', 'utility', 'kitchen'], slots: ['body', 'door'], tall: false, maxTris: 3000 }),
 
-  // ---- tier 3: extras (stretch) ----
+  // ---- extras ----
   P('sideboard', 'dining', 3, 'Sideboard', 'Kredens', [1.6, 0.42, 0.8], { range: { w: [1.0, 2.2] }, place: { against: 'back', clearFront: 0.7 }, rooms: ['dining', 'living', 'hall'], slots: ['body', 'top', 'handles'], tall: false, maxTris: 4000 }),
   P('vase', 'decor', 3, 'Vase', 'Wazon', [0.15, 0.15, 0.3], { place: { mode: 'surface', against: 'free', onTop: ['coffee-table', 'dining-table', 'sideboard', 'dresser', 'bookshelf', 'tv-unit'] }, rooms: ['living', 'dining', 'bedroom', 'hall'], slots: ['body', 'stems'], tall: false, maxTris: 2000 }),
   P('books-stack', 'decor', 3, 'Stack of books', 'Stos książek', [0.24, 0.18, 0.1], { place: { mode: 'surface', against: 'free', onTop: ['coffee-table', 'nightstand', 'desk', 'sideboard'] }, rooms: ['living', 'bedroom', 'office'], slots: ['books'], tall: false, maxTris: 800 }),

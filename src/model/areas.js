@@ -1,4 +1,4 @@
-// Room areas as the viewer shows them (labels, About sheet, GLB node data). No DOM and no three.js, so Node tests reach it.
+// Room areas as the page shows them (the room labels). No DOM and no three.js, so Node tests reach it.
 // A room polygon runs along the wall centrelines, which is 10 to 25% more than the floor you can see. So the area shown is
 // what the drawing declares, or, when the plan carries none, an estimate net of the walls (the validator's netArea).
 import { netArea, netAreaCost } from '../core/validate.js';
@@ -7,7 +7,7 @@ import { getLang } from './i18n.js';
 // The net estimate checks every edge of a room against every wall, which a plan inside all the caps can make slow (150 rooms of
 // 120 points among 600 walls). So a level may spend NET_BUDGET wall checks on it (the validator's whole budget is 12 million);
 // a room that does not fit is shown at its polygon area, marked as an estimate, and counted in `skipped`. Each room is worked
-// out once and kept, so the scene, the labels and the About sheet never repeat it.
+// out once and kept, so the scene and the labels never repeat it.
 export const NET_BUDGET = 3000000;
 const spent = new WeakMap(); // walls of a level -> wall checks spent so far
 const shown = new WeakMap(); // room -> { walls, area }

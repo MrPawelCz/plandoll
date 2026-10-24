@@ -1,5 +1,5 @@
-// Shared materials: a calm "clay" palette (SPEC section 4) and the "textured" look built from procedural textures
-// (docs/TEXTURES.md). One material instance per name and look; names without a texture share the clay instance.
+// Shared materials: a calm "clay" palette and the "textured" look built from procedural textures (see textures.js).
+// One material instance per name and look; names without a texture share the clay instance.
 import * as THREE from 'three';
 import { TEXTURE_SPECS, generateTexture } from './textures.js';
 import { getMaterial as libraryMaterial, libraryScale, disposeLibrary, setAnisotropy } from './library.js';

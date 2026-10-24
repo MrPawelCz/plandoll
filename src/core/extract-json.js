@@ -1,4 +1,4 @@
-// Finds the plan JSON inside whatever a person pastes: a bare object, a whole chat answer with a fenced block and notes around
+// Finds the plan JSON inside whatever a person pastes: a bare object, a whole pasted answer with a fenced block and notes around
 // it, typographic quotes, comments or a trailing comma. Pure and isomorphic; extractJson never throws.
 //   extractJson(text) -> { ok: true, value, repairs }  or  { ok: false, error, kind, repairs }
 // repairs lists what had to be changed, as short English phrases; strict JSON that parses as it is gives an empty list.
@@ -155,7 +155,7 @@ export function extractJson(text) {
           const start = from;
           from = src.body.indexOf('{', found.end);
           let value;
-          // {the drawing} in a sentence is chat text, not a plan with a mistake in it: a plan has at least one "key": value
+          // {the drawing} in a sentence is prose, not a plan with a mistake in it: a plan has at least one "key": value
           if (!found.text.includes(':') && !/^\{\s*\}$/.test(found.text)) continue;
           try {
             value = JSON.parse(found.text);

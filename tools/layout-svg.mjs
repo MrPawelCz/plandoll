@@ -1,8 +1,7 @@
 // Draws a furnished plan to SVG (walls, doors with the swing, windows, door zones, pieces with a front arrow) and builds a contact
 // sheet of many plans. Usage:
 //   node tools/layout-svg.mjs --out DIR [--seed N] [--png]      all fourteen test plans, one SVG each plus sheet.html (and sheet.png)
-// The PNG step starts headless Chrome (software GL off, no WebGL needed) and must be run through the Chrome lock:
-//   tools/chrome-lock.sh node tools/layout-svg.mjs --out DIR --png
+// The PNG step starts headless Chrome (software GL off, no WebGL needed); on a small machine run only one browser at a time.
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';

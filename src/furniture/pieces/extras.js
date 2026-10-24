@@ -1,4 +1,4 @@
-// Tier 3 extras: king bed, runner rug, bench, bar stool, round coffee table, book stack, sideboard, shoe cabinet, vase, table centrepiece,
+// Extras: king bed, runner rug, bench, bar stool, round coffee table, book stack, sideboard, shoe cabinet, vase, table centrepiece,
 // wall coat rack and kitchen island.
 import * as THREE from 'three';
 import { colorize, lathe, M, deg, clamp } from '../kit.js';

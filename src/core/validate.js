@@ -1,7 +1,7 @@
-// planwalk plan validator (docs/SPEC.md section 5).
+// planstage plan validator (docs/SPEC.md section 4).
 // Isomorphic ES module: no Node-only APIs, no DOM, no network.
 //   validatePlan(planObjectOrJsonText, { strict? }) -> { ok, errors: Issue[], warnings: Issue[], normalized }
-//   Issue = { code, path, id?, message, fix }  (message and fix are written to be pasted back into an AI chat)
+//   Issue = { code, path, id?, message, fix }  (message and fix are written to be pasted back and fixed)
 //   strict: a property the schema does not know is an error (E002) instead of a warning (W116).
 // Extra exports for tools: PLAN_SCHEMA, analyzePlan (adds `salvaged`, `dropped`, `skipped`, `partial`), modelOf (the plan a model
 // can be built from, whole or partial), roomGraph, checkSchema.
@@ -328,7 +328,7 @@ const isExtensionKey = (k) => k === '$schema' || (typeof k === 'string' && k.sta
 // A model needs at least one wall; a salvaged plan without any has nothing to show.
 const hasWalls = (norm) => !!norm && norm.levels.some((L) => L.walls.length > 0);
 
-// The normalized plan a viewer builds its model from: the whole plan when it could be read, else what is left of it
+// The normalized plan the page builds its model from: the whole plan when it could be read, else what is left of it
 // after the elements with errors were skipped (result.partial), else null.
 export function modelOf(res) {
   return res.normalized || (res.partial ? res.salvaged : null);
@@ -519,7 +519,7 @@ function unwalledSamples(poly, walls, step = 0.1) {
 // Room adjacency through doors and passages, stair links, and entrance rooms (rooms behind an exterior door, or around the
 // top of a stair that comes up from a floor that is not in the plan).
 // With { open: true } rooms that share at least OPEN_MIN metres of boundary with no wall along it (open plan) are linked too
-// (via "open"); the benchmark scorer leaves this off so that its connectivity metric keeps counting doors and passages only.
+// (via "open"); without it only doors, passages and stairs link rooms.
 // Works on a normalized plan (metres). Returns { edges: [{ a: {l, r}, b: {l, r}, via, opening? }], entrances: [{ l, r, opening }] }.
 export function roomGraph(norm, { open = false } = {}) {
   const edges = [], entrances = [];
@@ -598,7 +598,7 @@ function parseText(text) {
   return { error: { msg: r.error, kind: r.kind, hints } };
 }
 
-// Arrays above their caps (CAPS, docs/SPEC.md "Limits"), found before anything walks them: [{ path, count, max }].
+// Arrays above their caps (CAPS, docs/SPEC.md section 4, "Limits"), found before anything walks them: [{ path, count, max }].
 function overCaps(plan) {
   const out = [];
   const check = (arr, max, path) => { if (Array.isArray(arr) && arr.length > max) out.push({ path, count: arr.length, max }); };
@@ -614,11 +614,11 @@ function overCaps(plan) {
 }
 
 const PARSE_FIX = {
-  empty: 'Paste the whole answer from the AI chat, or the plan as one JSON object.',
+  empty: 'Paste the whole answer, or the plan as one JSON object.',
   'too-long': 'Send only the plan JSON (a plan is a few tens of kilobytes at most).',
-  'no-object': 'Reply with the plan as one JSON object (see docs/PROMPT.md). A chat answer around the JSON is fine, but the JSON object has to be in it.',
-  truncated: 'The JSON stops before it is complete. Ask the AI to send the whole plan again as one JSON object.',
-  invalid: 'Reply with one valid JSON object: double quotes around every key and string, commas between items, every brace closed',
+  'no-object': 'Paste the plan as one JSON object. Text around the JSON is fine, but the JSON object has to be in it.',
+  truncated: 'The plan is cut off. Send the whole plan again as one JSON object.',
+  invalid: 'Use one valid JSON object: double quotes around every key and string, commas between items, every brace closed',
 };
 
 // options.strict: a property the schema does not know stays an error (E002) instead of a warning (W116).
@@ -709,7 +709,7 @@ function analyze(input, strict) {
   if (hard.length > MAX_E002) {
     add('E002', '', undefined, `${truncated ? 'at least ' : ''}${hard.length - MAX_E002} more schema violations are not listed (only the first ${MAX_E002} are shown)`, 'Fix the listed problems first, then validate again.');
   }
-  unknown.forEach((v) => add('W116', formatPath(v.segs), entityIdAt(plan, v.segs), `${v.detail}; planwalk ignores it`, v.fix));
+  unknown.forEach((v) => add('W116', formatPath(v.segs), entityIdAt(plan, v.segs), `${v.detail}; planstage ignores it`, v.fix));
   ignored = unknown.map((v) => ({ path: formatPath(v.segs), key: clip(v.key) }));
   nonFinite.slice(0, 20).forEach((n) => {
     add('E010', formatPath(n.segs), entityIdAt(plan, n.segs), `${formatPath(n.segs)} is ${String(n.value)}, which is not a finite number`,
@@ -839,7 +839,7 @@ function semanticChecks(plan, model, add, errors) {
   }
 
   // E014 a point far from the origin: a mistyped number (an extra digit) that the bounding box of the walls does not show, for
-  // example one room corner. The viewer's work grows with the extent of a room, so it is reported rather than drawn silently.
+  // example one room corner. The page's work grows with the extent of a room, so it is reported rather than drawn silently.
   if (!scaleBroken) {
     const where = [['walls', (e) => [e.from, e.to]], ['rooms', (e) => e.polygon], ['stairs', (e) => [e.from, e.to]], ['furniture', (e) => [e.center]]];
     norm.levels.forEach((L, l) => {
@@ -1101,7 +1101,7 @@ function semanticChecks(plan, model, add, errors) {
         const shown = (list) => list.map(([n, v]) => `${n} ${len(v)}`).join(', ');
         if (huge.length) {
           const cm = unit === 'm' && huge.every(([, v]) => v / 100 <= RANGES.furniture);
-          add('W112', pathOf(l, 'furniture', j), m.id, `${m.type} has ${shown(huge)}, more than the ${RANGES.furniture} m that a piece of furniture can have; the viewer draws it at most ${RANGES.furniture} m wide, deep and high`,
+          add('W112', pathOf(l, 'furniture', j), m.id, `${m.type} has ${shown(huge)}, more than the ${RANGES.furniture} m that a piece of furniture can have; planstage draws it at most ${RANGES.furniture} m wide, deep and high`,
             `Furniture sizes use the plan units ("${unit}").${cm ? ` If these numbers are centimetres, write metres instead (divide by 100: ${[...(m.size ? [m.size[0]] : []), ...(m.size ? [m.size[1]] : [])].map((v) => r3(v / 100)).join(' x ')}${m.height !== undefined ? `, height ${r3(m.height / 100)}` : ''}).` : ''} Otherwise make the piece smaller.`);
           return;
         }

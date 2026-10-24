@@ -114,7 +114,7 @@ test('stairs without to_level are valid in a plan of one floor, up by default an
 
 test('E012: a stair that climbs 0, and E009 hints that point the right way', () => {
   assert.ok(codes(validatePlan(withStair({ ...upStair, rise: 0 }))).includes('E012'));
-  assert.ok(codes(validatePlan(withStair({ ...upStair, rise: 0.005 }))).includes('E012'), 'under 1 cm climbs nowhere too (the viewer would skip it)');
+  assert.ok(codes(validatePlan(withStair({ ...upStair, rise: 0.005 }))).includes('E012'), 'under 1 cm climbs nowhere too (the page would skip it)');
   assert.ok(!codes(validatePlan(withStair({ ...upStair, rise: 0.5 }))).includes('E012'));
   for (const to_level of ['L1', 'L0']) {
     const r = validatePlan(withStair({ ...upStair, to_level }));
@@ -286,7 +286,7 @@ test('W105 counts rooms that share an open edge (no wall between them) as connec
   assert.match(w.fix, /leave the wall out/);
   const graph = (plan, opts) => roomGraph(validatePlan(plan).normalized, opts).edges.map((e) => e.via);
   assert.ok(graph(open, { open: true }).includes('open'));
-  assert.ok(!graph(open).includes('open'), 'the default graph (used by the benchmark scorer) counts doors, passages and stairs only');
+  assert.ok(!graph(open).includes('open'), 'the default graph counts doors, passages and stairs only');
 });
 
 test('W105: a wall still separates two rooms whose polygons run 0.12 m beside its centerline', () => {
@@ -345,7 +345,7 @@ test('W109 and W110: furniture outside rooms, level without rooms', () => {
   assert.ok(codes(validatePlan(q)).includes('W110'));
 });
 
-test('every issue carries a concrete message and a fix sentence for the AI repair loop', () => {
+test('every issue carries a concrete message and a fix sentence to be pasted back and fixed', () => {
   const p = flat();
   p.levels[0].openings[0].wall = 'ghost';
   p.levels[0].rooms[0].area = 1;

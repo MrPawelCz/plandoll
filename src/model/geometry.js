@@ -1,5 +1,5 @@
 // Pure geometry builder: normalized plan (metres) -> model. No DOM, no three.js, deterministic.
-// The viewer, the physics and the tests all read the same model, so what you see is what you collide with.
+// The scene, the layout engine and the tests all read the same model.
 // Plan point (x, y) at height h maps to world (x, elevation + h, y). Angles are radians here, clockwise on the plan.
 import { pointInPolygon, distancePointToSegment, polygonCentroid, bbox } from '../core/geom2d.js';
 import { CAPS, hasOwn } from '../core/caps.js';

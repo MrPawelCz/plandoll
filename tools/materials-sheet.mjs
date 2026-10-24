@@ -1,6 +1,6 @@
 // Builds the material contact sheet page (tools/materials-entry.js) into one HTML file.
 //   node tools/materials-sheet.mjs [out.html]
-// Then, under the browser lock, one view per call (the hash carries the options):
+// Then take one view per call (the hash carries the options):
 //   node tools/shot.mjs --html out.html --size 1600x900 --out DIR name=light=warm&cols=5&az=20&el=32
 //   node tools/shot.mjs --html out.html --size 1600x900 --out DIR name=light=cool&keys=oak,boucle,leather&cols=3
 import { spawnSync } from 'node:child_process';

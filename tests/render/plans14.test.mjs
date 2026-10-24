@@ -1,4 +1,4 @@
-// K2 in Node: the two example plans and twelve synthetic plans (seeds 401 to 412 cover all seven families) validate, build a model and a scene graph.
+// In Node: the two example plans and twelve synthetic plans (seeds 401 to 412 cover all seven families) validate, build a model and a scene graph.
 // No GL: the label canvases only need a document stub, as in scene.test.mjs.
 import test from 'node:test';
 import assert from 'node:assert/strict';

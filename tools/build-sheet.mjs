@@ -1,5 +1,5 @@
 // Bundles any entry (a contact sheet page, a test page) into one standalone HTML file next to the product build.
-//   node tools/build-sheet.mjs <entry.js> <out.html>      e.g. node tools/build-sheet.mjs viewer/src/sheets/furniture-sheet.js dist/furniture-sheet.html
+//   node tools/build-sheet.mjs <entry.js> <out.html>      e.g. node tools/build-sheet.mjs tools/sheet-entry.js dist/furniture-sheet.html
 import { build } from 'esbuild';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';

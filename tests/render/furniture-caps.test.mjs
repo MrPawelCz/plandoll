@@ -1,4 +1,4 @@
-// Furniture builders are bounded: a size written in centimetres cannot build thousands of meshes (audit case "bookshelf [90, 30]").
+// Furniture builders are bounded: a size written in centimetres cannot build thousands of meshes (regression case "bookshelf [90, 30]").
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -35,7 +35,7 @@ test('furnitureSize clamps every dimension to the span cap and keeps the type de
   for (const type of ['constructor', 'toString', '__proto__']) assert.deepEqual(furnitureSize({ type }), { w: 0.6, d: 0.6, h: 0.6 });
 });
 
-test('the audit case, a bookshelf of size [90, 30] (and height 190), builds a bounded number of meshes', () => {
+test('the regression case, a bookshelf of size [90, 30] (and height 190), builds a bounded number of meshes', () => {
   const small = meshesOf(sceneWith([{ id: 'b0', type: 'bookshelf', center: [2, 2] }]))[0];
   assert.ok(small.meshes > 20 && small.meshes < 150, `default bookshelf: ${small.meshes}`);
   const slip = meshesOf(sceneWith([{ id: 'b1', type: 'bookshelf', center: [2, 2], size: [90, 30] }]))[0];

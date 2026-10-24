@@ -10,7 +10,7 @@ same MIT licence: `src/core/` (plan validator and helpers), `schema/plan.v1.sche
 `src/render/` (scene, materials, textures, uv, soft, framing), `src/furniture/legacy.js` (the first furniture catalogue),
 `tools/validate.mjs`, `tools/test.mjs`, `tools/serve.mjs`, `tools/gen-plans.mjs`, `examples/` (two synthetic example plans),
 `tests/core/`, `tests/render/`, `tests/fixtures/`, `tests/helpers/chrome.mjs`, and `docs/` (PROMPT.md, PROMPT.pl.md, SPEC.md,
-reading-plans.md, plan-format.md). The files were copied and adjusted for the new directory layout. planwalk keeps its own history and releases;
+reading-plans.md, plan-format.md). The files were copied and adjusted for the new directory layout. `docs/SPEC.md` was shortened and rewritten for planstage: it now covers only the plan format, its geometry, the validator and the plan generator. planwalk keeps its own history and releases;
 there is no runtime dependency between the two.
 
 ## Dependencies
@@ -22,7 +22,9 @@ there is no runtime dependency between the two.
 | @esbuild/* platform binaries | 0.28.2 | MIT | optional development dependencies of esbuild, not shipped |
 
 All of them are MIT. The full tree is in `package-lock.json` (28 packages in total, every one MIT).
-Fonts: the viewer uses the system font stack and ships no font files. Example plans in `examples/` are synthetic and CC0.
+Fonts: the page uses the system font stack and ships no font files.
+
+The example plans in `examples/` and the plans in `tests/fixtures/` are synthetic and are additionally released under CC0 1.0 (public domain dedication), next to the MIT licence of the rest of the repository.
 
 ## three.js
 

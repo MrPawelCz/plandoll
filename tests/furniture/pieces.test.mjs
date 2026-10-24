@@ -34,7 +34,7 @@ test('at least fourteen types are implemented and all of them are in the contrac
   for (const id of HAS_BUILDER) assert.ok(specOf(id), `${id} is not in specs.js`);
 });
 
-test('every type of tier 1, 2 and 3 has a code builder', () => {
+test('every type in the spec table has a code builder', () => {
   for (const s of SPECS) assert.ok(HAS_BUILDER.has(s.id), `${s.id} has no builder`);
   assert.equal(buildPiece('toilet').userData.builder, 'code');
 });

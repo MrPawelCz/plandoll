@@ -1,4 +1,4 @@
-// K4 and K5 on the fourteen test plans: no overlaps, nothing outside the room, nothing in a door zone, tall pieces away from
+// The layout engine on the fourteen test plans: no overlaps, nothing outside the room, nothing in a door zone, tall pieces away from
 // windows, a full set for every living room, bedroom, kitchen and bathroom, deterministic, fast.
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -14,7 +14,7 @@ const plans = [['flat-1', example('flat-1')], ['duplex-1', example('duplex-1')]]
 for (let seed = 401; seed <= 412; seed++) { const { family, plan } = generatePlan(seed); plans.push([`gen-${seed}-${family}`, plan]); }
 const modelOfPlan = (plan) => { const res = analyzePlan(plan); assert.ok(res.ok); return buildModel(modelOf(res)); };
 
-// Rooms that are really too small or too awkward for a full set; every other room must be complete (see notes/w3.md).
+// Violation kinds that count as geometry errors; a missing set is checked separately below.
 const GEOMETRY_KINDS = ['overlap', 'outside-room', 'door-zone', 'stair', 'tall-before-window', 'size-range', 'unknown-type', 'bad-number', 'floating-prop', 'too-many-pieces'];
 
 for (const [name, plan] of plans) {

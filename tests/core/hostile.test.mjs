@@ -1,4 +1,4 @@
-// Hostile and broken input: size caps, bounded work and memory, prototype keys (docs/SPEC.md section 5, "Limits").
+// Hostile and broken input: size caps, bounded work and memory, prototype keys (docs/SPEC.md section 4, "Limits").
 // The big cases run in a child process with a 256 MB heap (hostile-child.mjs), the way a small phone would see them.
 import test from 'node:test';
 import assert from 'node:assert/strict';

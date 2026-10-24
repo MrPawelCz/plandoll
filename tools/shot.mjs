@@ -1,6 +1,6 @@
 // Headless Chrome (software GL, so slow: 2 to 20 s per frame) screenshots of the built single file or of a published address.
 //   node tools/shot.mjs [--size 1600x900] [--html dist/planstage.html | --html https://host/path/] [--out shots] [--timeout 300] [--quality 86] [--eval JS] [--strict] name=hash[:frames] ...
-// On a small machine run it under a lock so that only one browser runs at a time.
+// On a small machine run only one browser at a time.
 // --plan FILE injects that plan JSON as window.__plan before the page loads (use "plan=ext" in the hash to show it).
 // Page contract: the URL hash carries options (for example "preset=amber&t=0.7&cam=close"); the tool appends "&frames=N" (default 3). After N
 // rendered frames the page sets window.__done = true and window.__stats = { ... }; a fatal error sets window.__fail = "message".

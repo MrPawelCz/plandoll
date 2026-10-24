@@ -21,7 +21,7 @@ test('error card shows English and Polish text plus the detail, and replaces an 
   assert.ok(all.includes('second'));
   assert.equal(card.attrs.role, 'alert');
   assert.equal(doc.body.children.filter((c) => c.id === 'ps-card' && !c.removed).length, 1);
-  assert.ok(!all.join(' ').match(/[–—]/), 'no long dashes in user-facing text');
+  assert.ok(!all.join(' ').match(/[\u2013\u2014]/), 'no long dashes in user-facing text');
   assert.ok(doc.getElementById('ps-style'));
 });
 

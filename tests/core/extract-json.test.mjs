@@ -18,7 +18,7 @@ function child(name, mark = '') {
   return JSON.parse(r.stdout.trim().split('\n').pop());
 }
 
-test('seven chat styles (and more) load to the same plan', () => {
+test('seven paste styles (and more) load to the same plan', () => {
   for (const [name, text] of Object.entries(variants)) {
     const r = extractJson(text);
     assert.equal(r.ok, true, `${name}: ${r.error}`);
@@ -119,13 +119,13 @@ test('a last line that is one long run of fence marks is read in linear time', (
 });
 
 test('a large text of the allowed size is read in reasonable time', () => {
-  const out = child('largeChat');
+  const out = child('largeNotes');
   assert.equal(out.ok, true);
   assert.deepEqual(out.value, plan);
   assert.ok(out.ms < 3000, `took ${out.ms} ms`);
 });
 
-test('the validator reads chat answers through extractJson and reports the repairs', () => {
+test('the validator reads pasted answers through extractJson and reports the repairs', () => {
   const r = analyzePlan(variants['fenced block with notes before and after']);
   assert.equal(r.ok, true);
   assert.ok(r.normalized);

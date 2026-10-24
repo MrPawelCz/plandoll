@@ -1,4 +1,4 @@
-// Tier 2 kitchen pieces: base, sink, hob and wall cabinets, fridge-freezer, washing machine.
+// Kitchen pieces: base, sink, hob and wall cabinets, fridge-freezer, washing machine.
 // Local frame as everywhere: front +z, centre of the footprint, y up; handles stay inside the depth of the spec.
 import { clamp, tubePath, M } from '../kit.js';
 

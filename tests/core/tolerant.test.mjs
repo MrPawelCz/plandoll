@@ -1,4 +1,4 @@
-// Tolerant reading of imperfect plans (docs/SPEC.md section 5): unknown properties are a warning, an element with an error is
+// Tolerant reading of imperfect plans (docs/SPEC.md section 4): unknown properties are a warning, an element with an error is
 // skipped and the rest still makes a model, and nothing usable left is reported as before.
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -21,7 +21,7 @@ test('an unknown property is a warning, is ignored, and the plan stays ok', () =
   assert.deepEqual(codes(r.warnings).filter((c) => c === 'W116'), ['W116', 'W116', 'W116']);
   const w = r.warnings.find((i) => i.code === 'W116' && i.path === 'levels[0].rooms[0]');
   assert.match(w.message, /unknown property "furniture"/);
-  assert.match(w.message, /planwalk ignores it/);
+  assert.match(w.message, /planstage ignores it/);
   assert.ok(w.fix.length > 0);
   assert.equal(r.partial, false);
   assert.ok(r.normalized, 'the whole plan is built');

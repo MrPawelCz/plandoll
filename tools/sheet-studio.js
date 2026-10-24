@@ -1,5 +1,5 @@
 // A neutral studio for contact sheets (furniture, materials): even light, a pale floor, labels, and the page contract of
-// docs/ARCHITECTURE.md (hash options, window.__done, window.__stats, window.__fail). Sheets are built by tools/build-sheet.mjs.
+// tools/shot.mjs (hash options, window.__done, window.__stats, window.__fail). Sheets are built by tools/build-sheet.mjs.
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { mat } from '../src/render/materials.js';

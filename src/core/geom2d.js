@@ -1,4 +1,4 @@
-// Small 2D geometry helpers shared by the validator, the viewer and the eval tools.
+// Small 2D geometry helpers shared by the validator and the model builder.
 // Plan space: x to the right, y downward. Points are [x, y].
 export const EPS = 1e-9;
 

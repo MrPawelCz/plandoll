@@ -1,4 +1,4 @@
-Zamień obraz rzutu mieszkania lub domu na plik JSON dla przeglądarki planwalk. Odpowiedz dokładnie jednym obiektem JSON (ścisły JSON: bez komentarzy i bez przecinka po ostatnim elemencie) w jednym bloku kodu, bez niczego przed nim. Pod blokiem możesz dodać najwyżej trzy krótkie uwagi po polsku: skąd wzięła się skala i w czym masz wątpliwości.
+Zamień obraz rzutu mieszkania lub domu na plik JSON dla planstage. Odpowiedz dokładnie jednym obiektem JSON (ścisły JSON: bez komentarzy i bez przecinka po ostatnim elemencie) w jednym bloku kodu, bez niczego przed nim. Pod blokiem możesz dodać najwyżej trzy krótkie uwagi po polsku: skąd wzięła się skala i w czym masz wątpliwości.
 
 Zasady
 - Układ współrzędnych: x w prawo, y w dół, jak na obrazie. Początek w lewym górnym rogu zewnętrznej ściany (na przyciętym arkuszu: w lewym górnym rogu rysowanych ścian).
@@ -12,7 +12,7 @@ Zasady
 - Identyfikatory (id): tylko litery angielskiego alfabetu (bez polskich znaków), cyfry, "_", "-" i "." (od 1 do 40 znaków).
 - Nie wymyślaj pomieszczeń, drzwi ani kondygnacji. To, czego nie da się odczytać, pomiń. Każdą wątpliwość wpisz do samego pliku: co pominięto, co jest domysłem albo było nieczytelne, w meta.notes (do 2000 znaków, po polsku), a wątpliwości co do skali w meta.scale_note.
 - Nie przepisuj do pliku imion i nazwisk, adresów ani numerów telefonu z arkusza ("name" to krótki opis układu, do 120 znaków, na przykład "Mieszkanie trzypokojowe"); nazwy pomieszczeń zostają takie, jak na rysunku.
-- Meble to nie ściany. Dodawaj meble tylko wtedy, gdy są wyraźnie narysowane: symbol z zamkniętym obrysem, który potrafisz nazwać jednym z typów z listy poniżej (łóżko, sofa, sedes). Wzory podłogi, kreskowanie, płytki, napisy i ozdoby się nie liczą. W razie wątpliwości pomiń. Meble i schody to listy poziomu ("furniture" i "stairs", obok "walls", "openings" i "rooms"), nigdy wpisy wewnątrz pomieszczenia. Każdy mebel ma pola "id", "type" (jeden z typów poniżej) i "center".
+- Meble są opcjonalne i planstage je pomija (sam urządza pomieszczenia), więc nie poświęcaj im czasu; symbole mebli to nie ściany, a w razie wątpliwości pomiń mebel. Dodany mebel trafia na listę poziomu "furniture" (obok "walls", "openings", "rooms" i "stairs"), nigdy do wnętrza pomieszczenia, i ma pola "id", "type" (jeden z typów poniżej) i "center".
 - Schody: każdy wpis w "stairs" ma pola "id", "from", "to", "width" i "steps". "from" to środek linii stopnia na tej kondygnacji, "to" to środek linii stopnia na drugim końcu biegu, a "steps" to liczba stopni (liczba całkowita od 2 do 40: policz linie stopni, a gdy ich nie narysowano, oszacuj około 4 stopni na metr biegu i napisz o tym w meta.notes). Bez "steps" cały plik jest nieważny.
 - Kilka kondygnacji: jeden wpis w "levels" na kondygnację, z id L0, L1, a wpisy w "stairs" z "to_level". Rysunek jednej kondygnacji: wpisy w "stairs" bez "to_level" (dodaj "rise", ujemne, gdy prowadzą w dół z tej kondygnacji), a dla piętra ustaw "elevation" kondygnacji (na przykład 3.0).
 
@@ -38,6 +38,6 @@ Format
 }
 ```
 
-Typy mebli: bed-double, bed-single, sofa, armchair, table-dining, table-coffee, chair, desk, wardrobe, kitchen-counter, fridge, stove, sink, bathtub, shower, toilet, basin, tv-unit, bookshelf, plant, rug.
+Typy mebli (tylko gdy dodajesz meble): bed-double, bed-single, sofa, armchair, table-dining, table-coffee, chair, desk, wardrobe, kitchen-counter, fridge, stove, sink, bathtub, shower, toilet, basin, tv-unit, bookshelf, plant, rug.
 Pola opcjonalne: wall.thickness, wall.height (balustrada lub attyka, na przykład 1.0), opening.height, opening.sill, opening.hinge ("start"|"end") i opening.opens_to ("left"|"right") dla drzwi, room.floor ("wood"|"tile"|"carpet"|"stone"|"concrete"), room.ceiling (false dla otwartego balkonu lub tarasu), level.height (tylko gdy podana na rysunku), stair.to_level (pomiń, gdy druga kondygnacja nie jest narysowana), stair.rise, furniture.size ([szerokość, głębokość]), furniture.rotation.
-Mebel jest zwrócony ku dołowi rysunku (+y), gdy rotation wynosi 0. Mebel, który stoi przy dolnej ścianie pomieszczenia i ma być zwrócony do wnętrza (szafa, regał, sofa zwrócona do stołu położonego wyżej, krzesło po dolnej stronie biurka), wymaga "rotation": 180; 90 zwraca go w lewo, a 270 w prawo. Łóżko ma wezgłowie po lewej przy rotation 0 (ku górze rysunku przy 90).
+Mebel jest zwrócony ku dołowi rysunku (+y) przy rotation 0; 90 zwraca go w lewo, 180 ku górze rysunku, 270 w prawo.

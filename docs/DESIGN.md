@@ -1,15 +1,16 @@
 # Design: data and modules
 
-Working title: planstage. This file is the contract between the parts that are built in parallel. If you need to change it, change it here first and say so in your notes.
+Design notes for planstage. This file describes the data and the modules.
 
 ## 1. Pipeline
 
 ```
-plan JSON (planwalk v1, see docs/SPEC.md and docs/PROMPT.md)
+plan JSON (format v1, see docs/SPEC.md sections 1 to 4 and docs/PROMPT.md)
   -> analyzePlan / modelOf   (src/core/validate.js)       validated plan, units converted to metres
   -> buildModel              (src/model/geometry.js)      walls with thickness, openings with positions, rooms, colliders
   -> autoFurnish             (src/layout, pure functions) layout = list of pieces with positions
-  -> buildScene              (src/render + src/furniture) THREE objects: shell (walls, floors) + one object per piece
+  -> PlanScene, composeLayout (src/render/scene.js, src/render/compose.js, src/furniture)
+                                                          THREE objects: shell (walls, floors) + one object per piece
   -> look                    (src/look)                   light, shadows, post-processing, backdrop, quality level
   -> frame
 ```
@@ -19,14 +20,14 @@ The page never sends anything anywhere. No network requests, no localStorage, se
 ## 2. Coordinates and angles
 
 - Plan space: x to the right, y down the page, metres. World (three.js): x = plan x, z = plan y, y up. A level's floor is at `level.elevation`.
-- `rot` is degrees clockwise as drawn on the plan (the same as planwalk `furniture.rotation`). In three.js set `object.rotation.y = -rot * Math.PI / 180`.
+- `rot` is degrees clockwise as drawn on the plan (the same as `furniture.rotation` in the plan format). In three.js set `object.rotation.y = -rot * Math.PI / 180`.
 - Every piece is built in its local frame: x = width, z = depth, y up, FRONT faces +z, BACK is -z, origin at the centre of the footprint on the floor. With `rot = 0` the front looks down the page (south). `rot = 90` looks west, `180` north, `270` east.
   So a sofa with its back on the north wall (small y) has `rot = 0`; with its back on the east wall `rot = 90`; on the south wall `rot = 180`; on the west wall `rot = 270`.
-- Beds follow the same rule: width along x, headboard at -z, foot at +z. (The old planwalk bed has the long side along x: do not mix them. `src/furniture/legacy.js` exists only as a stop-gap until a type has a new builder.)
+- Beds follow the same rule: width along x, headboard at -z, foot at +z. (The bed in `src/furniture/legacy.js` has the long side along x: do not mix them. `legacy.js` exists only as a stop-gap until a type has a new builder.)
 
 ## 3. The three documents
 
-**Plan** is the planwalk v1 JSON (walls, openings, rooms, optional stairs). Furniture in an input plan is ignored: the layout comes from the engine.
+**Plan** is the v1 JSON described in `docs/SPEC.md` (walls, openings, rooms, optional stairs). Furniture in an input plan is ignored: the layout comes from the engine.
 
 **Layout** is plain data, the thing an editor will change later:
 
@@ -49,16 +50,16 @@ The page never sends anything anywhere. No network requests, no localStorage, se
 - `type` is an id from `src/furniture/specs.js`. `x`, `y` are the centre of the footprint in plan metres. `size` is optional (default: the spec) and must stay inside `range`.
 - `elev` is the height of the piece's bottom above the level floor (default 0; wall-mounted pieces use `place.elevation`; for a ceiling lamp it is the bottom of the hanging part).
 - `on` is the id of the piece this one sits on (props on tables, shelves, nightstands); then `x`, `y`, `elev` are absolute anyway. It lets an editor move the child with its parent.
-- `colors` maps a slot name to a `#rrggbb` colour or a material key of the material library (`src/render/materials.js` today, the new library later). Missing slots use the piece's default.
+- `colors` maps a slot name to a `#rrggbb` colour or a material key of the material library (`src/render/library.js`). Missing slots use the piece's default.
 - Limits: at most 400 pieces per level and 1500 in total; ids unique; every number finite. `autoFurnish` returns exactly this shape and nothing else.
 
 **Style** is also plain data:
 
 ```json
-{ "preset": "amber", "t": 0.735, "quality": "auto", "wall": "plaster-warm", "floors": { "main": "oak-smoked" } }
+{ "preset": "amber", "t": 0.735, "quality": "auto" }
 ```
 
-`t` is the time of day from 0 (06:00) to 1 (23:00). `quality` is `auto`, `high`, `medium` or `low`.
+`t` is the time of day from 0 (06:00) to 1 (23:00). `quality` is `auto`, `high`, `medium` or `low`. Per-room floor and wall materials are planned and are not part of the style yet.
 
 ## 4. Furniture (src/furniture)
 
@@ -80,8 +81,8 @@ The look module owns the stage (sky, light rig, backdrop, base), the time-of-day
 ## 7. Tests and tools
 
 - `npm test` runs every `tests/**/*.test.mjs` with node:test. Chrome tests skip without Chrome, unless `PLANSTAGE_REQUIRE_CHROME=1`.
-- `tools/shot.mjs` takes screenshots with headless Chrome (software GL). Run it through the Chrome lock and with `nice -n 19`. The page sets `window.__done = true` and `window.__stats` when it has rendered `frames` frames.
-- `tools/gen-plans.mjs` writes synthetic plans: `node tools/gen-plans.mjs --seed 401 --count 14 --out DIR` (7 families, deterministic).
+- `tools/shot.mjs` takes screenshots with headless Chrome (software GL). Chrome runs under `nice -n 19`. The page sets `window.__done = true` and `window.__stats` when it has rendered `frames` frames.
+- `tools/gen-plans.mjs` writes synthetic plans: `node tools/gen-plans.mjs --seed 401 --count 14 --out DIR` (7 families, deterministic; options in docs/SPEC.md section 5).
 
 ## 8. Design decisions
 

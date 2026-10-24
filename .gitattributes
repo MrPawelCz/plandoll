@@ -1,2 +1,2 @@
-# One line ending everywhere: the generated files (dist/, skill/planwalk/) are compared byte for byte by the tests and by CI.
+# One line ending (LF) everywhere, so that files read the same on every system.
 * text=auto eol=lf

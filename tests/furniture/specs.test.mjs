@@ -11,7 +11,7 @@ test('ids are unique, kebab-case and found by specOf', () => {
   assert.equal(specOf('constructor'), null);
 });
 
-test('tier counts are frozen with the contract (26 / 10 / 12)', () => {
+test('tier counts match the spec table (26 / 10 / 12)', () => {
   assert.deepEqual([byTier(1).length, byTier(2).length, byTier(3).length], [26, 10, 12]);
 });
 
@@ -27,7 +27,7 @@ test('sizes, ranges and budgets are sane', () => {
     assert.ok(s.maxTris >= 500 && s.maxTris <= 20000, s.id);
     assert.ok(new Set(s.slots).size === s.slots.length, `${s.id} duplicate slot`);
     assert.ok(s.label.en && s.label.pl, s.id);
-    assert.ok(!/[–—]/.test(s.label.en + s.label.pl), `${s.id}: no long dashes in labels`);
+    assert.ok(!/[\u2013\u2014]/.test(s.label.en + s.label.pl), `${s.id}: no long dashes in labels`);
   }
 });
 

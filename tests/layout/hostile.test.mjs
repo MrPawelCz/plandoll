@@ -1,4 +1,4 @@
-// K10: hostile plans never hang the layout engine (under two seconds) and never throw.
+// Hostile plans never hang the layout engine (under two seconds) and never throw.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { analyzePlan, modelOf } from '../../src/core/validate.js';

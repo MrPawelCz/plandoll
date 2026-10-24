@@ -1,4 +1,4 @@
-// Procedural textures for the "textured" look (docs/TEXTURES.md). Pure JavaScript: no DOM, no three.js, no randomness
+// Procedural textures for the "textured" look. Pure JavaScript: no DOM, no three.js, no randomness
 // beyond a seeded integer hash, so every run on every machine produces the same bytes (only + - * / floor sqrt abs min
 // max are used on floats, no trigonometry, exp, pow or log).
 // Contract used by materials.js and the tests:

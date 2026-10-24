@@ -4,7 +4,7 @@
 //   node tools/measure.mjs [--levels high,medium,low] [--plans flat-1,duplex-1,gen:404,gen:405] [--frames 2] [--size 1280x720]
 //                          [--html dist/planstage.html] [--wrap COMMAND] [--extra PARAMS]
 // --extra adds page parameters to every run (for example merge=0 to measure without merged furniture meshes).
-// --wrap puts a command in front of every browser run (for example a lock script that keeps a small machine to one browser).
+// --wrap puts a command in front of the browser launch of every run.
 // "gen:SEED" is a generated plan (tools/gen-plans.mjs); it is written to a temporary directory and passed to shot.mjs as an external plan.
 import { spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs';

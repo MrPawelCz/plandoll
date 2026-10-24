@@ -1,5 +1,5 @@
-// Deterministic synthetic apartments with known truth for the planwalk benchmark (docs/SPEC.md section 8).
-// Usage: node eval/gen/gen-plans.mjs --seed N --count K --out DIR [--family NAME]
+// Deterministic synthetic apartments for tests and demos (docs/SPEC.md section 5).
+// Usage: node tools/gen-plans.mjs --seed N --count K --out DIR [--family NAME]
 // Writes DIR/truth/<id>.plan.json for K plans (seed N, N+1, ...). The family cycles through FAMILIES unless --family is given.
 // A plan is built from horizontal bands of rooms (exterior walls follow the union of the bands, so L shapes are just
 // bands of different widths); doors and windows are placed from the geometry, so every room is reachable by construction.
@@ -181,7 +181,7 @@ function levelJson(spec, r) {
   };
 }
 
-const STYLE_NOTE = 'Synthetic plan with known truth for the planwalk benchmark. CC0.';
+const STYLE_NOTE = 'Synthetic plan with known truth. CC0.';
 
 export function generatePlan(seed, family) {
   const r = rng(seed * 7919 + 17);
@@ -258,7 +258,7 @@ export function generatePlan(seed, family) {
   }
   return {
     family: fam,
-    plan: { version: 1, name: `${title} (synthetic, seed ${seed})`, units: 'm', meta: { source: 'synthetic', generator: `planwalk eval/gen seed ${seed} family ${fam}`, notes: STYLE_NOTE }, levels },
+    plan: { version: 1, name: `${title} (synthetic, seed ${seed})`, units: 'm', meta: { source: 'synthetic', generator: `planstage gen-plans seed ${seed} family ${fam}`, notes: STYLE_NOTE }, levels },
   };
 }
 
@@ -271,7 +271,7 @@ function main(argv) {
     else if (argv[i] === '--family') opt.family = argv[++i];
   }
   if (!opt.out || !Number.isFinite(opt.seed) || !Number.isFinite(opt.count)) {
-    process.stderr.write('usage: node eval/gen/gen-plans.mjs --seed N --count K --out DIR [--family NAME]\n  families: ' + FAMILIES.join(', ') + '\n');
+    process.stderr.write('usage: node tools/gen-plans.mjs --seed N --count K --out DIR [--family NAME]\n  families: ' + FAMILIES.join(', ') + '\n');
     process.exit(2);
   }
   mkdirSync(join(opt.out, 'truth'), { recursive: true });

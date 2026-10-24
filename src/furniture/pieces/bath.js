@@ -1,4 +1,4 @@
-// Tier 2 bathroom fixtures: toilet, washbasin with vanity, shower, bathtub.
+// Bathroom fixtures: toilet, washbasin with vanity, shower, bathtub.
 // Local frame as everywhere: front +z, back (the wall side) -z, centre of the footprint, y up; fittings stay inside the spec size.
 import * as THREE from 'three';
 import { mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';

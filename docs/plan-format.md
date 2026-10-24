@@ -1,6 +1,8 @@
-# Plan format (planwalk v1)
+# Plan format (v1)
 
-Plan space: x to the right, y downward, like an image. All lengths in `units` (default `m`). Full definition: `schema/plan.v1.schema.json` and `docs/SPEC.md` in the planwalk repository (not part of this folder; the validator enforces the schema and says what to fix).
+This is plan format v1 as used by planstage; it derives from the plan format of planwalk, another project by the same author.
+
+Plan space: x to the right, y downward, like an image. All lengths in `units` (default `m`). Full definition: `schema/plan.v1.schema.json` and `docs/SPEC.md` (coordinates, plan format, geometry and validation; the validator enforces the schema and says what to fix).
 
 ```json
 {

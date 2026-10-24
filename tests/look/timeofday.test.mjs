@@ -82,7 +82,7 @@ test('presets: three own names, none of the old identifiers, text in two languag
   for (const n of PRESET_NAMES) {
     const p = PRESETS[n];
     assert.ok(p.t >= 0 && p.t <= 1);
-    for (const lang of ['en', 'pl']) { for (const s of [presetLabel(n, lang), presetBlurb(n, lang)]) { assert.ok(s.length > 2); assert.ok(!/[–—]/.test(s)); } }
+    for (const lang of ['en', 'pl']) { for (const s of [presetLabel(n, lang), presetBlurb(n, lang)]) { assert.ok(s.length > 2); assert.ok(!/[\u2013\u2014]/.test(s)); } }
     for (const hex of [...p.swatch, ...Object.values(p.palette).flat()]) assert.match(hex, /^#[0-9a-f]{6}$/i);
   }
   assert.deepEqual(['Amber', 'Clear', 'Lamplit'], PRESET_NAMES.map((n) => presetLabel(n, 'en')));

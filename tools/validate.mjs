@@ -1,12 +1,11 @@
 #!/usr/bin/env node
-// planwalk plan validator CLI (docs/SPEC.md section 5).
+// planstage plan validator CLI (docs/SPEC.md section 4).
 //   node tools/validate.mjs plan.json [--json] [--strict]     ("-" reads the plan from stdin)
 // Exit codes: 0 ok (with --strict also no warnings and nothing repaired), 1 not ok, 2 usage error or unreadable file.
-// A chat answer is read like the viewer reads it; each change made to read it is printed as a "note:" line (the "repairs" list with --json).
-// Invalid JSON is reported as error E001 (exit 1), so the message can be pasted back into a chat.
-// A property the schema does not know is a warning (W116), as in the viewer; --strict makes it an error (E002). A plan with errors in
-// some elements exits 1, and one more line says how many elements the viewer would skip to show the rest.
-// npm run build:skill bundles this file with src/core/ into skill/planwalk/scripts/validate.mjs.
+// A pasted answer is read like the page reads it; each change made to read it is printed as a "note:" line (the "repairs" list with --json).
+// Invalid JSON is reported as error E001 (exit 1), so the message can be pasted back and fixed.
+// A property the schema does not know is a warning (W116), as in the page; --strict makes it an error (E002). A plan with errors in
+// some elements exits 1, and one more line says how many elements the page would skip to show the rest.
 import { readFileSync } from 'node:fs';
 import { relative } from 'node:path';
 import { analyzePlan } from '../src/core/validate.js';
@@ -59,7 +58,7 @@ if (flags.has('--json')) {
   process.stdout.write(`${errors.length} errors, ${warnings.length} warnings\n`);
   if (skipped.length) {
     const n = `${skipped.length} element${skipped.length === 1 ? '' : 's'}`;
-    process.stdout.write(partial ? `${n} would be skipped when opened in the viewer\n` : `${n} with errors, and nothing usable would be left: the viewer could not build a model\n`);
+    process.stdout.write(partial ? `${n} would be skipped when opened in the page\n` : `${n} with errors, and nothing usable would be left: the page could not build a model\n`);
   }
 }
 
