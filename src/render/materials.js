@@ -2,6 +2,7 @@
 // (docs/TEXTURES.md). One material instance per name and look; names without a texture share the clay instance.
 import * as THREE from 'three';
 import { TEXTURE_SPECS, generateTexture } from './textures.js';
+import { getMaterial as libraryMaterial, libraryScale, disposeLibrary, setAnisotropy } from './library.js';
 
 export const LOOKS = ['clay', 'textured'];
 
@@ -120,8 +121,13 @@ const cache = new Map();
 const textures = new Map();
 let anisotropy = 4;
 
+// Surfaces of the material library (src/render/library.js) are addressed as `lib:<key>`, for example mat('lib:oak', 'textured')
+// and texScale('lib:oak'); the clay look gives the flat average colour of the surface with the same roughness.
+const LIBRARY_PREFIX = 'lib:';
+
 // Repeats per metre of the texture a material uses in the textured look (1 when it has none): geometry builders write uv with it.
 export function texScale(name) {
+  if (name.startsWith(LIBRARY_PREFIX)) return libraryScale(name.slice(LIBRARY_PREFIX.length));
   const key = TEXTURED[name];
   return key ? 1 / TEXTURE_SPECS[key].world : 1;
 }
@@ -129,6 +135,7 @@ export function texScale(name) {
 export function setTextureAnisotropy(n) {
   anisotropy = Math.max(1, n | 0);
   for (const set of textures.values()) for (const t of [set.map, set.normalMap]) if (t) t.anisotropy = anisotropy;
+  setAnisotropy(anisotropy);
 }
 
 function dataTexture(data, size, name, color) {
@@ -186,6 +193,12 @@ function build(name, look) {
 }
 
 export function mat(name, look = 'clay') {
+  if (name.startsWith(LIBRARY_PREFIX)) {
+    const id = `${look}:${name}`;
+    let m = cache.get(id);
+    if (!m) { m = libraryMaterial(name.slice(LIBRARY_PREFIX.length), { look }); m.name = name; cache.set(id, m); }
+    return m;
+  }
   const id = look === 'textured' && (TEXTURED[name] || LOOK_COLOR[name]) ? `t:${name}` : name;
   let m = cache.get(id);
   if (m) return m;
@@ -210,4 +223,5 @@ export function disposeMaterials() {
   cache.clear();
   for (const set of textures.values()) { set.map.dispose(); set.normalMap?.dispose(); }
   textures.clear();
+  disposeLibrary();
 }
