@@ -9,6 +9,7 @@ import { createStage } from '../look/stage.js';
 import { createPost } from '../look/post.js';
 import { resolveQuality } from '../look/quality.js';
 import { parseParams } from './params.js';
+import { createLoop } from './loop.js';
 import { createUI, showErrorCard } from './ui.js';
 import { autoFurnish } from '../layout/index.js';
 import { piecesImplemented } from '../furniture/index.js';
@@ -97,13 +98,14 @@ try {
   const post = createPost({ renderer, scene, camera, width: W, height: H, quality: level, devicePixelRatio: dpr });
 
   // ---------- state changes ----------
-  let dirty = true; const times = [];
+  let loop = null; const times = [];
+  const redraw = () => loop?.invalidate(); // every change of the picture asks for one more frame
   function applyAll() {
     const k = stage.applyTime(S.t); post.setLook(k); setLampGlow(furn.group, stage.state.lampK);
   }
-  function setPreset(name, keepT) { const p = stage.setPreset(name); S.preset = p.id; if (!keepT) S.t = p.t; applyAll(); ui?.update(S); dirty = true; }
-  function setTime(t) { S.t = Math.min(1, Math.max(0, t)); applyAll(); ui?.update(S); dirty = true; }
-  function setQ(q) { S.q = q; level = resolveQuality(q, env); stage.setQuality(level); furnish(); post.setQuality(level); applyAll(); ui?.update(S); dirty = true; }
+  function setPreset(name, keepT) { const p = stage.setPreset(name); S.preset = p.id; if (!keepT) S.t = p.t; applyAll(); ui?.update(S); redraw(); }
+  function setTime(t) { S.t = Math.min(1, Math.max(0, t)); applyAll(); ui?.update(S); redraw(); }
+  function setQ(q) { S.q = q; level = resolveQuality(q, env); stage.setQuality(level); furnish(); post.setQuality(level); applyAll(); ui?.update(S); redraw(); }
   function setLang(l) { S.lang = l; ui?.update(S); }
   const ui = params.ui ? createUI({ onPreset: (n) => setPreset(n), onTime: setTime, onQuality: setQ, onLang: setLang }, S) : null;
   applyAll();
@@ -111,20 +113,17 @@ try {
     if (e.key === 'ArrowRight') setTime(S.t + 0.02); else if (e.key === 'ArrowLeft') setTime(S.t - 0.02);
     else if (['1', '2', '3'].includes(e.key)) setPreset(['amber', 'clear', 'lamplit'][Number(e.key) - 1]);
   });
-  addEventListener('resize', () => { W = window.innerWidth; H = window.innerHeight; frameCamera(); post.resize(W, H); dirty = true; });
+  addEventListener('resize', () => { W = window.innerWidth; H = window.innerHeight; frameCamera(); post.resize(W, H); redraw(); });
   window.__setT = setTime; window.__setPreset = setPreset; window.__setQuality = setQ;
 
-  // ---------- loop: draws on demand; with frames=N (the default for tools) it draws N frames and reports ----------
-  let frames = 0;
-  function frame() {
+  // ---------- loop: the first N frames (frames=N, 4 by default) are drawn at once and measured, then a frame is drawn whenever the picture changes ----------
+  function frame(n) {
     renderer.info.reset(); renderCalls = 0; const t0 = performance.now();
-    post.render(); { const gl = renderer.getContext(); gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(4)); } times.push(performance.now() - t0); frames++;
-    dirty = false;
-    if (frames === params.frames) done();
-    if (!params.live && frames >= params.frames) return;
-    requestAnimationFrame(tick);
+    post.render();
+    if (n <= params.frames) { const gl = renderer.getContext(); gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(4)); times.push(performance.now() - t0); } // waits for the GPU: only for the measured frames
+    window.__frames = n; // frames drawn so far (tools wait on it after a click)
+    if (n === params.frames) done();
   }
-  function tick() { if (dirty || !params.live) frame(); else requestAnimationFrame(tick); }
   function luminance() {
     const gl = renderer.getContext(), w = gl.drawingBufferWidth, h = gl.drawingBufferHeight, px = new Uint8Array(w * h * 4);
     gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, px);
@@ -136,8 +135,9 @@ try {
     const rest = times.slice(1), avg = rest.length ? rest.reduce((a, b) => a + b, 0) / rest.length : times[0];
     let meshes = 0, lights = 0; (function walk(o) { if (!o.visible) return; if (o.isMesh) meshes++; if (o.isLight) lights++; o.children.forEach(walk); })(scene);
     window.__stats = { drawCalls: renderer.info.render.calls, triangles: renderer.info.render.triangles, textures: renderer.info.memory.textures, frameMs: Math.round(avg), quality: level, preset: S.preset, t: +S.t.toFixed(3),
-      luminance: luminance(), msFirst: Math.round(times[0]), frames, geometries: renderer.info.memory.geometries, visibleMeshes: meshes, lights, rendererRenderCalls: renderCalls, shadowCasters: stage.state.casters, pieces: furn.pieces.size, hiddenPieces: furn.hidden, mergedMeshes: furn.merged?.meshes ?? 0, emitters: furn.emitters.length, size: post.size, pixelRatio: post.pixelRatio, plan: params.plan.name };
+      luminance: luminance(), msFirst: Math.round(times[0]), frames: params.frames, geometries: renderer.info.memory.geometries, visibleMeshes: meshes, lights, rendererRenderCalls: renderCalls, shadowCasters: stage.state.casters, pieces: furn.pieces.size, hiddenPieces: furn.hidden, mergedMeshes: furn.merged?.meshes ?? 0, emitters: furn.emitters.length, size: post.size, pixelRatio: post.pixelRatio, plan: params.plan.name };
     window.__done = true;
   }
-  requestAnimationFrame(tick);
+  loop = createLoop({ draw: frame, frames: params.frames, live: params.live });
+  loop.start();
 } catch (e) { fail(e); }

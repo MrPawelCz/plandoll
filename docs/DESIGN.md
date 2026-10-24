@@ -84,6 +84,8 @@ The `plan` parameter takes `flat-1` or `duplex-1`. `ext` shows a plan injected a
 
 - `npm test` runs every `tests/**/*.test.mjs` with node:test. Chrome tests skip without Chrome, unless `PLANSTAGE_REQUIRE_CHROME=1`.
 - `tools/shot.mjs` takes screenshots with headless Chrome (software GL). Chrome runs under `nice -n 19`. The page sets `window.__done = true` and `window.__stats` when it has rendered `frames` frames.
+- `tools/interact.mjs` uses the page like a visitor: a phone screen with touch input (or `--desktop` with the mouse), a tap on a mood button, a drag of the time slider, a quality change, the language button. After each step it checks that the picture above the controls changed, not only the controls. `tests/look/interact.test.mjs` runs it on request (`PLANSTAGE_BROWSER_TESTS=1`).
+- The page draws its first `frames` frames (4 by default) at once and then only when something changed (`src/app/loop.js`; `window.__frames` counts the frames drawn). `live=1` skips the first burst.
 - `tools/gen-plans.mjs` writes synthetic plans: `node tools/gen-plans.mjs --seed 401 --count 14 --out DIR` (7 families, deterministic; options in docs/SPEC.md section 5).
 
 ## 8. Design decisions
