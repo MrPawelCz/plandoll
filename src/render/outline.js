@@ -68,6 +68,22 @@ export function createOutline() {
   };
 }
 
+// The frame an outline rides in. A piece that hangs on an outer wall turns with the wall while the shell is open (render/openshell.js), and the outline of that
+// piece has to turn with it. The frame holds the outline's group; follow(matrix) gives it the matrix of the wall (4 x 4, column-major, world coordinates, as
+// openshell.hostMatrix returns it), follow(null) puts it back to the identity. Add frame.group to the scene instead of outline.group.
+export function createOutlineFrame(outline) {
+  const group = new THREE.Group(); group.name = 'edit-outline-frame'; group.matrixAutoUpdate = false;
+  group.add(outline.group);
+  return {
+    group,
+    follow(matrix) {
+      if (Array.isArray(matrix) && matrix.length === 16 && matrix.every(Number.isFinite)) group.matrix.fromArray(matrix); else group.matrix.identity();
+      group.matrixWorldNeedsUpdate = true;
+    },
+    dispose() { group.removeFromParent(); },
+  };
+}
+
 // Outline of one room: polygon [[x, y], ...] of the plan (plan y is world z) on a floor at height `base`. Fill plus a thick rim, light on dark.
 export function createRoomOutline() {
   const group = new THREE.Group(); group.name = 'room-outline'; group.visible = false; group.renderOrder = 990;

@@ -14,6 +14,8 @@ import { autoFurnish } from '../../src/layout/index.js';
 import { piecesImplemented } from '../../src/furniture/index.js';
 import { specOf } from '../../src/furniture/specs.js';
 import { generatePlan } from '../../tools/gen-plans.mjs';
+import { pickPiece, slidePoint } from '../../src/app/pick.js';
+import { innerFace } from '../../src/model/foldwalls.js';
 
 const ctx = new Proxy({}, {
   get: (t, k) => (k === 'measureText' ? () => ({ width: 100 }) : k === 'createLinearGradient' ? () => ({ addColorStop() {} }) : k in t ? t[k] : () => {}),
@@ -162,7 +164,7 @@ test('a model without outer walls makes a shell that does nothing', () => {
 const furnished = (plan) => {
   const built = build(plan), layout = autoFurnish(built.model, { seed: 1, allowedTypes: piecesImplemented() });
   const furn = composeLayout({ model: built.model, layout, quality: 'low', look: 'textured', seed: 1 });
-  return { ...built, furn, shell: createOpenShell(built.ps, built.model) };
+  return { ...built, layout, furn, shell: createOpenShell(built.ps, built.model) };
 };
 const isHung = (g) => ['wall-mount', 'window'].includes(specOf(g.userData.pieceType)?.place?.mode);
 
@@ -211,4 +213,93 @@ test('adopting twice does not lose or duplicate a piece', () => {
   assert.deepEqual([...a].sort(), [...b].sort()); assert.equal(count(), n0);
   assert.equal(furn.group.children.filter((c) => c.name.startsWith('hung:')).length, new Set([...b].map((id) => furn.pieces.get(id).parent.name)).size);
   shell.dispose(); assert.equal(count(), n0);
+});
+
+// ---- editing with the shell open: where a hung piece is drawn, how a ray finds it there, and how it is dragged along its wall ----
+const baseOf = (model) => (id) => Number(model.levels.find((l) => l.id === id)?.elevation) || 0;
+const adoptAll = (f) => f.shell.adopt(f.furn.group, f.furn.pieces, (x, z) => wallCutHeight(x, z, f.ext, 0.3, NEAR_DEFAULT));
+const settled = (f, clock) => { f.shell.pose(clock); f.ps.group.updateMatrixWorld(true); f.furn.group.updateMatrixWorld(true); };
+
+test('hostMatrix and hostOf say where the wall has put a hung piece, and say nothing for the other pieces and for a released shell', () => {
+  let checked = 0;
+  for (const [name, plan] of plans) {
+    const f = furnished(plan), ids = adoptAll(f);
+    for (const clock of [0, 0.3, 1]) {
+      settled(f, clock);
+      for (const [id, g] of f.furn.pieces) {
+        const m = f.shell.hostMatrix(id);
+        if (!ids.has(id)) { assert.equal(m, null, `${name} ${id} is not hung`); assert.equal(f.shell.hostOf(id), null); continue; }
+        assert.ok(Array.isArray(m) && m.length === 16 && m.every(Number.isFinite), `${name} ${id} has a matrix`);
+        assert.deepEqual(m, g.parent.matrix.toArray(), `${name} ${id} the matrix is the one of its hinge group`);
+        const want = g.position.clone().applyMatrix4(new THREE.Matrix4().fromArray(m)), got = g.getWorldPosition(new THREE.Vector3());
+        near(got.x, want.x, 1e-9, `${name} ${id} x`); near(got.y, want.y, 1e-9, `${name} ${id} y`); near(got.z, want.z, 1e-9, `${name} ${id} z`);
+        const h = f.shell.hostOf(id);
+        assert.deepEqual(h.matrix, m); assert.equal(typeof h.wall, 'string'); assert.ok(f.shell.walls.some((w) => w.id === h.wall));
+        near(Math.hypot(...h.plane.normal), 1, 1e-9, `${name} ${id} unit normal`); assert.equal(h.plane.normal[1], 0, 'a vertical plane');
+        checked++;
+      }
+    }
+    f.shell.release();
+    for (const id of ids) { assert.equal(f.shell.hostMatrix(id), null, 'released'); assert.equal(f.shell.hostOf(id), null); }
+    assert.equal(f.shell.hostMatrix('nope'), null); assert.equal(f.shell.hostOf(undefined), null);
+  }
+  assert.ok(checked > 20, `${checked} hung pieces checked`);
+});
+
+test('the inner face plane of the wall that holds a piece lies just behind the piece, in the closed place of the wall', () => {
+  for (const [name, plan] of plans) {
+    const f = furnished(plan), ids = adoptAll(f);
+    for (const id of ids) {
+      const h = f.shell.hostOf(id), g = f.furn.pieces.get(id), wall = f.shell.walls.find((w) => w.id === h.wall);
+      const face = innerFace(wall), across = (g.position.x - face.point[0]) * face.normal[0] + (g.position.z - face.point[2]) * face.normal[2];
+      assert.ok(across < 0.05 && across > -0.35, `${name} ${id}: the centre of the piece stands ${(-across).toFixed(3)} m inside the face of its wall`);
+    }
+  }
+});
+
+test('a ray at a hung piece on a fallen wall finds the piece with the matrix of its wall, and a ray at the place of the closed wall no longer finds it', () => {
+  let hung = 0, found = 0, foundWithout = 0, ghostWith = 0, ghostWithout = 0;
+  for (const [, plan] of plans) {
+    const f = furnished(plan), ids = adoptAll(f), levelBase = baseOf(f.model);
+    settled(f, 1);
+    const frameOf = (id) => f.shell.hostMatrix(id);
+    for (const id of ids) {
+      const g = f.furn.pieces.get(id), h = g.userData.size[2];
+      hung++;
+      const drawn = g.localToWorld(new THREE.Vector3(0, h / 2, 0)); // the centre of the box where the wall has put it
+      const above = { origin: [drawn.x, drawn.y + 5, drawn.z], direction: [0, -1, 0] };
+      if (pickPiece(f.layout, above, { levelBase, pad: 0.02, frameOf })?.id === id) found++;
+      if (pickPiece(f.layout, above, { levelBase, pad: 0.02 })?.id === id) foundWithout++;
+      // a ray at the centre of the box in the plan, along the front of the piece: where it hung before the wall fell
+      const front = new THREE.Vector3(0, 0, 1).applyQuaternion(g.quaternion), c = [g.position.x, g.position.y + h / 2, g.position.z];
+      const closed = { origin: [c[0] + front.x * 3, c[1], c[2] + front.z * 3], direction: [-front.x, 0, -front.z] };
+      if (pickPiece(f.layout, closed, { levelBase, pad: 0.02, frameOf })?.id === id) ghostWith++;
+      if (pickPiece(f.layout, closed, { levelBase, pad: 0.02 })?.id === id) ghostWithout++;
+    }
+  }
+  assert.ok(hung > 20, `${hung} hung pieces`);
+  assert.ok(found >= hung * 0.9, `with the matrix ${found} of ${hung} hung pieces are found where they are drawn`);
+  assert.ok(foundWithout <= hung * 0.2, `without it only ${foundWithout} of ${hung} are (picking in the closed place was the defect)`);
+  assert.ok(ghostWithout >= hung * 0.5, `the closed place answered for ${ghostWithout} of ${hung} before (furniture in front of a wall blocks the rest)`);
+  assert.ok(ghostWith <= hung * 0.1, `and answers for ${ghostWith} now`);
+});
+
+test('a finger that moves along a fallen wall moves the piece by the same distance along the wall, whatever the piece, the plan and the angle of the wall', () => {
+  let checked = 0;
+  for (const [name, plan] of plans) {
+    const f = furnished(plan), ids = adoptAll(f);
+    for (const clock of [1, 0.85]) {
+      settled(f, clock);
+      for (const id of ids) {
+        const g = f.furn.pieces.get(id), host = f.shell.hostOf(id), h = g.userData.size[2], rot = (-g.rotation.y * 180) / Math.PI;
+        const at = (d) => { const p = g.localToWorld(new THREE.Vector3(d, h / 2, 0)); return slidePoint({ origin: [p.x, p.y + 5, p.z], direction: [0, -1, 0] }, host, 0); };
+        const a = at(0), b = at(0.5);
+        if (!a || !b) continue; // a wall that has hardly started to turn is seen edge on from above
+        const along = [Math.cos((rot * Math.PI) / 180) * 0.5, Math.sin((rot * Math.PI) / 180) * 0.5];
+        near(b[0] - a[0], along[0], 1e-6, `${name} ${id} clock ${clock} x`); near(b[1] - a[1], along[1], 1e-6, `${name} ${id} clock ${clock} y`);
+        checked++;
+      }
+    }
+  }
+  assert.ok(checked > 40, `${checked} drags checked`);
 });

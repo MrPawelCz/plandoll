@@ -85,3 +85,27 @@ test('the room outline follows a polygon (also a concave one), hides for bad inp
   o.set([[0, 0], [4, 0], [4, 3]], Infinity); assert.equal(o.visible, false);
   o.hide(); o.dispose();
 });
+
+test('the outline frame gives the outline the matrix of a turned wall and takes it away again', async () => {
+  const THREE = await import('three');
+  const { createOutlineFrame } = await import('../../src/render/outline.js');
+  const o = createOutline(), frame = createOutlineFrame(o);
+  assert.equal(o.group.parent, frame.group, 'the outline rides in the frame');
+  assert.equal(frame.group.matrixAutoUpdate, false);
+  o.set({ x: 2, y: 3, rot: 0, elev: 0.5, size: [1, 0.2, 0.4] }, 0, 'ok');
+  const scene = new THREE.Scene(); scene.add(frame.group);
+  const spot = () => { scene.updateMatrixWorld(true); return o.group.getWorldPosition(new THREE.Vector3()); };
+  const here = spot();
+  assert.ok(Math.abs(here.x - 2) < 1e-9 && Math.abs(here.y - 0.506) < 1e-9 && Math.abs(here.z - 3) < 1e-9, 'no matrix: where the piece stands');
+  const turn = new THREE.Matrix4().makeRotationX(Math.PI / 2).setPosition(0, 0.5, 0);
+  frame.follow(turn.toArray());
+  const moved = spot(), want = new THREE.Vector3(2, 0.506, 3).applyMatrix4(turn);
+  assert.ok(moved.distanceTo(want) < 1e-9, `the outline is where the wall has put it: ${moved.toArray()} vs ${want.toArray()}`);
+  assert.ok(moved.distanceTo(here) > 1, 'and not where it was');
+  frame.follow(null); assert.ok(spot().distanceTo(here) < 1e-9, 'null puts it back');
+  frame.follow(turn.toArray()); frame.follow([1, 2, 3]); assert.ok(spot().distanceTo(here) < 1e-9, 'a matrix that is not valid puts it back');
+  frame.follow(turn.toArray()); frame.follow(new Array(16).fill(NaN)); assert.ok(spot().distanceTo(here) < 1e-9, 'so does one with numbers that are not finite');
+  frame.follow(undefined); assert.ok(spot().distanceTo(here) < 1e-9);
+  frame.dispose(); assert.equal(frame.group.parent, null);
+  o.dispose();
+});

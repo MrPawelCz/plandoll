@@ -2,7 +2,7 @@
 // edit=1 turns the layout editor on (off by default); the pieces stay merged except the one being dragged (merge=0 turns the merging off).
 // The control bar carries the extra buttons (the example plans, the open shell, edit mode, saving the picture, loading a plan); btn=0 hides that row.
 // The button that opens the shell (the outer walls fall outward and lie flat) is on by default and the view is framed for both positions; shell=0 takes
-// the button away and frames the closed model alone. While editing, the shell stays closed and its button is inactive.
+// the button away and frames the closed model alone. The shell works while editing too (its button is the same with edit=1).
 // A bare word is the preset name (so "#amber" works). Pure functions, no DOM: tested in Node.
 import { isPreset, getPreset, DEFAULT_PRESET } from '../look/presets.js';
 import { parseQualityParam } from '../look/quality.js';

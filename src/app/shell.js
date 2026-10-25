@@ -10,17 +10,18 @@ export function isFormTarget(target) {
   return tag === 'input' || tag === 'select' || tag === 'textarea' || target?.isContentEditable === true;
 }
 
-// Whether the page builds the open shell: the button is on (shell=0 takes it away) and the editor is off. The editor needs the closed model (the page reloads
-// into edit mode with the walls up), so while editing the button is inactive and the view is framed for the closed model alone.
+// Whether the page builds the open shell: when its button is on (shell=0 takes it away). The editor does not matter: the shell opens and closes while editing
+// too, and every piece can still be picked, moved and changed with the walls down.
 export function shellOn(params) {
-  return !!params?.shell && !params?.edit;
+  return !!params?.shell;
 }
 
 // What a key press does to the open shell: Space opens a closed shell and closes an open one, Escape closes an open one; 'open', 'close' or null.
 // Keys with Ctrl, Cmd or Alt, keys that land in a form field, and Space on a button or a link (they use it themselves) do nothing. `wantOpen` is true while the
-// shell is open or opening. A key that is held down counts once: the repeats of the system do nothing.
+// shell is open or opening. A key that is held down counts once: the repeats of the system do nothing. A key press that something else already took
+// (e.defaultPrevented: the editor's Escape that clears the selection, a menu or a dialog that closes on Escape) does nothing here, so one Escape never does two things.
 export function shellKey(e, wantOpen) {
-  if (!e || e.repeat || e.ctrlKey || e.metaKey || e.altKey || isFormTarget(e.target)) return null;
+  if (!e || e.repeat || e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey || isFormTarget(e.target)) return null;
   const tag = String(e.target?.tagName ?? '').toLowerCase();
   if (e.key === 'Escape') return wantOpen ? 'close' : null;
   if ((e.key === ' ' || e.code === 'Space') && tag !== 'button' && tag !== 'a') return wantOpen ? 'close' : 'open';

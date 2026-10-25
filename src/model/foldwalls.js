@@ -95,6 +95,13 @@ export function hingeMatrix(f, deg) {
   return [r00, r10, r20, 0, r01, r11, r21, 0, r02, r12, r22, 0, tx, ty, tz, 1];
 }
 
+// The inner face of a folding wall as a vertical plane in the wall's closed place, in world axes (plan y is z): a point on the face and the unit normal, which
+// points away from the rooms. Only the plan matters, so the point's height is 0. Pieces that hang on the wall sit against this plane.
+export function innerFace(f) {
+  const t = f.thickness;
+  return { point: [f.from[0] - f.out[0] * t, 0, f.from[1] - f.out[1] * t], normal: [f.out[0], 0, f.out[1]] };
+}
+
 // The index of the folding wall that a point (plan x, y) on a level hangs on (within half the wall's thickness and a little more), or -1.
 export function hostWall(walls, levelId, x, y) {
   let best = -1, bestD = Infinity;

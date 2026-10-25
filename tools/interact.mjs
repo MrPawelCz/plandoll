@@ -5,9 +5,10 @@
 //                           [--hash "frames=2"] [--out DIR] [--timeout 240] [--settle 12] [--edit] [--quick] [--btn]
 // --desktop uses mouse input and a plain window. --hash is the address hash; empty (the default) is the page exactly as a visitor
 // opens it. --settle is how many seconds to wait for a redraw when the page does not report its frame count (older builds).
-// --edit opens the page with edit=1 and adds the steps of the layout editor (select, drag, turn, undo, redo, delete, automatic layout);
-// without it the page is tested as a visitor sees it and the check is that there is no edit bar.
-// --btn opens the page with btn=1 and tests the extra buttons: the example plans, the open shell, saving the picture (a PNG), the frame hook, the Edit button (with the shell open) and leaving the editor again.
+// --edit opens the page with edit=1 and adds the steps of the layout editor (select, drag, turn, undo, redo, delete, automatic layout), then the same with the
+// shell open (step 10f: a floor piece and a piece that hangs on an outer wall are selected, dragged, turned, recoloured, resized and deleted; Escape clears the
+// selection first and folds the shell second); without it the page is tested as a visitor sees it and the check is that there is no edit bar.
+// --btn opens the page with btn=1 and tests the extra buttons: the example plans, the open shell, saving the picture (a PNG), the frame hook, the Edit button (the page reloads with the shell closed), the shell button while editing and leaving the editor again.
 // --btn also drives the camera on the flat and on the duplex (cameraBlock): on a phone two fingers that move, a pinch about a point, three fingers, a long drag to the limit, one finger turning
 // while moved, the double tap and the touch hint; with the mouse the right and middle button, Shift with the left button, the wheel at the pointer, the nearest zoom and the double click; and the
 // card board (closed, half open, open, closed again, a loaded plan). --edit adds gestures that start on a piece: two or three fingers, the right button and Shift move the picture and no piece.
@@ -81,17 +82,20 @@ async function tap(x, y) {
   }
 }
 // hold: milliseconds to rest before letting go (a slow release does not start the page's inertia, so the turn is exactly what was dragged)
-async function drag(x0, y0, x1, y1, hold = 0) {
+// during: an async function that runs with the pointer still down, after the last move (the state in the middle of a drag)
+async function drag(x0, y0, x1, y1, hold = 0, during = null) {
   const n = 12, at = (k) => [x0 + ((x1 - x0) * k) / n, y0 + ((y1 - y0) * k) / n];
   if (opt.desktop) {
     await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: x0, y: y0 }); await send('Input.dispatchMouseEvent', { type: 'mousePressed', x: x0, y: y0, button: 'left', clickCount: 1 });
     for (let k = 1; k <= n; k++) { const [x, y] = at(k); await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y, button: 'left' }); await sleep(30); }
     if (hold) await sleep(hold);
+    if (during) await during();
     await send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: x1, y: y1, button: 'left', clickCount: 1 });
   } else {
     await send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: x0, y: y0 }] });
     for (let k = 1; k <= n; k++) { const [x, y] = at(k); await send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x, y }] }); await sleep(30); }
     if (hold) await sleep(hold);
+    if (during) await during();
     await send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
   }
 }
@@ -744,6 +748,219 @@ try {
       await tap(14, 14); await sleep(400);
       record('room: a tap outside the plan clears the selection', (await ev('window.__edit.selectedRoomId()')) === null, { selectedRoom: await ev('window.__edit.selectedRoomId()') });
     } else record('room: a tap on the floor picks the room, no piece is selected', false, { error: 'no free floor point found in any room' });
+
+    // 10f. editing with the shell open: the outer walls lie flat and everything the editor does still works, the pieces that hang on the outer walls included.
+    // A floor piece and a wall piece each go through select (the outline is on the piece), drag, turn, undo, redo, colour, size, delete and undo; Escape
+    // clears the selection first and folds the shell second; after the shell closes the layout and the picture are exactly what they were. The edit bar and the panel
+    // are used by touch or mouse like above; the page reports where things are drawn (window.__edit: screenOf, outlineGap, own, hostOf, alongWall).
+    {
+      const shellSel = '#ps-ui button.tool[data-tool="shell"]';
+      const shellNow = async () => JSON.parse(await ev(`JSON.stringify(window.__shell ? { mode: window.__shell.mode, clock: window.__shell.clock, target: window.__shell.target, deg: window.__shell.state().map((w) => Math.round(w.deg)) } : null)`));
+      const gapOf = (pid) => ev(`window.__edit.outlineGap(${JSON.stringify(pid)})`);
+      const ownOf = (pid) => ev(`window.__edit.own(${JSON.stringify(pid)})`);
+      const hostOf = async (pid) => JSON.parse(await ev(`JSON.stringify(window.__edit.hostOf(${JSON.stringify(pid)}))`));
+      const infoOf = (pid) => ev(`(() => { const p = window.__edit.session.pieceById(${JSON.stringify(pid)}); return p ? { x: p.x, y: p.y, rot: p.rot, elev: p.elev, size: p.size, colors: p.colors } : null; })()`);
+      const isOpen = async () => { const s = await shellNow(); return !!s && s.mode === 'open' && s.deg.length > 0 && s.deg.every((d) => Math.abs(d - 90) <= 1); };
+      // On a phone the details of the selected piece stay unfolded after an earlier step opened them, and the open sheet covers the model: fold them (a tap on the header)
+      // so that the piece can be tapped and dragged again.
+      const foldSheet = async () => {
+        if (W > 760) return;
+        const r = await ev(`(() => { const h = [...document.querySelectorAll('.psp-sel-head')].find((x) => x.offsetParent !== null && x.getAttribute('aria-expanded') === 'true'); if (!h) return null; const b = h.getBoundingClientRect(); return { x: b.left + b.width / 2, y: b.top + b.height / 2 }; })()`);
+        if (r) { await tap(r.x, r.y); await sleep(450); }
+      };
+      // a real tap on the piece where it is drawn now; the sheet of a selected piece must not cover it (looked at first, as in the select step above)
+      const tapPiece = async (pid) => {
+        const pt = await ev(`window.__edit.screenOf(${JSON.stringify(pid)})`);
+        if (!inside(pt)) return null;
+        await ev(`window.__edit.session.select(${JSON.stringify(pid)})`); await sleep(350); await foldSheet();
+        const pt2 = await ev(`window.__edit.screenOf(${JSON.stringify(pid)})`), top = pt2 ? await ev(`document.elementFromPoint(${pt2.x}, ${pt2.y})?.tagName ?? null`) : null;
+        await ev('window.__edit.session.select(null)'); await sleep(350);
+        if (top !== 'CANVAS' || !inside(pt2)) return null;
+        await tap(pt2.x, pt2.y); await sleep(350);
+        return (await selected()) === pid ? pt2 : null;
+      };
+      const unfoldSheet = async () => {
+        const r = await ev(`(() => { const h = [...document.querySelectorAll('.psp-sel-head')].find((x) => x.offsetParent !== null && x.getAttribute('aria-expanded') === 'false'); if (!h) return null; h.scrollIntoView({ block: 'center' }); const b = h.getBoundingClientRect(); return { x: b.left + b.width / 2, y: b.top + b.height / 2 }; })()`);
+        if (r) { await tap(r.x, r.y); await sleep(450); }
+      };
+      const tapIn = async (sel) => { const r = await rectOf(sel); if (!r || r.w < 1 || r.h < 1) return false; await tap(r.x + r.w / 2, r.y + r.h / 2); return true; };
+      // the 3D picture alone: the bars, the sheet and the hints are hidden for the capture, so equal bytes mean an equal scene and a difference means the scene changed
+      const scenePicture = async (label) => {
+        await ev(`(() => { const s = document.createElement('style'); s.id = 'ps-hide-bars'; s.textContent = '#ps-ui,#ps-edit,.psp-sheet,.psp-toggle,#ps-hint,#ps-edit-msg,#ps-ui-msg{visibility:hidden !important}'; document.head.appendChild(s); })()`); await sleep(200);
+        const shot = await send('Page.captureScreenshot', { format: 'png', fromSurface: true, clip: { x: 0, y: 0, width: W, height: H, scale: 1 } });
+        await ev(`document.getElementById('ps-hide-bars')?.remove()`);
+        if (out) writeFileSync(join(out, `${label}.png`), Buffer.from(shot.data, 'base64'));
+        return shot.data;
+      };
+      await ev('window.__edit.session.select(null)'); await sleep(300);
+      const layout0 = await layoutJson(), count0 = await count(), picClosed0 = await scenePicture('50-open-edit-closed');
+
+      // 1. the button opens the shell while editing
+      const btnLook = JSON.parse(await ev(`JSON.stringify((() => { const b = document.querySelector(${JSON.stringify(shellSel)}); return b ? { disabled: b.getAttribute('aria-disabled'), title: b.title } : null; })())`));
+      let f10 = await frames();
+      await tapIn(shellSel);
+      const openedOk = await waitFor('window.__shell && window.__shell.mode === "open"', 25);
+      await redrawn(f10); await sleep(500);
+      const picOpen = await scenePicture('51-open-edit-open'), openMsg = await ev(`document.querySelector('#ps-edit-msg')?.textContent ?? ''`);
+      record('edit with the shell open: the shell button opens the shell, every wall lies flat, nothing is dimmed and no message appears', openedOk && (await isOpen()) && !!btnLook && btnLook.disabled !== 'true' && !/Finish editing|Zakończ edycję/.test(`${btnLook.title}${openMsg}`) && picOpen !== picClosed0, { shell: await shellNow(), button: btnLook, message: openMsg, pictureChanged: picOpen !== picClosed0 });
+
+      // 2. the pieces: one on the floor (the largest that can be tapped), one that hangs on an outer wall (a wall that has turned now holds it)
+      const floorCands = JSON.parse(await ev(`JSON.stringify((() => { const out = []; for (const lv of window.__edit.session.state.layout.levels) for (const p of lv.pieces) if (!p.on && p.elev === 0 && p.size[2] > 0.3 && !window.__edit.hostOf(p.id)) out.push({ id: p.id, type: p.type, area: p.size[0] * p.size[1] }); return out.sort((a, b) => b.area - a.area).slice(0, 14); })())`));
+      const wallCands = JSON.parse(await ev(`JSON.stringify((() => { const rank = { curtain: 0, mirror: 1, 'art-large': 2, 'shelf-wall': 3, 'art-small': 4 }; const out = []; for (const lv of window.__edit.session.state.layout.levels) for (const p of lv.pieces) if (window.__edit.hostOf(p.id)) out.push({ id: p.id, type: p.type, wall: window.__edit.hostOf(p.id).wall, rank: rank[p.type] ?? 9 }); return out.sort((a, b) => a.rank - b.rank).slice(0, 30); })())`));
+      let floor = null, wall = null;
+      for (const c of floorCands) { const pt = await tapPiece(c.id); if (pt) { floor = { ...c, pt }; break; } }
+      if (floor) await ev('window.__edit.session.select(null)');
+      for (const c of wallCands) { const pt = await tapPiece(c.id); if (pt) { wall = { ...c, pt }; await ev('window.__edit.session.select(null)'); break; } }
+      await sleep(300);
+      record('edit with the shell open: there is a floor piece and a wall piece that a real tap selects', !!floor && !!wall, { floor: floor && `${floor.id} ${floor.type}`, wall: wall && `${wall.id} ${wall.type} on ${wall.wall}`, wallCandidates: wallCands.length, floorCandidates: floorCands.length });
+
+      // The same steps for each piece. `end` gives the point the finger goes to from the piece: the floor piece 80 px over the floor, the wall piece along its wall.
+      const pass = async (kind, c) => {
+        const id = c.id, N = (s) => `edit with the shell open, ${kind} piece: ${s}`, layoutStart = await layoutJson();
+        // select: the tap puts the outline on the piece
+        let fq = await frames(), picBefore = await scenePicture(`52-${kind}-before`);
+        await tap(c.pt.x, c.pt.y); await sleep(400); await redrawn(fq);
+        const picSel = await scenePicture(`53-${kind}-selected`), gapSel = await gapOf(id);
+        record(N('a tap selects it and the outline is within 4 px of the piece as drawn'), (await selected()) === id && gapSel !== null && gapSel <= 4 && picSel !== picBefore, { piece: `${id} ${c.type}`, outlineGapPx: gapSel, pictureChanged: picSel !== picBefore });
+        if ((await selected()) !== id) return;
+        await foldSheet(); // a phone: the sheet must not cover the piece when the finger goes down on it again
+
+        // drag: the piece moves (the floor piece over the floor, the wall piece along its wall), stays drawn as an object of its own while it moves, and the outline follows
+        const attempt = async (d) => {
+          const p0 = await infoOf(id), s0 = await ev(`window.__edit.screenOf(${JSON.stringify(id)})`), h0 = await hostOf(id);
+          const e1 = kind === 'floor' ? { x: Math.min(W - 12, s0.x + 80), y: Math.min(area - 6, s0.y + 30) } : await ev(`window.__edit.alongWall(${JSON.stringify(id)}, ${d})`);
+          let mid = null;
+          fq = await frames();
+          await drag(s0.x, s0.y, e1.x, e1.y, 0, async () => { mid = { own: await ownOf(id), gap: await gapOf(id), picture: await scenePicture(`54-${kind}-mid-drag`) }; });
+          await sleep(350); await redrawn(fq);
+          const p1 = await infoOf(id), h1 = await hostOf(id), s1 = await ev(`window.__edit.screenOf(${JSON.stringify(id)})`);
+          return { p0, p1, h0, h1, s1, e1, mid, d };
+        };
+        const layoutBeforeMove = await layoutJson();
+        let a = await attempt(0.8);
+        if (kind === 'wall' && Math.hypot(a.p1.x - a.p0.x, a.p1.y - a.p0.y) < 0.4) { // the wall ends there: go the other way (a drag that changed nothing left no undo step)
+          if ((await layoutJson()) !== layoutBeforeMove) { await click('undo'); await sleep(350); }
+          a = await attempt(-0.8);
+        }
+        const moved = Math.hypot(a.p1.x - a.p0.x, a.p1.y - a.p0.y), picDrag = await scenePicture(`55-${kind}-dragged`), gapDrag = await gapOf(id);
+        const ang = ((a.p0.rot ?? 0) * Math.PI) / 180, across = Math.abs(-(a.p1.x - a.p0.x) * Math.sin(ang) + (a.p1.y - a.p0.y) * Math.cos(ang)); // the part of the move across the width axis of the piece (along its front)
+        const okMove = kind === 'floor' ? moved > 0.1 : moved > 0.3 && moved < 1.4 && across < 0.08 && !!a.h0 && !!a.h1 && a.h0.wall === a.h1.wall && Math.abs(a.p1.elev - a.p0.elev) < 1e-9 && a.p1.rot === a.p0.rot;
+        record(N('a drag moves it (a wall piece along its wall), it stays drawn while it moves and the outline stays on it'), okMove && a.mid?.own === true && a.mid.gap !== null && a.mid.gap <= 4 && gapDrag !== null && gapDrag <= 4 && picDrag !== picSel && (await selected()) === id && (await shellNow()).mode === 'open',
+          { moved: `${moved.toFixed(2)} m`, acrossWall: +across.toFixed(3), from: `${a.p0.x.toFixed(2)},${a.p0.y.toFixed(2)}`, to: `${a.p1.x.toFixed(2)},${a.p1.y.toFixed(2)}`, wall: a.h1?.wall ?? null, ownInMiddle: a.mid?.own, outlineGapMiddlePx: a.mid?.gap, outlineGapAfterPx: gapDrag, endsAt: { fingerEnd: [Math.round(a.e1.x), Math.round(a.e1.y)], pieceNow: [Math.round(a.s1.x), Math.round(a.s1.y)] }, pictureChanged: picDrag !== picSel });
+
+        // turn, undo, redo
+        const r0 = await infoOf(id); fq = await frames();
+        await click('turn'); await sleep(350); await redrawn(fq);
+        const r1 = await infoOf(id), gapTurn = await gapOf(id), picTurn = await scenePicture(`56-${kind}-turned`);
+        await click('undo'); await sleep(350);
+        const r2 = await infoOf(id);
+        await click('redo'); await sleep(350);
+        const r3 = await infoOf(id), gapRedo = await gapOf(id);
+        const dRot = (((r1.rot - r0.rot) % 360) + 360) % 360;
+        record(N('turn, undo and redo work and the outline stays on the piece'), Math.abs(dRot - 90) < 1 && r2.rot === r0.rot && r3.rot === r1.rot && gapTurn !== null && gapTurn <= 4 && gapRedo !== null && gapRedo <= 4 && picTurn !== picDrag, { rot: `${r0.rot} -> ${r1.rot}, undo ${r2.rot}, redo ${r3.rot}`, outlineGapPx: [gapTurn, gapRedo], pictureChanged: picTurn !== picDrag });
+        await click('undo'); await sleep(300);
+
+        // colour through the panel: a swatch recolours a slot (undo and redo)
+        await unfoldSheet();
+        const sw = await ev(`(() => { const b = [...document.querySelectorAll('.psp-sw')].find((x) => x.getAttribute('aria-pressed') !== 'true' && x.offsetParent !== null); return b ? { slot: b.dataset.slot, color: b.dataset.color } : null; })()`);
+        const picPre = await scenePicture(`57-${kind}-before-colour`), col0 = (await infoOf(id)).colors ?? {};
+        let colOk = false, picCol = picPre, col1 = null;
+        if (sw) {
+          const q = `.psp-sw[data-slot="${sw.slot}"][data-color="${sw.color}"]`;
+          await ev(`document.querySelector(${JSON.stringify(q)})?.scrollIntoView({ block: 'center' })`); await sleep(250);
+          fq = await frames(); await tapIn(q); await sleep(600); await redrawn(fq);
+          col1 = (await infoOf(id)).colors ?? {}; picCol = await scenePicture(`58-${kind}-coloured`);
+          await undoApi(); await sleep(250); const col2 = (await infoOf(id)).colors ?? {};
+          await redoApi(); await sleep(250); const col3 = (await infoOf(id)).colors ?? {};
+          colOk = String(col1[sw.slot] ?? '').toLowerCase() === String(sw.color).toLowerCase() && JSON.stringify(col2) === JSON.stringify(col0) && JSON.stringify(col3) === JSON.stringify(col1);
+        }
+        const gapCol = await gapOf(id);
+        record(N('a colour swatch recolours it and the picture changes (undo and redo)'), colOk && picCol !== picPre && gapCol !== null && gapCol <= 4 && (await selected()) === id, { swatch: sw, outlineGapPx: gapCol, pictureChanged: picCol !== picPre });
+        await undoApi(); await sleep(300);
+
+        // size through the panel, where the piece has a range (undo and redo)
+        await unfoldSheet();
+        const field = await ev(`(() => { const i = document.querySelector('.psp-num'); return i && i.offsetParent !== null ? { axis: i.dataset.axis, min: Number(i.min), max: Number(i.max), value: Number(i.value) } : null; })()`);
+        if (field) {
+          const idx = { w: 0, d: 1, h: 2 }[field.axis], span = field.max - field.min, want = Math.round(field.value + (field.max - field.value >= field.value - field.min ? 1 : -1) * Math.max(2, span / 4));
+          const sizeNow = async () => (await infoOf(id)).size[idx];
+          const s0 = await sizeNow();
+          await ev(`(() => { const i = document.querySelector('.psp-num[data-axis="${field.axis}"]'); i.scrollIntoView({ block: 'center' }); i.value = '${want}'; i.dispatchEvent(new Event('change', { bubbles: true })); })()`); await sleep(600);
+          const s1 = await sizeNow(), gapSize = await gapOf(id); await undoApi(); await sleep(250); const s2 = await sizeNow(); await redoApi(); await sleep(250); const s3 = await sizeNow();
+          record(N('a size field changes the size within its range and the outline follows (undo and redo)'), Math.abs(s1 * 100 - want) < 1.01 && Math.abs(s2 - s0) < 1e-9 && Math.abs(s3 - s1) < 1e-9 && gapSize !== null && gapSize <= 4, { axis: field.axis, range: `${field.min}..${field.max} cm`, typed: want, kept: +(s1 * 100).toFixed(1), undo: +(s2 * 100).toFixed(1), redo: +(s3 * 100).toFixed(1), outlineGapPx: gapSize });
+          await undoApi(); await sleep(300);
+        } else record(N('a size field changes the size within its range and the outline follows (undo and redo)'), true, { note: `${c.type} has no size range` });
+
+        // delete and undo
+        const n0 = await count(); fq = await frames();
+        await click('remove'); await sleep(400); await redrawn(fq);
+        const n1 = await count(), selAfter = await selected(), hostGone = await hostOf(id), picDel = await scenePicture(`59-${kind}-deleted`), outlineHidden = await gapOf(id);
+        await click('undo'); await sleep(450);
+        const n2 = await count(), hostBack = await hostOf(id);
+        record(N('delete removes it and clears the outline, undo brings it back where it was'), n1 < n0 && selAfter === null && hostGone === null && outlineHidden === null && n2 === n0 && (kind === 'floor' || !!hostBack) && picDel !== picTurn, { count: `${n0} -> ${n1} -> ${n2}`, selectedAfter: selAfter, wallAfterUndo: hostBack?.wall ?? null, pictureChanged: picDel !== picTurn });
+        // the move at the start of the pass is the only change left: one undo brings the layout back to what it was before the pass
+        await click('undo'); await sleep(450);
+        record(N('undoing the move leaves the layout exactly as it was before the pass'), (await layoutJson()) === layoutStart, { count: await count() });
+        await ev('window.__edit.session.select(null)'); await sleep(300);
+      };
+      if (floor) await pass('floor', floor); else record('edit with the shell open, floor piece: select, drag, turn, colour, size, delete', false, { error: 'no floor piece could be tapped' });
+      if (wall) await pass('wall', wall); else record('edit with the shell open, wall piece: select, drag, turn, colour, size, delete', false, { error: 'no piece hanging on an outer wall could be tapped (the shell is open)' });
+
+      // 2b. a wall piece stays outlined while the walls move: with it selected, Space folds the shell and Space opens it again; the outline is on the piece in every sample
+      if (wall) {
+        await ev(`window.__edit.session.select(${JSON.stringify(wall.id)})`); await sleep(400);
+        const follow = async (want) => {
+          await ev('document.activeElement?.blur?.()');
+          await key(' ', 'Space', 32, 0, ' ');
+          const gaps = [], clocks = [], end = Date.now() + 12000;
+          while (Date.now() < end) {
+            const s = await shellNow(), g = await gapOf(wall.id);
+            clocks.push(s.clock); if (g !== null) gaps.push(g);
+            if (s.mode === want) break;
+            await sleep(60);
+          }
+          await sleep(300);
+          return { gaps, clocks, final: await shellNow() };
+        };
+        const closing = await follow('closed'), opening = await follow('open');
+        const midOf = (r) => r.clocks.filter((c) => c > 0.05 && c < 0.95).length, worst = Math.max(...closing.gaps, ...opening.gaps);
+        record('edit with the shell open: the outline of a wall piece stays on it while the walls fold and unfold', closing.final.mode === 'closed' && opening.final.mode === 'open' && midOf(closing) >= 3 && midOf(opening) >= 3 && worst <= 4 && (await selected()) === wall.id, { samples: [closing.gaps.length, opening.gaps.length], samplesWhileMoving: [midOf(closing), midOf(opening)], worstGapPx: worst });
+        await ev('window.__edit.session.select(null)'); await sleep(300);
+      }
+
+      // 3. Escape: the first press clears the selection and leaves the shell open, the next one folds the shell
+      const escId = (floor ?? wall)?.id;
+      if (escId) {
+        await ev(`window.__edit.session.select(${JSON.stringify(escId)})`); await sleep(400);
+        const sel0 = await selected(), openBefore = await isOpen();
+        await key('Escape', 'Escape', 27); await sleep(700);
+        const sel1 = await selected(), mid1 = await shellNow(); await sleep(1200); const mid2 = await shellNow();
+        record('edit with the shell open: the first Escape clears the selection and leaves the shell open', sel0 === escId && openBefore && sel1 === null && mid1.target === 1 && mid1.mode === 'open' && mid2.mode === 'open' && mid2.clock === 1, { selectedBefore: sel0, selectedAfter: sel1, shellAfterOneEscape: mid1, shellLater: mid2 });
+        f10 = await frames();
+        await key('Escape', 'Escape', 27);
+        const folding = await waitFor('window.__shell.target === 0', 5), closedOk = await waitFor('window.__shell.mode === "closed"', 25);
+        await redrawn(f10); await sleep(500);
+        const st = await shellNow(), picAfter = await scenePicture('60-open-edit-closed-again');
+        record('edit with the shell open: with nothing selected the next Escape folds the shell, the layout is as it was and the picture is the closed picture of before', folding && closedOk && st.deg.every((d) => d === 0) && (await layoutJson()) === layout0 && (await count()) === count0 && picAfter === picClosed0 && (await selected()) === null, { shell: st, layoutSame: (await layoutJson()) === layout0, pictureSameAsBefore: picAfter === picClosed0 });
+      }
+
+      // 4. an edit made with the shell open is kept when it closes: the piece is where it was left, the layout does not change, the outline is on the piece
+      if (floor) {
+        await tapIn(shellSel); await waitFor('window.__shell.mode === "open"', 25); await sleep(600);
+        const pt = await ev(`window.__edit.screenOf(${JSON.stringify(floor.id)})`), p0 = await infoOf(floor.id);
+        if (pt && inside(pt) && (await tapPiece(floor.id))) {
+          const s = await ev(`window.__edit.screenOf(${JSON.stringify(floor.id)})`); f10 = await frames();
+          await drag(s.x, s.y, Math.min(W - 12, s.x + 70), Math.min(area - 6, s.y + 25)); await sleep(350); await redrawn(f10);
+          const p1 = await infoOf(floor.id), layoutEdited = await layoutJson();
+          await tapIn(shellSel); const closed2 = await waitFor('window.__shell.mode === "closed"', 25); await sleep(500);
+          const p2 = await infoOf(floor.id), gapClosed = await gapOf(floor.id), picEdited = await scenePicture('61-edited-closed');
+          record('edit with the shell open: after the shell closes the moved piece stays where it was left, the layout is unchanged and the outline is on the piece', closed2 && Math.hypot(p1.x - p0.x, p1.y - p0.y) > 0.1 && p2.x === p1.x && p2.y === p1.y && (await layoutJson()) === layoutEdited && gapClosed !== null && gapClosed <= 4 && picEdited !== picClosed0, { moved: `${Math.hypot(p1.x - p0.x, p1.y - p0.y).toFixed(2)} m`, outlineGapPx: gapClosed, pictureChanged: picEdited !== picClosed0 });
+          await click('undo'); await sleep(400);
+          await ev('window.__edit.session.select(null)'); await sleep(500);
+          record('edit with the shell open: undoing the move brings the first layout and the first picture back exactly', (await layoutJson()) === layout0 && (await scenePicture('62-undone-closed')) === picClosed0, {});
+        } else record('edit with the shell open: after the shell closes the moved piece stays where it was left, the layout is unchanged and the outline is on the piece', false, { error: 'the floor piece could not be tapped again' });
+      }
+    }
   }
 
   // 10d. the extra buttons (--btn): saving the picture, the frame hook, the Edit button and leaving the editor again
@@ -818,7 +1035,7 @@ try {
       record('frame hook: one frame per call, two views, nothing drawn at rest', a.frames === 1 && b2.frames === 1 && a.drawCalls > 0 && picA !== picB && g2 === g1 && bad.frames === 1 && canvas.w === 320 && canvas.h === 180, { first: a, second: b2, framesAtRest: g2 - g1, pictureChanged: picA !== picB, afterBadInput: bad, canvas });
     } else record('frame hook: one frame per call, two views, nothing drawn at rest', false, { error: 'window.__frame is missing' });
 
-    // the shell is opened once more and left open on purpose: the Edit button below must reload into a closed shell
+    // the shell is opened once more and left open on purpose: the Edit button below reloads the page, which starts with the shell closed
     await tapAt(shellSel); await waitFor('window.__shell.mode === "open"', 20); await sleep(300);
 
     // the Edit button turns the editor on (the page reloads with edit=1) and Done leaves it; unsaved changes need a second tap
@@ -828,15 +1045,20 @@ try {
     await sleep(800);
     const label1 = await ev(`document.querySelector(${JSON.stringify(editSel)})?.textContent ?? null`), btn1 = await rectOf(editSel), bar1 = await rectOf('#ps-edit'), ui1 = await rectOf('#ps-ui');
     await picture('33-edit-entered');
-    const shellGone = (await ev('typeof window.__shell')) === 'undefined';
+    const shellAfter = JSON.parse(await ev(`JSON.stringify(typeof window.__shell === 'object' ? { mode: window.__shell.mode, clock: window.__shell.clock, deg: window.__shell.state().map((w) => Math.round(w.deg)) } : null)`));
     record('Edit button opens the editor and turns into Done', entered && !!bar1 && !!btn1 && btn1.h >= 43.5 && btn1.x >= -1 && btn1.x + btn1.w <= W + 1 && /Done|Zakończ/.test(label1 ?? ''), { label: label1, button: btn1, hash: await ev('location.hash'), uiBar: ui1 });
-    record('Edit with the shell open reloads into a closed shell', entered && shellGone, { shellApi: await ev('typeof window.__shell') });
+    record('Edit from the open shell reloads the page, which starts with the shell closed and its API there', entered && !!shellAfter && shellAfter.mode === 'closed' && shellAfter.clock === 0 && shellAfter.deg.every((d) => d === 0), { shell: shellAfter });
     if (entered) {
-      // while editing the shell stays closed: its button is dimmed, a tap says why, and there is no shell to open
+      // while editing the shell button works as outside the editor: not dimmed, no hint to finish editing, a tap opens the shell and the next tap folds it, with no message
       const shBtn = JSON.parse(await ev(`JSON.stringify((() => { const b = document.querySelector(${JSON.stringify(shellSel)}); if (!b) return null; const r = b.getBoundingClientRect(); return { disabled: b.getAttribute('aria-disabled'), title: b.title, shown: r.width > 0 && getComputedStyle(b).display !== 'none', api: typeof window.__shell }; })())`));
-      await tapAt(shellSel); await sleep(500);
+      const picE0 = await picture('33b-edit-shell-closed');
+      await tapAt(shellSel);
+      const openedEdit = await waitFor('window.__shell.mode === "open"', 25); await sleep(400);
+      const degE = JSON.parse(await ev('JSON.stringify(window.__shell.state().map((w) => Math.round(w.deg)))')), picE1 = await picture('33c-edit-shell-open');
       const shMsg = await ev(`document.querySelector('#ps-edit-msg')?.textContent ?? ''`);
-      record('editing: the shell button is dimmed, a tap says why and nothing opens', !!shBtn && shBtn.shown && shBtn.disabled === 'true' && shBtn.api === 'undefined' && /Finish editing|Zakończ edycję/.test(shMsg) && !(await ev('window.__fail')), { button: shBtn, message: shMsg });
+      await tapAt(shellSel);
+      const closedEdit = await waitFor('window.__shell.mode === "closed"', 25); await sleep(400);
+      record('editing: the shell button is active, a tap opens the shell and the next one folds it, and nothing tells the person to finish editing', !!shBtn && shBtn.shown && shBtn.disabled !== 'true' && shBtn.api === 'object' && !/Finish editing|Zakończ edycję/.test(`${shBtn.title}${shMsg}`) && openedEdit && degE.length > 0 && degE.every((d) => Math.abs(d - 90) <= 1) && closedEdit && picE1 !== picE0 && !(await ev('window.__fail')), { button: shBtn, message: shMsg, opened: openedEdit, closed: closedEdit, pictureChanged: picE1 !== picE0 });
       const firstId = await ev('window.__edit.session.state.layout.levels[0].pieces[0].id');
       await ev(`window.__edit.session.select(${JSON.stringify(firstId)}); window.__edit.session.turn(90)`); await sleep(400);
       await tapAt(editSel); await sleep(700);
@@ -853,7 +1075,7 @@ try {
 
   // 10e. Load plan: the text of another plan goes into the dialog and the page builds the new model without reloading; a bad text gives a message and changes nothing
   {
-    const planText = readFileSync(new URL('../examples/duplex-1.plan.json', import.meta.url), 'utf8');
+    let planText = null; // the other example than the one on show: the duplex over the flat, the flat over the duplex (a run started with plan=duplex-1)
     const openLoad = async () => {
       if (opt.edit) { await tapAt('#ps-edit button[data-edit="more"]'); await sleep(300); await tapAt('#ps-edit-menu button[data-edit-item="plan"]'); }
       else await tapAt('#ps-ui button.tool[data-tool="loadPlan"]');
@@ -866,6 +1088,7 @@ try {
     const infoNow = async () => JSON.parse(await ev('JSON.stringify(window.__planInfo ? window.__planInfo() : null)'));
     const lineNow = () => ev(`(document.querySelector('#ps-edit-msg') ?? document.querySelector('#ps-ui-msg'))?.textContent ?? ''`);
     const before = await infoNow(), picBefore = await picture('40-plan-before');
+    planText = readFileSync(new URL(before?.levels === 2 ? '../examples/flat-1.plan.json' : '../examples/duplex-1.plan.json', import.meta.url), 'utf8');
     const opened = await openLoad();
     const dialog = await ev(`JSON.stringify({ title: document.querySelector('#ps-files-title')?.textContent ?? null, pick: !!document.querySelector('#ps-files-overlay .ps-files-pick') })`);
     await picture('41-plan-dialog');

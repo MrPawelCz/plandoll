@@ -8,12 +8,12 @@ import { PLAN_NAMES } from './params.js';
 const STR = {
   en: { time: 'Time of day', quality: 'Image quality', auto: 'Auto', high: 'High', medium: 'Medium', low: 'Low', lang: 'PL', reset: 'Reset view', resetTitle: 'Back to the starting view', hint: 'Drag to turn',
     edit: 'Edit', editDone: 'Done', editTitle: 'Edit the furniture layout', editDoneTitle: 'Leave the layout editor', saveImage: 'Save image', saveImageTitle: 'Save the current view as a PNG picture', loadPlan: 'Load plan', loadPlanTitle: 'Replace the plan with one of your own (a file or pasted text)',
-    shell: 'Open the shell', shellClose: 'Close the shell', shellTitle: 'Let the outer walls fall open round the plan (Space or Esc folds them back)', shellCloseTitle: 'Fold the outer walls back up', shellEditing: 'Finish editing to open the shell',
+    shell: 'Open the shell', shellClose: 'Close the shell', shellTitle: 'Let the outer walls fall open round the plan (Space or Esc folds them back)', shellCloseTitle: 'Fold the outer walls back up',
     plans: 'Example plans', 'flat-1': 'Flat', 'flat-1Title': 'Show the example flat: one floor, five rooms', 'duplex-1': 'Duplex', 'duplex-1Title': 'Show the example duplex: two floors joined by a stair',
     qualityHelp: 'High: sharper picture, soft accurate shadows, darker corners, a glow round the lamps, blurred top and bottom of the frame, shine and film grain; slower and uses more battery. Medium: in between. Low: faster and lighter on the battery, with fewer effects. Auto picks a level for your device.' },
   pl: { time: 'Pora dnia', quality: 'Jakość obrazu', auto: 'Auto', high: 'Wysoka', medium: 'Średnia', low: 'Niska', lang: 'EN', reset: 'Reset widoku', resetTitle: 'Wróć do widoku początkowego', hint: 'Przeciągnij, żeby obrócić',
     edit: 'Edytuj', editDone: 'Zakończ edycję', editTitle: 'Edytuj układ mebli', editDoneTitle: 'Zamknij edytor układu', saveImage: 'Zapisz obraz', saveImageTitle: 'Zapisz bieżący widok jako obraz PNG', loadPlan: 'Wczytaj plan', loadPlanTitle: 'Zastąp plan własnym (plik albo wklejony tekst)',
-    shell: 'Otwórz bryłę', shellClose: 'Złóż bryłę', shellTitle: 'Rozłóż ściany zewnętrzne wokół rzutu (spacja albo Esc składa je z powrotem)', shellCloseTitle: 'Złóż ściany zewnętrzne z powrotem', shellEditing: 'Zakończ edycję, żeby otworzyć bryłę',
+    shell: 'Otwórz bryłę', shellClose: 'Złóż bryłę', shellTitle: 'Rozłóż ściany zewnętrzne wokół rzutu (spacja albo Esc składa je z powrotem)', shellCloseTitle: 'Złóż ściany zewnętrzne z powrotem',
     plans: 'Przykładowe plany', 'flat-1': 'Mieszkanie', 'flat-1Title': 'Pokaż przykładowe mieszkanie: jedno piętro, pięć pomieszczeń', 'duplex-1': 'Dupleks', 'duplex-1Title': 'Pokaż przykładowy dupleks: dwa piętra połączone schodami',
     qualityHelp: 'Wysoka: ostrzejszy obraz, miękkie dokładne cienie, ciemnienie w narożnikach, poświata lamp, rozmycie góry i dołu kadru, połysk i ziarno; działa wolniej i zużywa więcej baterii. Średnia: pośrodku. Niska: szybciej i oszczędniej, mniej efektów. Auto dobiera poziom do urządzenia.' },
 };
@@ -71,7 +71,6 @@ const CSS = `
 @media (min-width:1381px){#ps-ui.has-tools{flex-wrap:wrap;justify-content:center}#ps-ui.has-tools .tools{flex-basis:100%}#ps-ui.has-tools .sep{display:none}}
 #ps-ui .plans{display:flex;gap:6px}
 #ps-ui button.tool[aria-pressed=true]{background:#fffaf0;box-shadow:0 2px 8px rgba(70,48,20,.14)}
-#ps-ui button.tool[aria-disabled=true]{opacity:.45;cursor:default}
 @media (max-width:760px){#ps-ui{flex-wrap:wrap;justify-content:center;gap:8px}#ps-ui label.time{min-width:100%}#ps-ui label.quality{flex-direction:column;align-items:flex-start;gap:2px}#ps-ui select{padding:4px 6px}}
 @media (max-width:760px),(pointer:coarse){#ps-ui button.mood{min-height:44px;box-sizing:border-box}#ps-ui select{min-height:44px;box-sizing:border-box}#ps-ui button.reset,#ps-ui button.lang{min-height:44px;min-width:44px;box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center}}
 @media (max-width:760px){#ps-ui.editing label.quality,#ps-ui.editing .sep{display:none}}
@@ -118,8 +117,8 @@ export function showErrorCard(detail = '', doc = document) {
 
 // state: { preset, t, q ('auto' or a level), autoLevel (what Auto picks here, shown beside Auto; the level in use when missing), level, lang };
 // handlers: { onPreset(name), onTime(t), onQuality(q), onLang(lang), onReset(), onEdit(), onSaveImage(), onLoadPlan(), onPlan(name), onShell() }; the returned object has hideHint() for the first-visit hint and say(text) for one short result line.
-// state.tools shows the extra buttons (the example plans, the open shell, edit mode, save the picture, load a plan; hidden by btn=0 in the address); state.editing turns the edit button into "Done", hides the others
-// and dims the shell button (the shell stays closed while editing). state.plan names the example on show (null: none), state.shell adds the shell button, state.shellOpen says it is open.
+// state.tools shows the extra buttons (the example plans, the open shell, edit mode, save the picture, load a plan; hidden by btn=0 in the address); state.editing turns the edit button into "Done" and hides
+// the example plans, Save image and Load plan (the shell button stays and works). state.plan names the example on show (null: none), state.shell adds the shell button, state.shellOpen says it is open.
 export function createUI(handlers, state, doc = document) {
   injectStyles(doc);
   const root = doc.createElement('div'); root.id = 'ps-ui';
@@ -194,10 +193,9 @@ export function createUI(handlers, state, doc = document) {
     toolBtns.saveImage.style.display = state.editing ? 'none' : '';
     toolBtns.loadPlan.textContent = L.loadPlan; toolBtns.loadPlan.title = L.loadPlanTitle; toolBtns.loadPlan.setAttribute('aria-label', L.loadPlanTitle);
     toolBtns.loadPlan.style.display = state.editing ? 'none' : '';
-    if (toolBtns.shell) { // the button of the open shell: its word and its hint follow the state; while editing it is dimmed and its hint says why
+    if (toolBtns.shell) { // the button of the open shell: its word and its hint follow the state (it works the same while editing)
       const open = !!state.shellOpen, label = open ? L.shellClose : L.shell;
-      toolBtns.shell.textContent = label; toolBtns.shell.title = state.editing ? L.shellEditing : open ? L.shellCloseTitle : L.shellTitle; toolBtns.shell.setAttribute('aria-label', label);
-      toolBtns.shell.setAttribute('aria-disabled', String(!!state.editing));
+      toolBtns.shell.textContent = label; toolBtns.shell.title = open ? L.shellCloseTitle : L.shellTitle; toolBtns.shell.setAttribute('aria-label', label);
     }
     plans.setAttribute('aria-label', L.plans); plans.style.display = state.editing ? 'none' : '';
     for (const name of PLAN_NAMES) {

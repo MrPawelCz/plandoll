@@ -67,10 +67,10 @@ test('startState: the example on show, and whether the open-shell button is ther
   assert.equal(of('').shellOpen, false);
 });
 
-test('shellOn: the shell opens when its button is on and the editor is off', () => {
+test('shellOn: the shell opens when its button is on, whether the editor is on or not', () => {
   const of = (hash) => shellOn(parseParams(hash, {}));
   assert.equal(of(''), true, 'on by default'); assert.equal(of('#shell=0'), false); assert.equal(of('#shell=1'), true);
-  assert.equal(of('#edit=1'), false, 'the editor needs the closed model'); assert.equal(of('#edit=1&shell=0'), false); assert.equal(of('#edit=0'), true);
+  assert.equal(of('#edit=1'), true, 'the editor works with the shell open'); assert.equal(of('#edit=1&shell=0'), false, 'shell=0 takes it away while editing too'); assert.equal(of('#edit=0'), true);
   assert.equal(shellOn(undefined), false); assert.equal(shellOn({}), false);
 });
 

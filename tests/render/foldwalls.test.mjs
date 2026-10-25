@@ -6,7 +6,7 @@ import { readFileSync } from 'node:fs';
 import { analyzePlan, modelOf } from '../../src/core/validate.js';
 import { buildModel, modelExtent } from '../../src/model/geometry.js';
 import { pointInPolygon } from '../../src/core/geom2d.js';
-import { foldWalls, outwardNormal, flatFootprint, openExtent, hingeMatrix, hostWall, FOLD_KIND } from '../../src/model/foldwalls.js';
+import { foldWalls, outwardNormal, flatFootprint, openExtent, hingeMatrix, hostWall, innerFace, FOLD_KIND } from '../../src/model/foldwalls.js';
 import { generatePlan } from '../../tools/gen-plans.mjs';
 
 const example = (name) => JSON.parse(readFileSync(new URL(`../../examples/${name}.plan.json`, import.meta.url), 'utf8'));
@@ -112,4 +112,22 @@ test('hostWall names the outer wall that a hung piece hangs on, and nothing for 
   }
   assert.ok(hung >= 3);
   assert.equal(hostWall(walls, 'no-such-level', 1, 1), -1); assert.equal(hostWall([], 'a', 0, 0), -1);
+});
+
+test('innerFace is the vertical plane of the face that looks into the rooms: one wall thickness inside the outer face line, normal pointing out, in every plan', () => {
+  let n = 0;
+  for (const [name, model] of models) for (const f of foldWalls(model)) {
+    const face = innerFace(f);
+    assert.equal(face.point[1], 0, `${name} ${f.id}: only the plan matters`); assert.equal(face.normal[1], 0);
+    near(Math.hypot(...face.normal), 1, 1e-9, `${name} ${f.id} unit normal`);
+    assert.deepEqual([face.normal[0], face.normal[2]], f.out);
+    // the outer face line is f.from to f.to; the inner face is one thickness behind it
+    near((face.point[0] - f.from[0]) * f.out[0] + (face.point[2] - f.from[1]) * f.out[1], -f.thickness, 1e-9, `${name} ${f.id} one thickness inside`);
+    near((face.point[0] - f.from[0]) * f.dir[0] + (face.point[2] - f.from[1]) * f.dir[1], 0, 1e-9, `${name} ${f.id} straight behind the end of the face`);
+    // the middle of the wall is between the two faces, and a point in a room next to the wall is on the inner side
+    const mid = [(f.from[0] + f.to[0]) / 2 - f.out[0] * f.thickness / 2, (f.from[1] + f.to[1]) / 2 - f.out[1] * f.thickness / 2];
+    near((mid[0] - face.point[0]) * face.normal[0] + (mid[1] - face.point[2]) * face.normal[2], f.thickness / 2, 1e-9, `${name} ${f.id} the middle line of the wall`);
+    n++;
+  }
+  assert.ok(n >= 40, `${n} walls`);
 });
