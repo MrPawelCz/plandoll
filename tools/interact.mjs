@@ -530,11 +530,18 @@ try {
       const hostOf = async (pid) => JSON.parse(await ev(`JSON.stringify(window.__edit.hostOf(${JSON.stringify(pid)}))`));
       const infoOf = (pid) => ev(`(() => { const p = window.__edit.session.pieceById(${JSON.stringify(pid)}); return p ? { x: p.x, y: p.y, rot: p.rot, elev: p.elev, size: p.size, colors: p.colors } : null; })()`);
       const isOpen = async () => { const s = await shellNow(); return !!s && s.mode === 'open' && s.deg.length > 0 && s.deg.every((d) => Math.abs(d - 90) <= 1); };
+      // On a phone the details of the selected piece stay unfolded after an earlier step opened them, and the open sheet covers the model: fold them (a tap on the header)
+      // so that the piece can be tapped and dragged again.
+      const foldSheet = async () => {
+        if (W > 760) return;
+        const r = await ev(`(() => { const h = [...document.querySelectorAll('.psp-sel-head')].find((x) => x.offsetParent !== null && x.getAttribute('aria-expanded') === 'true'); if (!h) return null; const b = h.getBoundingClientRect(); return { x: b.left + b.width / 2, y: b.top + b.height / 2 }; })()`);
+        if (r) { await tap(r.x, r.y); await sleep(450); }
+      };
       // a real tap on the piece where it is drawn now; the sheet of a selected piece must not cover it (looked at first, as in the select step above)
       const tapPiece = async (pid) => {
         const pt = await ev(`window.__edit.screenOf(${JSON.stringify(pid)})`);
         if (!inside(pt)) return null;
-        await ev(`window.__edit.session.select(${JSON.stringify(pid)})`); await sleep(350);
+        await ev(`window.__edit.session.select(${JSON.stringify(pid)})`); await sleep(350); await foldSheet();
         const pt2 = await ev(`window.__edit.screenOf(${JSON.stringify(pid)})`), top = pt2 ? await ev(`document.elementFromPoint(${pt2.x}, ${pt2.y})?.tagName ?? null`) : null;
         await ev('window.__edit.session.select(null)'); await sleep(350);
         if (top !== 'CANVAS' || !inside(pt2)) return null;
@@ -585,6 +592,7 @@ try {
         const picSel = await scenePicture(`53-${kind}-selected`), gapSel = await gapOf(id);
         record(N('a tap selects it and the outline is within 4 px of the piece as drawn'), (await selected()) === id && gapSel !== null && gapSel <= 4 && picSel !== picBefore, { piece: `${id} ${c.type}`, outlineGapPx: gapSel, pictureChanged: picSel !== picBefore });
         if ((await selected()) !== id) return;
+        await foldSheet(); // a phone: the sheet must not cover the piece when the finger goes down on it again
 
         // drag: the piece moves (the floor piece over the floor, the wall piece along its wall), stays drawn as an object of its own while it moves, and the outline follows
         const attempt = async (d) => {
@@ -816,7 +824,7 @@ try {
 
   // 10e. Load plan: the text of another plan goes into the dialog and the page builds the new model without reloading; a bad text gives a message and changes nothing
   {
-    const planText = readFileSync(new URL('../examples/duplex-1.plan.json', import.meta.url), 'utf8');
+    let planText = null; // the other example than the one on show: the duplex over the flat, the flat over the duplex (a run started with plan=duplex-1)
     const openLoad = async () => {
       if (opt.edit) { await tapAt('#ps-edit button[data-edit="more"]'); await sleep(300); await tapAt('#ps-edit-menu button[data-edit-item="plan"]'); }
       else await tapAt('#ps-ui button.tool[data-tool="loadPlan"]');
@@ -829,6 +837,7 @@ try {
     const infoNow = async () => JSON.parse(await ev('JSON.stringify(window.__planInfo ? window.__planInfo() : null)'));
     const lineNow = () => ev(`(document.querySelector('#ps-edit-msg') ?? document.querySelector('#ps-ui-msg'))?.textContent ?? ''`);
     const before = await infoNow(), picBefore = await picture('40-plan-before');
+    planText = readFileSync(new URL(before?.levels === 2 ? '../examples/flat-1.plan.json' : '../examples/duplex-1.plan.json', import.meta.url), 'utf8');
     const opened = await openLoad();
     const dialog = await ev(`JSON.stringify({ title: document.querySelector('#ps-files-title')?.textContent ?? null, pick: !!document.querySelector('#ps-files-overlay .ps-files-pick') })`);
     await picture('41-plan-dialog');
