@@ -10,7 +10,7 @@ Turn a floor plan into a furnished, lit miniature of the flat, in your browser.
 
 ## What works today
 
-- **One HTML file.** `dist/planstage.html` is a single file under 1.3 MB and runs from a file or any static host: no server, no account, no tracking, no network requests, nothing stored in the browser. It needs a browser with WebGL 2; without it the page says so.
+- **One HTML file.** `dist/planstage.html` is a single file of about 1 MB and runs from a file or any static host: no server, no account, no tracking, no network requests, nothing stored in the browser. It needs a browser with WebGL 2; without it the page says so.
 - **Automatic furnishing.** A layout engine reads the plan, recognises each room by its name (English or Polish) or by its shape, and places furniture and decor by simple rules: a sofa opposite a television, beds with night tables, kitchen units along a wall, bathroom fittings, lamps, curtains at windows, pictures, rugs and plants. The result is plain data (a list of pieces with position, rotation, size and colours) and it is deterministic: the same plan gives the same flat.
 - **52 piece types built in code.** Sofas, armchairs, beds, wardrobes, tables and chairs, kitchen units and appliances, a sink, a toilet, a washbasin, a shower, a bath, bookcases, lamps, curtains, mirrors, pictures, rugs, plants and more. No model files are loaded. Every piece has named colour slots and most have a size range, so a future editor can recolour and resize them.
 - **A view from every side.** Drag with one finger or the mouse to turn the miniature around its centre, pinch or use the wheel to zoom, and double tap, double click, press `0` or use the Reset view button to go back to the starting view. The walls that face you lower so the rooms stay in sight, on both levels of a duplex, while the other walls stay high. The arrow keys turn the view by 15 degrees and Shift with left or right moves the time of day. An idle page draws no frames.
@@ -33,6 +33,9 @@ The address hash sets the view, for example `dist/planstage.html#lamplit&plan=du
 | `az` | direction the view starts from, in degrees round the model: 0 from the south, 90 from the east, 180 from the north, 270 from the west |
 | `pol` | how steeply the view looks down, in degrees from the vertical (12 to 80) |
 | `edit` | `1` switches the first version of the editor on (default: off) |
+| `btn` | `0` hides the Edit, Save image and Load plan buttons (default: shown) |
+| `ui` | `0` hides all controls (default: shown) |
+| `merge` | `0` draws every piece as its own mesh (default: pieces are merged by material; a debugging aid) |
 | `seed` | 1 to 999999, changes colours only |
 | `lang` | `en`, `pl` |
 
@@ -45,7 +48,9 @@ npm test
 npm start       # serves dist on http://127.0.0.1:8080
 ```
 
-Node 20 or newer. The tests that start Chrome are skipped when Chrome is missing (they need Node 22 or newer).
+Node 20 or newer. The test that starts Chrome and clicks through the page runs on request only (`PLANSTAGE_BROWSER_TESTS=1 npm test`, Chrome and Node 22 or newer); the click-through tool is `tools/interact.mjs`.
+
+The built page carries a content security policy that lets the browser itself refuse network requests and foreign scripts.
 
 Tools: `npm run validate -- plan.json` checks a plan file against the format; `node tools/gen-plans.mjs --seed 401 --count 3 --out DIR` writes synthetic plans. The format is described in `docs/plan-format.md` and `docs/SPEC.md`, how plans are read from images in `docs/reading-plans.md`, and the data contract between plan, layout and look in `docs/DESIGN.md`.
 
@@ -58,5 +63,7 @@ Strona w przeglądarce, która z rzutu mieszkania robi urządzoną, oświetloną
 Paweł Czerwiński ([@MrPawelCz](https://github.com/MrPawelCz)).
 
 ## Licence
+
+The example plans in `examples/` and the test plans are also released under CC0.
 
 MIT. Parts are adapted from [planwalk](https://github.com/MrPawelCz/planwalk) by the same author (MIT); see `THIRD_PARTY_LICENSES.md`.
