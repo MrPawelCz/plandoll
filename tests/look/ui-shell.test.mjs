@@ -47,5 +47,5 @@ test('with the flag the button comes first in the tools row, says what it does i
   assert.equal(shell.textContent, 'Złóż bryłę');
   ui.update({ editing: true }); assert.equal(ui.root.className, 'editing has-shell');
   assert.notEqual(shell.style.display, 'none', 'the button stays while editing');
-  assert.ok(!`${shell.textContent}${shell.title}`.match(/[–—]/), 'no long dashes in the words of the button');
+  assert.ok(!`${shell.textContent}${shell.title}`.match(/[\u2013\u2014]/), 'no long dashes in the words of the button');
 });
