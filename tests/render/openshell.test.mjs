@@ -14,7 +14,7 @@ import { autoFurnish } from '../../src/layout/index.js';
 import { piecesImplemented } from '../../src/furniture/index.js';
 import { specOf } from '../../src/furniture/specs.js';
 import { generatePlan } from '../../tools/gen-plans.mjs';
-import { pickPiece } from '../../src/app/pick.js';
+import { pickPiece, slidePoint } from '../../src/app/pick.js';
 import { innerFace } from '../../src/model/foldwalls.js';
 
 const ctx = new Proxy({}, {
@@ -282,4 +282,24 @@ test('a ray at a hung piece on a fallen wall finds the piece with the matrix of 
   assert.ok(foundWithout <= hung * 0.2, `without it only ${foundWithout} of ${hung} are (picking in the closed place was the defect)`);
   assert.ok(ghostWithout >= hung * 0.5, `the closed place answered for ${ghostWithout} of ${hung} before (furniture in front of a wall blocks the rest)`);
   assert.ok(ghostWith <= hung * 0.1, `and answers for ${ghostWith} now`);
+});
+
+test('a finger that moves along a fallen wall moves the piece by the same distance along the wall, whatever the piece, the plan and the angle of the wall', () => {
+  let checked = 0;
+  for (const [name, plan] of plans) {
+    const f = furnished(plan), ids = adoptAll(f);
+    for (const clock of [1, 0.85]) {
+      settled(f, clock);
+      for (const id of ids) {
+        const g = f.furn.pieces.get(id), host = f.shell.hostOf(id), h = g.userData.size[2], rot = (-g.rotation.y * 180) / Math.PI;
+        const at = (d) => { const p = g.localToWorld(new THREE.Vector3(d, h / 2, 0)); return slidePoint({ origin: [p.x, p.y + 5, p.z], direction: [0, -1, 0] }, host, 0); };
+        const a = at(0), b = at(0.5);
+        if (!a || !b) continue; // a wall that has hardly started to turn is seen edge on from above
+        const along = [Math.cos((rot * Math.PI) / 180) * 0.5, Math.sin((rot * Math.PI) / 180) * 0.5];
+        near(b[0] - a[0], along[0], 1e-6, `${name} ${id} clock ${clock} x`); near(b[1] - a[1], along[1], 1e-6, `${name} ${id} clock ${clock} y`);
+        checked++;
+      }
+    }
+  }
+  assert.ok(checked > 40, `${checked} drags checked`);
 });
