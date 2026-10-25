@@ -373,6 +373,9 @@ test('the style sheet keeps the panel inside a phone screen and the controls at 
   assert.match(css, /\.psp-toggle\{[^}]*min-height:44px/);
   assert.match(css, /\.psp-switch\{[^}]*min-height:44px/);
   assert.match(css, /font-size:16px/, 'inputs are 16px so that phones do not zoom in');
+  assert.match(css, /@media \(max-width:760px\)\{[^@]*\.psp-sel,\.psp-room\{order:-1\}/, 'on a phone the selected piece or room comes before the long list of pieces');
+  assert.match(css, /\.psp-num\{[^}]*min-height:44px/, 'the size fields are 44 px high');
+  assert.match(css, /\(pointer:coarse\)[^{]*\{[^}]*\.psp-sw::after,\.psp-default::after\{[^}]*top:-4px;right:-4px;bottom:-4px;left:-4px/, 'swatches and pills of 36 px get a 44 px hit area on touch screens');
   assert.ok(!LONG_DASH.test(css));
   assert.ok(!/localStorage|sessionStorage|indexedDB|fetch\(|XMLHttpRequest/.test(css));
 });

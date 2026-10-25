@@ -80,17 +80,23 @@ const CSS = `
 .psp-sizes{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin:2px 0 6px}
 .psp-field{display:grid;gap:2px;min-width:0}
 .psp-field-name{font-size:11px;font-weight:700;opacity:.8}
-.psp-num{width:100%;min-width:0;min-height:40px;padding:4px 8px;font:inherit;font-size:16px;color:inherit;background:#fffaf0;border:1px solid var(--line,rgba(120,96,64,.3));border-radius:10px}
+.psp-num{width:100%;min-width:0;min-height:44px;padding:4px 8px;font:inherit;font-size:16px;color:inherit;background:#fffaf0;border:1px solid var(--line,rgba(120,96,64,.3));border-radius:10px}
 .psp-slot{margin:8px 0 0}
 .psp-slot-name{font-size:12px;font-weight:800;margin:0 0 4px}
 .psp-swatches{display:flex;flex-wrap:wrap;gap:8px 7px;padding:4px}
+.psp-sw,.psp-default{position:relative}
 .psp-sw{width:30px;height:30px;padding:0;border:0;border-radius:50%;box-shadow:inset 0 0 0 1px rgba(0,0,0,.24)}
 .psp-sw[aria-pressed="true"],.psp-default[aria-pressed="true"]{box-shadow:inset 0 0 0 1px rgba(0,0,0,.24),0 0 0 2px #fffaf0,0 0 0 4px var(--ink,#4a3b2a)}
 .psp-default{display:inline-flex;align-items:center;gap:6px;height:30px;padding:0 10px 0 4px;border:0;border-radius:15px;background:#fffaf0;font-size:12px;font-weight:700;box-shadow:inset 0 0 0 1px rgba(0,0,0,.18)}
 .psp-dot{width:22px;height:22px;border-radius:50%;box-shadow:inset 0 0 0 1px rgba(0,0,0,.24)}
-@media (pointer:coarse),(max-width:760px){.psp-sw{width:36px;height:36px}.psp-default{height:36px;border-radius:18px}.psp-dot{width:26px;height:26px}.psp-swatches{gap:9px 8px}}
+@media (pointer:coarse),(max-width:760px){.psp-sw::after,.psp-default::after{content:"";position:absolute;top:-4px;right:-4px;bottom:-4px;left:-4px}.psp-sw{width:36px;height:36px}.psp-default{height:36px;border-radius:18px}.psp-dot{width:26px;height:26px}.psp-swatches{gap:9px 8px}}
 @media (max-width:760px){
 .psp-root{top:52px;right:12px;width:auto}
+.psp-sheet{display:flex;flex-direction:column}
+.psp-sheet>*{flex:none}
+.psp-sel,.psp-room{order:-1}
+.psp-root[data-open="1"] .psp-add+.psp-sel,.psp-root[data-open="1"] .psp-add+.psp-room{margin-top:0;padding-top:0;border-top:0}
+.psp-sel:not([hidden]),.psp-room:not([hidden]){margin-bottom:8px;padding-bottom:6px;border-bottom:2px solid var(--line,rgba(120,96,64,.22))}
 .psp-sheet{position:fixed;left:8px;right:8px;bottom:calc(var(--psp-stack,200px) + 8px);width:auto;max-height:40vh;max-height:40dvh;border-radius:18px;padding:6px 12px 8px}
 .psp-items{grid-template-columns:repeat(auto-fill,minmax(150px,1fr))}
 .psp-swatches{gap:6px}

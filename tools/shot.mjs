@@ -1,6 +1,8 @@
 // Headless Chrome (software GL, so slow: 2 to 20 s per frame) screenshots of the built single file or of a published address.
-//   node tools/shot.mjs [--size 1600x900] [--html dist/planstage.html | --html https://host/path/] [--out shots] [--timeout 300] [--quality 86] [--eval JS] [--strict] name=hash[:frames] ...
+//   node tools/shot.mjs [--size 1600x900] [--html dist/planstage.html | --html https://host/path/] [--out shots] [--timeout 300] [--quality 86] [--eval JS] [--init JS] [--strict] name=hash[:frames] ...
 // On a small machine run only one browser at a time.
+// --init JS runs that script in every new document before the page's own scripts (for example to hide an API). PS_CHROME_FLAGS adds
+// space separated flags to the Chrome command line.
 // --plan FILE injects that plan JSON as window.__plan before the page loads (use "plan=ext" in the hash to show it).
 // Page contract: the URL hash carries options (for example "preset=amber&t=0.7&cam=close"); the tool appends "&frames=N" (default 3). After N
 // rendered frames the page sets window.__done = true and window.__stats = { ... }; a fatal error sets window.__fail = "message".
@@ -14,7 +16,7 @@ import { dirname, join, resolve } from 'node:path';
 import { pathToFileURL, fileURLToPath } from 'node:url';
 
 const argv = process.argv.slice(2);
-const opt = { size: '1600x900', html: null, out: 'shots', timeout: 300, quality: 86, eval: null, strict: false, plan: null };
+const opt = { size: '1600x900', html: null, out: 'shots', timeout: 300, quality: 86, eval: null, init: null, strict: false, plan: null };
 const jobs = [];
 for (let i = 0; i < argv.length; i++) {
   const a = argv[i];
@@ -23,7 +25,7 @@ for (let i = 0; i < argv.length; i++) {
   else if (a.includes('=')) jobs.push(a);
   else { console.error(`shot: unknown argument ${a}`); process.exit(2); }
 }
-if (!jobs.length) { console.error('usage: node tools/shot.mjs [--size WxH] [--html FILE] [--out DIR] [--timeout S] [--quality Q] [--eval JS] [--strict] name=hash[:frames] ...'); process.exit(2); }
+if (!jobs.length) { console.error('usage: node tools/shot.mjs [--size WxH] [--html FILE] [--out DIR] [--timeout S] [--quality Q] [--eval JS] [--init JS] [--strict] name=hash[:frames] ...'); process.exit(2); }
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const [W, H] = opt.size.split('x').map(Number);
 const live = /^https?:\/\//i.test(opt.html ?? '');
@@ -35,12 +37,13 @@ mkdirSync(out, { recursive: true });
 // Software GL by default (swiftshader); PS_ANGLE=metal draws on the GPU where the machine has one.
 const ANGLE = process.env.PS_ANGLE || 'swiftshader';
 const GL_FLAGS = ANGLE === 'swiftshader' ? ['--enable-unsafe-swiftshader'] : ['--ignore-gpu-blocklist', '--enable-gpu-rasterization'];
+const EXTRA_FLAGS = (process.env.PS_CHROME_FLAGS || '').split(/\s+/).filter(Boolean);
 const CHROME = process.env.CHROME || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 const PORT = 9400 + Math.floor(Math.random() * 400);
 const profile = mkdtempSync(join(tmpdir(), 'planstage-chrome-'));
 const chrome = spawn('nice', ['-n', '19', CHROME, '--headless=new', `--remote-debugging-port=${PORT}`, `--user-data-dir=${profile}`,
   '--use-gl=angle', `--use-angle=${ANGLE}`, ...GL_FLAGS, '--no-first-run', '--no-default-browser-check', '--disable-extensions',
-  '--hide-scrollbars', `--window-size=${W},${H}`, 'about:blank'], { stdio: 'ignore' });
+  '--hide-scrollbars', `--window-size=${W},${H}`, ...EXTRA_FLAGS, 'about:blank'], { stdio: 'ignore' });
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 let ws, id = 0;
 const pend = new Map();
@@ -66,6 +69,7 @@ try {
   });
   await send('Page.enable'); await send('Runtime.enable'); await send('Network.enable');
   if (opt.plan) { const json = readFileSync(resolve(opt.plan), 'utf8'); JSON.parse(json); await send('Page.addScriptToEvaluateOnNewDocument', { source: `window.__plan = ${json};` }); }
+  if (opt.init) await send('Page.addScriptToEvaluateOnNewDocument', { source: opt.init });
   await send('Emulation.setDeviceMetricsOverride', { width: W, height: H, deviceScaleFactor: 1, mobile: false });
   for (const job of jobs) {
     const eq = job.indexOf('=');
