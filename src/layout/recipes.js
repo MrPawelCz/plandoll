@@ -1,7 +1,7 @@
 // Recipes: what goes into each type of room, in order. Sizes, clearances and allowed rooms come from src/furniture/specs.js.
 // Every recipe gets the stage R made by engine.js and only asks for placements; R decides whether a spot is free.
 import { SPEC_BY_ID } from '../furniture/specs.js';
-import { frontOf, axisOf, rotFromFront, freeIntervals, onNorthOrWestWall } from './geometry.js';
+import { frontOf, axisOf, rotFromFront, freeIntervals, onNorthOrWestWall, pointInPolygon } from './geometry.js';
 
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
 const dot = (a, b) => a[0] * b[0] + a[1] * b[1];
@@ -578,6 +578,95 @@ function moreRugs(R) {
   }
 }
 
+// ---- open floor in the middle of a room ----
+// Furniture and props hug the walls, which can leave a roomy stretch of floor in the middle. The stretch is found on a grid: cells
+// further than `reach` metres (0.8) from every piece standing on the floor and 0.15 m from the walls, joined edge to edge. The biggest group
+// of at least 1.6 m2 gets a rug, then an armchair facing its middle with a small round table beside it. Placements go through R.at,
+// so every rule of the layout (overlap, door zones, clear fronts, room outline) holds as for any other piece.
+const FLOOR_ROOMS = ['living', 'bedroom', 'office', 'other', 'kids'];
+const CELL = 0.2;
+const standing = (p) => !p._flat && !p.on && (p._mode === 'floor' || p._mode === 'corner');
+function boxGap(x, y, b) {
+  const dx = x - b.cx, dy = y - b.cy;
+  return Math.hypot(Math.max(Math.abs(dx * b.ux + dy * b.uy) - b.hw, 0), Math.max(Math.abs(dx * b.fx + dy * b.fy) - b.hd, 0));
+}
+const RING = [[0, 0], [0.15, 0], [-0.15, 0], [0, 0.15], [0, -0.15]];
+export function openFloor(R, reach = 0.8, minArea = 1.6) {
+  const { minX, minY, maxX, maxY } = R.bbox;
+  const nx = Math.ceil((maxX - minX) / CELL), ny = Math.ceil((maxY - minY) / CELL);
+  if (!(nx > 0 && ny > 0) || nx * ny > 6000) return null;
+  const boxes = R.mine.filter(standing).map((p) => p._obb);
+  const open = new Uint8Array(nx * ny);
+  for (let j = 0; j < ny; j++) {
+    for (let i = 0; i < nx; i++) {
+      const x = minX + (i + 0.5) * CELL, y = minY + (j + 0.5) * CELL;
+      if (RING.every(([dx, dy]) => pointInPolygon([x + dx, y + dy], R.ip.poly)) && boxes.every((b) => boxGap(x, y, b) > reach)) open[j * nx + i] = 1;
+    }
+  }
+  const seen = new Uint8Array(nx * ny);
+  let best = null;
+  for (let first = 0; first < open.length; first++) {
+    if (!open[first] || seen[first]) continue;
+    const stack = [first], cells = [];
+    seen[first] = 1;
+    for (let guard = 0; stack.length && guard < open.length + 1; guard++) {
+      const c = stack.pop();
+      cells.push(c);
+      const i = c % nx, j = (c - i) / nx;
+      for (const [di, dj] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const a = i + di, b = j + dj;
+        if (a < 0 || b < 0 || a >= nx || b >= ny) continue;
+        const k = b * nx + a;
+        if (open[k] && !seen[k]) { seen[k] = 1; stack.push(k); }
+      }
+    }
+    if (!best || cells.length > best.length) best = cells;
+  }
+  if (!best || best.length * CELL * CELL < minArea) return null;
+  let sx = 0, sy = 0, i0 = Infinity, i1 = -1, j0 = Infinity, j1 = -1;
+  for (const c of best) {
+    const i = c % nx, j = (c - i) / nx;
+    sx += i; sy += j; i0 = Math.min(i0, i); i1 = Math.max(i1, i); j0 = Math.min(j0, j); j1 = Math.max(j1, j);
+  }
+  const mx = sx / best.length, my = sy / best.length;
+  let pick = best[0], dm = Infinity;
+  for (const c of best) {
+    const i = c % nx, j = (c - i) / nx, d = Math.hypot(i - mx, j - my);
+    if (d < dm) { dm = d; pick = c; }
+  }
+  const pi = pick % nx, pj = (pick - pi) / nx;
+  return { x: minX + (pi + 0.5) * CELL, y: minY + (pj + 0.5) * CELL, w: (i1 - i0 + 1) * CELL, h: (j1 - j0 + 1) * CELL, area: best.length * CELL * CELL };
+}
+
+function fillFloor(R) {
+  const hall = R.type === 'hall'; // a big hall or landing only gets a rug
+  if (!(FLOOR_ROOMS.includes(R.type) || hall) || R.area < (hall ? 10 : 9)) return;
+  for (let round = 0; round < (hall ? 1 : 2); round++) {
+    const spot = openFloor(R);
+    if (!spot) return;
+    if (R.can('rug', { anyRoom: true })) {
+      for (const k of [0.85, 0.7, 0.55]) {
+        const size = { w: clamp(spot.w * k, 1.2, 2.8), d: clamp(spot.h * k, 0.9, 2.0) };
+        if (R.at('rug', { x: spot.x, y: spot.y, rot: 0, size, anyRoom: true, noClear: true })) break;
+      }
+    }
+    if (hall) return;
+    let chair = null;
+    for (let n = 0; n < 16 && !chair; n++) {
+      const a = ((n % 8) * 45 * Math.PI) / 180, r = n < 8 ? 0.55 : 0.9;
+      const x = spot.x + Math.cos(a) * r, y = spot.y + Math.sin(a) * r;
+      const rot = rotFromFront(spot.x - x, spot.y - y);
+      chair = R.at('armchair', { x, y, rot, anyRoom: true, soft: true });
+    }
+    if (chair) {
+      const [ux, uy] = axisOf(chair.rot), [fx, fy] = frontOf(chair.rot);
+      for (const side of [1, -1]) {
+        if (R.at('coffee-table-round', { x: chair.x + ux * side * 0.8 + fx * 0.05, y: chair.y + uy * side * 0.8 + fy * 0.05, rot: 0, anyRoom: true, noClear: true })) break;
+      }
+    } else if (!R.corner('plant-large', { anyRoom: true })) return;
+  }
+}
+
 export function decorate(R) {
   if (['living', 'dining', 'bedroom', 'kids', 'hall', 'office', 'other'].includes(R.type)) hangArt(R);
   if (['living', 'dining', 'bedroom', 'kids', 'office', 'kitchen', 'hall'].includes(R.type) && R.facts.windows > 0) hangCurtains(R);
@@ -585,4 +674,5 @@ export function decorate(R) {
   hangMore(R);
   morePlants(R);
   moreRugs(R);
+  fillFloor(R);
 }
