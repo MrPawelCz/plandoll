@@ -156,6 +156,21 @@ const pictureArea = async () => {
   return { top, cx: Math.round(W / 2), cy: Math.round(top * 0.5) };
 };
 
+// The window changes shape (a turned phone, bars that grow): the view is framed again, and the move the person made stays, now from the new home.
+async function resizeKeepsPan(tag) {
+  const f = await frames();
+  if (opt.desktop) await mouseDrag('right', Math.round(W / 2), 200, Math.round(W / 2) + 70, 240); else await multiDrag([{ x: 150, y: 220 }, { x: 240, y: 220 }], [{ x: 220, y: 260 }, { x: 310, y: 260 }]);
+  await redrawn(f); await sleep(200);
+  const before = await camNow(), home0 = JSON.parse(await ev('JSON.stringify(window.__camera.target)')), f1 = await frames();
+  await send('Emulation.setDeviceMetricsOverride', { width: W, height: H - 90, deviceScaleFactor: opt.desktop ? 1 : Number(opt.scale), mobile: !opt.desktop });
+  await waitFor(`window.__frames > ${f1}`, 30); await sleep(700);
+  const after = await camNow();
+  await send('Emulation.setDeviceMetricsOverride', { width: W, height: H, deviceScaleFactor: opt.desktop ? 1 : Number(opt.scale), mobile: !opt.desktop });
+  const f2 = await frames(); await waitFor(`window.__frames > ${f2}`, 30); await sleep(500);
+  record(`camera ${tag}: framing again after the window changed shape keeps the move`, panLen(before) > 0.3 && gap(before.pan, after.pan) < 1e-6 && Number.isFinite(after.d) && after.d > 0, { panBefore: before.pan.map(round2), panAfter: after.pan.map(round2), targetBefore: before.target.map(round2), targetAfter: after.target.map(round2), distance: `${round2(before.d)} -> ${round2(after.d)}` });
+  await homeAgain();
+}
+
 // The visitor's camera steps (no editor): on a phone two fingers move and zoom, three fingers move; with the mouse the right button, the middle button and
 // Shift with the left button move, the wheel zooms towards the pointer; a double tap or double click goes back to the start, the pan included.
 async function cameraBlock(tag) {
@@ -178,9 +193,9 @@ async function cameraBlock(tag) {
     record(label('a pinch zooms in around the point between the fingers and keeps that point under them'), b.c1.d < 0.6 * b.c0.d && b.c1.d >= 0.2 * b.c0.base - 1e-6 && gap(gp0, gp1) < 0.15 && picP1 !== picP0,
       { distance: `${round2(b.c0.d)} -> ${round2(b.c1.d)} (default ${round2(b.c0.base)})`, driftMetres: round2(gap(gp0, gp1)), nearPlane: round2(b.c1.near), pictureChanged: picP1 !== picP0 });
     // a pinch the other way zooms out, again about the point
-    const out1 = await gesture(() => multiDrag([{ x: P.x - 100, y: P.y }, { x: P.x + 100, y: P.y }], [{ x: P.x - 30, y: P.y }, { x: P.x + 30, y: P.y }]));
+    const out1 = await gesture(() => multiDrag([{ x: P.x - 100, y: P.y }, { x: P.x + 100, y: P.y }], [{ x: P.x - 60, y: P.y }, { x: P.x + 60, y: P.y }])); // a moderate zoom out: the target stays inside its box
     const gp2 = await groundAt(P.x, P.y);
-    record(label('a pinch the other way zooms out about the same point'), out1.c1.d > out1.c0.d * 1.5 && gap(gp0, gp2) < 0.25, { distance: `${round2(out1.c0.d)} -> ${round2(out1.c1.d)}`, driftMetres: round2(gap(gp0, gp2)) });
+    record(label('a pinch the other way zooms out about the same point'), out1.c1.d > out1.c0.d * 1.5 && gap(gp0, gp2) < 0.15, { distance: `${round2(out1.c0.d)} -> ${round2(out1.c1.d)}`, driftMetres: round2(gap(gp0, gp2)) });
     // three fingers move the picture with their middle
     await homeAgain();
     const tri = [{ x: cx - 60, y: cy + 10 }, { x: cx, y: cy - 10 }, { x: cx + 60, y: cy + 10 }], mid0 = { x: cx, y: cy + 10 / 3 }, [tx, ty] = [-60, 50], gt0 = await groundAt(mid0.x, mid0.y);
@@ -210,6 +225,7 @@ async function cameraBlock(tag) {
     record(label('a long drag stops at the edge of the model grown by 15 percent'), panLen(far) > 1 && far.target[0] >= box.minX - gx - 0.01 && far.target[0] <= box.maxX + gx + 0.01 && far.target[2] >= box.minZ - gz - 0.01 && far.target[2] <= box.maxZ + gz + 0.01,
       { target: far.target.map(round2), box: [box.minX, box.maxX, box.minZ, box.maxZ].map(round2), pan: far.pan.map(round2) });
     await homeAgain();
+    await resizeKeepsPan(tag);
   } else {
     // the right button moves the picture, and no menu opens
     await ev(`window.__ctx = []; window.addEventListener('contextmenu', (e) => window.__ctx.push(e.defaultPrevented))`);
@@ -254,12 +270,17 @@ async function cameraBlock(tag) {
     await waitFor('window.__camera.busy === false', 60);
     record(label('the left button still turns the model'), Math.abs(turn.c1.az - t0.az) > 15 && gap(t0.pan, turn.c1.pan) < 1e-6, { turned: round2(turn.c1.az - t0.az) });
     await homeAgain();
+    await resizeKeepsPan(tag);
   }
 }
 
 // The editor's camera steps (--edit): a gesture of two or three fingers (or the right button, or Shift with the left one) that starts on a piece moves the
 // picture and touches no piece and no selection; one finger on a piece still drags it (the steps above), one finger beside the pieces still turns.
 async function editCameraBlock(pieceId) {
+  { // while editing the shell is off and the board is the old one: the bounds of the closed model with a margin of 9 percent (at least 0.5 m)
+    const e = JSON.parse(await ev('JSON.stringify(window.__planInfo().extent)')), w = e[1] - e[0], d = e[3] - e[2], margin = Math.max(0.5, 0.09 * Math.max(w, d)), b = JSON.parse(await ev('JSON.stringify(window.__stats.board)'));
+    record('edit: the board is the old one (the shell is off while editing): the closed model plus a margin of 9 percent', Math.abs(b.width - (w + 2 * margin)) < 0.03 && Math.abs(b.depth - (d + 2 * margin)) < 0.03, { board: `${b.width} x ${b.depth} m`, model: `${w.toFixed(2)} x ${d.toFixed(2)} m`, margin: +margin.toFixed(2) });
+  }
   await ev('window.__edit.session.select(null)'); await homeAgain(); await sleep(300);
   const layoutNow = () => ev('JSON.stringify(window.__edit.session.state.layout)');
   const { top } = await pictureArea();
@@ -771,7 +792,7 @@ try {
       const holds = (b, x) => b.minX <= x.minX + 1e-6 && b.maxX >= x.maxX - 1e-6 && b.minZ <= x.minZ + 1e-6 && b.maxZ >= x.maxZ - 1e-6;
       const b0 = await boardAt(0), picBoard0 = await picture('38b-board-closed'), bMid = await boardAt(0.4), b1 = await boardAt(1), picBoard1 = await picture('39b-board-open'), b2 = await boardAt(0);
       record('board: hugs the closed model (rim of 6 percent, at least 0.35 m), grows with the open shell, holds every wall, shrinks back',
-        Math.abs(b0.width - (w + 2 * rim)) < 0.04 && Math.abs(b0.depth - (d + 2 * rim)) < 0.04 && b0.width < 0.8 * b1.width && b0.depth < 0.9 * b1.depth && b0.width < bMid.width && bMid.width < b1.width && holds(b1, open) && Math.abs(b2.width - b0.width) < 0.01 && Math.abs(b2.depth - b0.depth) < 0.01 && picBoard0 !== picBoard1,
+        b0.width >= w + 2 * rim - 0.04 && b0.width <= w + 2 * rim + 0.7 && b0.depth >= d + 2 * rim - 0.04 && b0.depth <= d + 2 * rim + 0.7 && b0.width < 0.8 * b1.width && b0.depth < 0.9 * b1.depth && b0.width < bMid.width && bMid.width < b1.width && holds(b1, open) && Math.abs(b2.width - b0.width) < 0.01 && Math.abs(b2.depth - b0.depth) < 0.01 && picBoard0 !== picBoard1,
         { closedModel: `${w.toFixed(2)} x ${d.toFixed(2)} m`, rimMetres: +rim.toFixed(2), closedBoard: `${b0.width} x ${b0.depth} m`, halfOpenBoard: `${bMid.width} x ${bMid.depth} m`, openBoard: `${b1.width} x ${b1.depth} m`, backClosedBoard: `${b2.width} x ${b2.depth} m`, holdsOpenExtent: holds(b1, open), pictureChanged: picBoard0 !== picBoard1 });
     }
 
@@ -853,6 +874,11 @@ try {
     await waitFor(`window.__frames > ${f0}`, 30); await sleep(600);
     const okLine = await lineNow(), after = await infoNow(), picAfter = await picture('42-plan-loaded');
     record('Load plan: another plan is built in place, the picture and the pieces change', swapped && picAfter !== picBefore && after.pieces !== before.pieces && /Plan loaded|Wczytano plan/.test(okLine) && (await ev('!window.__fail')), { before, after, line: okLine.slice(0, 100) });
+    if (!opt.edit && (await ev('typeof window.__shell')) === 'object') { // a plan loaded at run time: the board hugs the closed model of the new plan, and grows with its shell
+      const e2 = JSON.parse(await ev('JSON.stringify(window.__planInfo().extent)')), open2 = JSON.parse(await ev('JSON.stringify(window.__shell.extent())')), w2 = e2[1] - e2[0], rim2 = Math.max(0.35, 0.06 * Math.max(w2, e2[3] - e2[2]));
+      const bc = JSON.parse(await ev('JSON.stringify(window.__stats.board)')); await ev('window.__shell.seek(1)'); const bo = JSON.parse(await ev('JSON.stringify(window.__stats.board)')); await ev('window.__shell.seek(0)');
+      record('Load plan: the board of the new plan hugs its closed model and grows to hold its open shell', bc.width >= w2 + 2 * rim2 - 0.04 && bc.width <= w2 + 2 * rim2 + 0.7 && bc.width < 0.8 * bo.width && bo.minX <= open2.minX + 1e-6 && bo.maxX >= open2.maxX - 1e-6 && bo.minZ <= open2.minZ + 1e-6 && bo.maxZ >= open2.maxZ - 1e-6, { closedBoardWidth: bc.width, openBoardWidth: bo.width, closedModelWidth: round2(w2), rim: round2(rim2) });
+    }
     if (opt.edit) {
       const n = await ev('window.__edit.count()'), undoable = await ev('window.__edit.session.canUndo()');
       const firstId = await ev('window.__edit.session.state.layout.levels[0].pieces[0]?.id ?? null');

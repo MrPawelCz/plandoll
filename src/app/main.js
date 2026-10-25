@@ -3,7 +3,7 @@
 // A button opens the shell: the outer walls fall outward and lie flat (render/openshell.js), and the view is framed for the closed and the open model together;
 // shell=0 takes the button away, and while editing (edit=1) the shell stays closed. The example plans of the control bar are built in place like a loaded plan.
 // With edit=1 a piece can be selected, dragged over the floor, turned and deleted, with undo and redo (edit.js, pick.js, render/outline.js).
-// The model can be turned round (camera.js): the outer walls that face the camera are cut low (render/cutaway.js).
+// The model can be turned round, zoomed and moved over the ground (camera.js): the outer walls that face the camera are cut low (render/cutaway.js). The card board under it follows the open shell (look/board.js).
 import * as THREE from 'three';
 import { analyzePlan, modelOf } from '../core/validate.js';
 import { buildModel, modelExtent } from '../model/geometry.js';
