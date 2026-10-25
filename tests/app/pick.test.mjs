@@ -1,7 +1,8 @@
 // Picking with a ray: oriented boxes, nearest hit, hung and stacked pieces, a second storey, hostile input, speed.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { pickPiece, floorHit } from '../../src/app/pick.js';
+import { pickPiece, floorHit, rayInFrame, planeHit } from '../../src/app/pick.js';
+import { hingeMatrix } from '../../src/model/foldwalls.js';
 
 const piece = (id, x, y, rot, size, elev = 0) => ({ id, type: 'x', room: 'r', x, y, rot, size, elev, on: null, colors: {} });
 const layout = (...pieces) => ({ version: 1, seed: 1, levels: [{ id: 'L0', pieces }, { id: 'L1', pieces: [] }] });
@@ -92,4 +93,72 @@ test('5000 pieces are searched in well under 100 ms', () => {
   const ms = (performance.now() - t0) / 4;
   assert.ok(hits >= 1);
   assert.ok(ms < 100, `took ${ms.toFixed(1)} ms`);
+});
+
+// ---- pieces on a wall that has turned (the open shell): the ray is taken back through the matrix of the wall ----
+// A wall along plan x at z = 0 with the rooms on the +z side; its outer face foot line is z = 0 and it falls towards -z. A turn of 90 degrees takes the world
+// point (x, y, z) to (x, z, -y): a picture 1.65 m up the wall lies on the ground, 1.65 m outside the wall.
+const fall = { dir: [1, 0], out: [0, -1], pivot: [0, 0], y: 0 };
+const flat = hingeMatrix(fall, 90), noTurn = hingeMatrix(fall, 0);
+const pic = () => piece('pic', 2, 0.03, 0, [0.6, 0.04, 0.5], 1.4); // faces +z, hangs 1.4 to 1.9 m up
+const lyingDown = { origin: [2, 5, -1.65], direction: [0, -1, 0] }; // from above, at the picture where it lies
+const closedPlace = { origin: [2, 1.65, 5], direction: [0, 0, -1] }; // from the room, at the picture where it hung
+
+test('rayInFrame takes a ray back through a turn and a shift; the identity leaves it, a bad matrix or ray gives null', () => {
+  const same = rayInFrame(lyingDown, noTurn);
+  for (let i = 0; i < 3; i++) { assert.ok(Math.abs(same.origin[i] - lyingDown.origin[i]) < 1e-12); assert.ok(Math.abs(same.direction[i] - lyingDown.direction[i]) < 1e-12); }
+  const back = rayInFrame(lyingDown, flat);
+  [2, 1.65, 5].forEach((v, i) => assert.ok(Math.abs(back.origin[i] - v) < 1e-9, `origin ${i}: ${back.origin[i]}`));
+  [0, 0, -1].forEach((v, i) => assert.ok(Math.abs(back.direction[i] - v) < 1e-9, `direction ${i}: ${back.direction[i]}`));
+  assert.ok(Math.abs(Math.hypot(...back.direction) - 1) < 1e-12, 'a turn keeps lengths');
+  const shifted = rayInFrame({ origin: [1, 2, 3], direction: [0, 0, 1] }, [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 10, 20, 30, 1]);
+  assert.deepEqual(shifted.origin, [-9, -18, -27]); assert.deepEqual(shifted.direction, [0, 0, 1], 'a shift moves the origin and not the direction');
+  for (const m of [null, undefined, [], [1, 2, 3], new Array(16).fill(NaN), 'x', { length: 16 }]) assert.equal(rayInFrame(lyingDown, m), null);
+  for (const ray of [null, {}, { origin: [0, 0, 0], direction: [0, 0, 0] }, { origin: [NaN, 0, 0], direction: [0, 1, 0] }]) assert.equal(rayInFrame(ray, flat), null);
+});
+
+test('planeHit meets a plane in front of the ray and refuses a parallel plane, a plane behind and bad input', () => {
+  assert.deepEqual(planeHit({ origin: [1, 5, 1], direction: [0, -1, 0] }, [0, 0, 0], [0, 1, 0]), [1, 0, 1]);
+  assert.deepEqual(planeHit({ origin: [0, 1, 0], direction: [1, 0, 0] }, [3, 0, 0], [1, 0, 0]), [3, 1, 0]);
+  assert.deepEqual(planeHit({ origin: [0, 1, 0], dir: [1, 0, 0] }, [3, 0, 0], [5, 0, 0]), [3, 1, 0], 'a normal that is not a unit vector');
+  assert.equal(planeHit({ origin: [0, 1, 0], direction: [1, 0, 0] }, [0, 0, 0], [0, 1, 0]), null, 'parallel');
+  assert.equal(planeHit({ origin: [0, 1, 0], direction: [-1, 0, 0] }, [3, 0, 0], [1, 0, 0]), null, 'behind');
+  for (const [r, p, n] of [[null, [0, 0, 0], [0, 1, 0]], [{ origin: [0, 1, 0], direction: [0, -1, 0] }, null, [0, 1, 0]], [{ origin: [0, 1, 0], direction: [0, -1, 0] }, [0, 0, 0], [0, 0, 0]], [{ origin: [0, 1, 0], direction: [0, -1, 0] }, [NaN, 0, 0], [0, 1, 0]]]) assert.equal(planeHit(r, p, n), null);
+});
+
+test('a piece on a turned wall is found where the wall has put it, not where it hung', () => {
+  const l = layout(pic()), frameOf = () => flat;
+  const hit = pickPiece(l, lyingDown, { frameOf, pad: 0 });
+  assert.equal(hit?.id, 'pic'); assert.equal(hit.level, 'L0');
+  assert.ok(Math.abs(hit.t - 4.95) < 1e-9, `enters the front face of the lying box: ${hit.t}`);
+  [2, 0.05, -1.65].forEach((v, i) => assert.ok(Math.abs(hit.point[i] - v) < 1e-9, `point ${i} is a point of the original ray: ${hit.point[i]}`));
+  assert.equal(pickPiece(l, lyingDown, { pad: 0 }), null, 'without the matrix the ground there is empty');
+  assert.equal(pickPiece(l, closedPlace, { frameOf, pad: 0 }), null, 'with it the place where the picture hung is empty');
+  assert.equal(pickPiece(l, closedPlace, { pad: 0 })?.id, 'pic', 'and the closed layout alone still answers there');
+  assert.equal(pickPiece(l, { origin: [2, 5, -2.5], direction: [0, -1, 0] }, { frameOf, pad: 0 }), null, 'beside the picture');
+  assert.equal(pickPiece(l, { origin: [2, 5, -1.65], direction: [0, -1, 0] }, { frameOf: () => noTurn, pad: 0 }), null, 'a wall that has not turned puts nothing on the ground');
+  assert.equal(pickPiece(l, closedPlace, { frameOf: () => noTurn, pad: 0 })?.id, 'pic', 'and at clock zero the picture is where it hung');
+});
+
+test('pieces with no matrix keep their place, the nearest of the pieces in either frame wins, and skip and a bad matrix leave a piece out', () => {
+  const box = piece('box', 2, -1.65, 0, [1, 1, 1]); // a floor piece standing where the picture lies
+  const l = layout(pic(), box);
+  const frameOf = (id) => (id === 'pic' ? flat : null);
+  assert.equal(pickPiece(l, lyingDown, { frameOf, pad: 0 })?.id, 'box', 'the box is nearer to the camera than the lying picture');
+  assert.equal(pickPiece(l, lyingDown, { frameOf, pad: 0, skip: (id) => id === 'box' })?.id, 'pic');
+  assert.equal(pickPiece(l, lyingDown, { frameOf, pad: 0, skip: (id) => id === 'box' || id === 'pic' }), null);
+  for (const m of [() => undefined, () => null]) assert.equal(pickPiece(layout(pic()), closedPlace, { frameOf: m, pad: 0 })?.id, 'pic', 'null or undefined means "where the layout puts it"');
+  for (const m of [[1, 2, 3], new Array(16).fill(Infinity), 'flat']) assert.equal(pickPiece(layout(pic()), closedPlace, { frameOf: () => m, pad: 0 }), null, 'a matrix that is not valid leaves the piece out');
+  assert.equal(pickPiece(l, down(2, -1.65, 9), { pad: 0 })?.id, 'box', 'no frameOf at all is the old behaviour');
+  let calls = 0;
+  const many = layout(...Array.from({ length: 50 }, (_, i) => piece('w' + i, i, 0.03, 0, [0.6, 0.04, 0.5], 1.4)));
+  pickPiece(many, lyingDown, { frameOf: () => { calls++; return flat; }, pad: 0 });
+  assert.equal(calls, 50, 'asked once for every piece');
+});
+
+test('the pieces of one wall share one turned ray, and the pad of a fingertip works in the closed frame', () => {
+  const l = layout(pic());
+  const near = { origin: [2.33, 5, -1.65], direction: [0, -1, 0] }; // 3 cm beside the lying picture (0.3 m half width)
+  assert.equal(pickPiece(l, near, { frameOf: () => flat, pad: 0 }), null);
+  assert.equal(pickPiece(l, near, { frameOf: () => flat, pad: 0.06 })?.id, 'pic', 'a fingertip margin still hits it');
 });

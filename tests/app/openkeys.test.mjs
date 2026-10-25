@@ -27,9 +27,17 @@ test('a key that is held down counts once: the repeats do nothing', () => {
   for (const wantOpen of [false, true]) { assert.equal(shellKey(key(' ', undefined, { repeat: true }), wantOpen), null); assert.equal(shellKey(key('Escape', undefined, { repeat: true }), wantOpen), null); }
 });
 
-test('main.js listens for the shell keys only while the shell is on (not while editing) and through shellKey', () => {
+test('a key press that something else already took does nothing to the shell: one Escape never clears a selection and folds the shell', () => {
+  for (const k of [' ', 'Escape']) for (const wantOpen of [false, true]) assert.equal(shellKey(key(k, undefined, { defaultPrevented: true }), wantOpen), null, `${k} ${wantOpen}`);
+  assert.equal(shellKey(key('Escape', undefined, { defaultPrevented: false }), true), 'close', 'the next Escape, with nothing taking it, folds the shell');
+});
+
+test('main.js listens for the shell keys whenever the shell is on (also while editing) and through shellKey, and the editor takes the first Escape', () => {
   const src = readFileSync(new URL('../../src/app/main.js', import.meta.url), 'utf8');
   assert.match(src, /if \(useShell\) addEventListener\('keydown', onShellKey\)/);
   assert.match(src, /const useShell = shellOn\(params\)/);
   assert.match(src, /const act = shellKey\(e, shellTarget === 1\)/);
+  // the editor's key listener comes first and marks an Escape that cleared a selection (a piece or a room) as taken
+  assert.match(src, /e\.key === 'Escape' && \(session\.selected\(\) \|\| session\.selectedRoom\(\)\)\) \{ session\.select\(null\); e\.preventDefault\(\); \}/);
+  assert.ok(src.indexOf("session.select(null); e.preventDefault();") < src.indexOf("if (useShell) addEventListener('keydown', onShellKey)"), 'the editor listener is registered before the shell listener');
 });

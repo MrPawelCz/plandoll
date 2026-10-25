@@ -4,7 +4,7 @@
 // they were and the cutaway keeps working on them. The pieces hung on those walls (pictures, mirrors, curtains) are moved into hinge groups of
 // their own that turn with the same matrix. Nothing is drawn and nothing is stored here; the page asks for a frame after every change.
 import * as THREE from 'three';
-import { foldWalls, hingeMatrix, hostWall } from '../model/foldwalls.js';
+import { foldWalls, hingeMatrix, hostWall, innerFace } from '../model/foldwalls.js';
 import { specOf } from '../furniture/specs.js';
 import { frameOf, startOrder } from './openmotion.js';
 
@@ -12,7 +12,7 @@ const clamp01 = (v) => Math.min(1, Math.max(0, Number.isFinite(v) ? v : 0));
 const HUNG = new Set(['wall-mount', 'window']);
 
 // ps: a PlanScene; model: the model it was made from. Returns the shell: { walls, clock, active, setOrder(view), pose(p), heightFor(c, h), adopt(group, pieces, closedHeight),
-// release(), hidePatches(), state(), dispose() }.
+// release(), hostMatrix(id), hostOf(id), hidePatches(), state(), dispose() }.
 export function createOpenShell(ps, model) {
   const walls = foldWalls(model);
   const byName = ps.levelGroups.map((lg) => { const m = new Map(); for (const c of lg.children) if (c.name) m.set(c.name, c); return m; });
@@ -39,13 +39,14 @@ export function createOpenShell(ps, model) {
 
   let clock = 0, rank = walls.map((_, i) => i);
   const live = walls.map(() => ({ deg: 0, grow: 0 }));
-  let hinges = new Map(), hosted = []; // hinge groups of the hung pieces by wall; the pieces on them: { id, g, wall, elev, window, h0 }
+  let hinges = new Map(), hosted = [], hostById = new Map(), turned = new Map(); // hinge groups of the hung pieces by wall; the pieces on them: { id, g, wall, elev, window, h0 }; the same by piece id; the matrix of each hinge group by wall
 
   const lift = (i, h) => { const gr = live[i].grow; return h === Infinity || !(gr > 0) ? h : gr >= 1 ? Infinity : h + (top + 0.01 - h) * gr; }; // the height a wall that was cut at h stands at now
   // The matrix of a wall as the hung pieces see it: they live in world coordinates, the wall in its level, so the foot line is raised by the level's height.
   const worldMatrix = (i, deg) => hingeMatrix({ ...walls[i], y: walls[i].y + ps.levelGroups[walls[i].level].position.y }, deg);
   function moveHung() {
-    for (const [i, hg] of hinges) { hg.matrix.fromArray(worldMatrix(i, live[i].deg)); hg.matrixWorldNeedsUpdate = true; }
+    turned = new Map();
+    for (const [i, hg] of hinges) { const m = worldMatrix(i, live[i].deg); turned.set(i, m); hg.matrix.fromArray(m); hg.matrixWorldNeedsUpdate = true; }
     for (const e of hosted) { // a piece shows once the wall it hangs on has risen above its lower edge (the closed view cuts the near walls low)
       const wallTop = lift(e.wall, e.h0);
       e.g.visible = wallTop === Infinity || (e.elev < wallTop - 0.02 && !(e.window && wallTop < 1.5));
@@ -87,13 +88,23 @@ export function createOpenShell(ps, model) {
         hg.add(g);
         hosted.push({ id, g, wall: wi, elev: g.userData.elev ?? 0, window: mode === 'window', h0: closedHeight(bx, bz) });
       }
+      hostById = new Map(hosted.map((e) => [e.id, e]));
       moveHung();
       return new Set(hosted.map((e) => e.id));
     },
     // Puts the hung pieces back into the furnishing group and drops the hinge groups.
     release() {
       for (const hg of hinges.values()) { const host = hg.parent; if (host) for (const g of [...hg.children]) host.add(g); hg.removeFromParent(); }
-      hinges = new Map(); hosted = [];
+      hinges = new Map(); hosted = []; hostById = new Map(); turned = new Map();
+    },
+    // Where the piece `id` is drawn: the 4 x 4 matrix (column-major, world coordinates) that carries it from the place the plan gives it to the place its wall has
+    // turned it to, or null for a piece that no wall holds (every piece while the shell is closed). The same array is returned until the walls move again.
+    hostMatrix(id) { const e = hostById.get(id); return (e && turned.get(e.wall)) || null; },
+    // The wall that holds the piece `id` now, for dragging it along that wall: { wall: the id of the wall, matrix: as hostMatrix, plane: the inner face of the wall in its
+    // closed place ({ point, normal }, see foldwalls.js innerFace) }, or null.
+    hostOf(id) {
+      const e = hostById.get(id), matrix = e && turned.get(e.wall);
+      return matrix ? { wall: walls[e.wall].id, matrix, plane: innerFace(walls[e.wall]) } : null;
     },
     // The window light on the floor goes with the wall: no patches while the shell is not closed (applyWallCut switches them on again).
     hidePatches() { if (clock > 0) for (const m of panes) ps.sunPatch?.userData.show(m, false); },

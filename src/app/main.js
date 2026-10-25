@@ -1,8 +1,9 @@
 // Page shell: reads the address parameters, builds the plan scene, the stage (light, base, backdrop) and the post chain, draws.
 // Parameters: #preset&t=&q=&cam=&az=&pol=&plan=&frames=&lang=&ui=&live=&edit=&btn=&shell= (see params.js). No network, no storage, no external files.
 // A button opens the shell: the outer walls fall outward and lie flat (render/openshell.js), and the view is framed for the closed and the open model together;
-// shell=0 takes the button away, and while editing (edit=1) the shell stays closed. The example plans of the control bar are built in place like a loaded plan.
-// With edit=1 a piece can be selected, dragged over the floor, turned and deleted, with undo and redo (edit.js, pick.js, render/outline.js).
+// shell=0 takes the button away; the shell works the same while editing (edit=1). The example plans of the control bar are built in place like a loaded plan.
+// With edit=1 a piece can be selected, dragged over the floor, turned and deleted, with undo and redo (edit.js, pick.js, render/outline.js); with the shell open the
+// pieces that hang on an outer wall are picked, outlined and dragged where the turned wall has put them.
 // The model can be turned round (camera.js): the outer walls that face the camera are cut low (render/cutaway.js).
 import * as THREE from 'three';
 import { analyzePlan, modelOf } from '../core/validate.js';
@@ -19,8 +20,8 @@ import { createEditSession, placeCheck } from './edit.js';
 import { NO_WEBGL2, hasWebgl2, failureDetail, planChoice, startState, partsOf, buildPlanParts, isFormTarget, shellKey, shellOn } from './shell.js';
 import { coverShare, isNarrow } from './stack.js';
 import { readPlanText } from './planfile.js';
-import { pickPiece, floorHit } from './pick.js';
-import { createOutline, createRoomOutline, outlineKind } from '../render/outline.js';
+import { pickPiece, floorHit, rayInFrame, planeHit } from './pick.js';
+import { createOutline, createOutlineFrame, createRoomOutline, outlineKind } from '../render/outline.js';
 import { createPanel } from './panel.js';
 import { saveTextFile, saveBlobFile, readTextFile, askForText, refusalText, LAYOUT_FILENAME, IMAGE_FILENAME } from './files.js';
 import { roomAt } from '../editor/index.js';
@@ -77,7 +78,7 @@ try {
   for (const lv of plan.levels) lv.furniture = []; // the plan brings no furniture: the layout engine furnishes it
   const res = analyzePlan(plan); let model = buildModel(modelOf(res)); // model, ext, ps, stage, layout and focus are replaced when a plan is loaded
   let ext = modelExtent(model);
-  const useShell = shellOn(params); // the shell opens when its button is on (shell=0 takes it away) and the editor is off; the control bar shows the button either way (inactive while editing)
+  const useShell = shellOn(params); // the shell opens when its button is on (shell=0 takes it away), also while editing
   let frameExt = useShell ? openExtent(model, ext) : ext; // the box the camera and the stage keep in view: with the shell the closed and the open model together
   let framePts = useShell ? openPoints(model, ext) : undefined; // with the shell the camera fits these points (the closed model and every wall lying flat), a tighter fit than the box
   const makeScene = (m) => { const s = new PlanScene(m, 'textured'); s.setLabels(false); s.setArcs(false); s.setCeilings(false); return s; };
@@ -139,7 +140,7 @@ try {
     furn.emitters = emittersOf(furn.pieces);
     if (furn.merged) { disposeComposed(furn.merged.group); furn.merged = null; }
     if (params.merge && (params.edit || hung?.size)) { // the editor merges the pieces nobody moves (the one being dragged stays its own object); with the shell open the pieces that turn with a wall stay their own objects
-      const keep = hung?.size ? hung : live; // the editor and the shell never run together, so `live` is empty while pieces hang on a wall
+      const keep = new Set([...(hung ?? []), ...live]); // the pieces that turn with a wall, and the one being dragged (it may be one of them)
       furn.cutHidden = new Set(); for (const [id, g] of furn.pieces) if (!g.visible) furn.cutHidden.add(id); // hidden by the cutaway: not pickable
       furn.merged = mergeByMaterial(furn, keep);
       for (const [id, g] of furn.pieces) if (!keep.has(id)) g.visible = false; // the merged meshes draw them
@@ -252,11 +253,14 @@ try {
   }
   // ---------- open shell: the clock runs towards its target and the walls follow it ----------
   // Every step puts the walls where the clock says, cuts them for the view and asks for a frame. The hung pieces and the merged furniture are settled
-  // only when the shell leaves or reaches the closed state, and the shadow casters when it comes to rest, not on every step.
+  // only when the shell leaves or reaches the closed state, and the shadow casters when it comes to rest, not on every step. The outline of a selected piece
+  // (editing) follows the wall that holds the piece: onHinge is set by the editing block below.
+  let onHinge = null;
   function shellPose(p) {
     const was = shell.active;
     shell.pose(p); recut(); shell.hidePatches();
     if (was !== shell.active) settle();
+    onHinge?.();
     redraw();
   }
   function shellTick(ts) {
@@ -274,15 +278,18 @@ try {
     if (!shellRaf) { shellLast = 0; shellRaf = requestAnimationFrame(shellTick); }
   }
   const ui = parts.controls ? createUI({ onPreset: (n) => setPreset(n), onTime: setTime, onQuality: setQ, onLang: setLang, onReset: () => cam?.reset(true), onEdit: toggleEdit, onSaveImage: saveImage, onLoadPlan: loadPlan, onPlan: pickExample,
-    onShell: () => { if (shell) shellGo(shellTarget !== 1); else sayLine(T('Zakończ edycję, żeby otworzyć bryłę', 'Finish editing to open the shell')); } }, S) : null;
+    onShell: () => { if (shell) shellGo(shellTarget !== 1); } }, S) : null;
   cam = createCameraController({ element: renderer.domElement, home: home0, initial: { azimuth: params.az, polar: params.pol }, target: pose.target, fov: pose.fov, onChange: onCamera, onGesture: () => ui?.hideHint() });
   applyAll();
   // ---------- edit mode (edit=1): select a piece, drag it over the floor, turn, delete, undo and redo ----------
   let session = null;
   if (params.edit) {
     const levelBase = (id) => Number(model.levels.find((l) => l.id === id)?.elevation) || 0;
-    const outline = createOutline(); scene.add(outline.group);
+    const outline = createOutline(), outlineFrame = createOutlineFrame(outline); scene.add(outlineFrame.group);
     const roomOutline = createRoomOutline(); scene.add(roomOutline.group);
+    // the outline of a piece that hangs on a wall that has turned (shell open) turns with the wall
+    const followHinge = () => { const sel = session?.selected(); outlineFrame.follow(sel ? shell?.hostMatrix(sel.id) : null); };
+    onHinge = followHinge;
     const dom = renderer.domElement;
     const polygonOf = (r) => model.levels.find((l) => l.id === r.level)?.rooms?.find((x) => x.id === r.id)?.polygon ?? null;
     // the room colours of the layout go to the scene; a plan without any colour is left exactly as it was drawn before
@@ -326,6 +333,7 @@ try {
     function refreshEdit() {
       const sel = session.selected(), room = sel ? null : session.selectedRoom();
       if (sel) outline.set(sel, levelBase(session.levelOf(sel.id)), outlineKind(session.problems())); else outline.hide();
+      followHinge();
       if (room && polygonOf(room)) roomOutline.set(polygonOf(room), levelBase(room.level)); else roomOutline.hide();
       editBar?.update({ selected: !!sel, canUndo: session.canUndo(), canRedo: session.canRedo() });
     }
@@ -375,7 +383,18 @@ try {
     // One finger or the mouse on a piece selects it and drags it; elsewhere the camera turns as before; a quick tap on nothing clears the selection.
     let gest = null, adopting = false;
     const PAD = { mouse: 0.02, touch: 0.06, pen: 0.04 }; // metres of margin round every piece when picking: a fingertip is wider than a mouse pointer
-    const hitAt = (e) => pickPiece(session.state.layout, cam.pointerToRay(e), { levelBase, pad: PAD[e.pointerType] ?? PAD.mouse, skip: (id) => furn.cutHidden ? furn.cutHidden.has(id) : !furn.pieces.get(id)?.visible });
+    // A piece that the cutaway hides cannot be picked. furn.cutHidden says which they are for the pieces that went into the merged meshes; a piece that hangs on a
+    // turned wall stays its own object, so its own flag is the live one (it shows once its wall has risen). Such a piece is picked where the wall has put it: frameOf.
+    const hiddenNow = (id) => (shell?.hostMatrix(id) ? !furn.pieces.get(id)?.visible : furn.cutHidden ? furn.cutHidden.has(id) : !furn.pieces.get(id)?.visible);
+    const hitAt = (e) => pickPiece(session.state.layout, cam.pointerToRay(e), { levelBase, pad: PAD[e.pointerType] ?? PAD.mouse, skip: hiddenNow, frameOf: (id) => shell?.hostMatrix(id) ?? null });
+    // Where a ray meets the surface that a piece slides over, as a plan point [x, y], or null. Normally the floor plane at the height of the piece. A piece that hangs on
+    // an outer wall that has turned slides over the inner face of that wall instead: the ray is taken back into the closed place of the wall (the inverse of its hinge)
+    // and meets the face there, so the piece moves along the wall wherever the wall lies and keeps its place on it. host: shell.hostOf(id) or null.
+    const surfaceAt = (ray, host, height) => {
+      if (host) { const back = rayInFrame(ray, host.matrix), q = back && planeHit(back, host.plane.point, host.plane.normal); return q ? [q[0], q[2]] : null; }
+      const fh = floorHit(ray, height);
+      return fh ? [fh[0], fh[2]] : null;
+    };
     const showPanel = (on) => { if (panel) panel.element.hidden = !on; };
     dom.addEventListener('pointerdown', (e) => {
       if (adopting) return;
@@ -393,8 +412,8 @@ try {
       }
       const hit = hitAt(e), base = { pointerId: e.pointerId, x0: e.clientX, y0: e.clientY, lastX: e.clientX, lastY: e.clientY, t0: performance.now(), moved: 0, id: null, dragging: false };
       if (!hit) { gest = { ...base, room: roomHitAt(e) }; return; }
-      const piece = session.pieceById(hit.id), fh = floorHit(cam.pointerToRay(e), levelBase(hit.level) + piece.elev);
-      gest = { ...base, id: hit.id, level: hit.level, base: levelBase(hit.level) + piece.elev, off: fh ? [piece.x - fh[0], piece.y - fh[2]] : [0, 0] };
+      const piece = session.pieceById(hit.id), host = shell?.hostOf(hit.id) ?? null, at = surfaceAt(cam.pointerToRay(e), host, levelBase(hit.level) + piece.elev);
+      gest = { ...base, id: hit.id, level: hit.level, base: levelBase(hit.level) + piece.elev, wall: host?.wall ?? null, off: at ? [piece.x - at[0], piece.y - at[1]] : [0, 0] };
       cam.enabled = false; session.select(hit.id);
       try { dom.setPointerCapture(e.pointerId); } catch {}
     }, true);
@@ -404,12 +423,14 @@ try {
       g.moved = Math.max(g.moved, Math.hypot(e.clientX - g.x0, e.clientY - g.y0));
       if (g.moved < 6) return; // a tap is not a drag
       if (!g.dragging) { g.dragging = session.beginDrag(g.id); if (!g.dragging) return; showPanel(false); }
-      const ray = cam.pointerToRay(e), fh = floorHit(ray, g.base);
-      if (!fh) return;
-      session.dragTo(fh[0] + g.off[0], fh[2] + g.off[1]);
+      const ray = cam.pointerToRay(e), host = shell?.hostOf(g.id) ?? null;
+      if ((host?.wall ?? null) !== g.wall) return; // another wall holds the piece than at the grab (the shell opened or closed meanwhile): the grab no longer fits
+      const at = surfaceAt(ray, host, g.base);
+      if (!at) return;
+      session.dragTo(at[0] + g.off[0], at[1] + g.off[1]);
       // a prop that leaves a table (or lands on one) changes height: the plane that the finger points at follows it, so it stays under the finger
       const nb = levelBase(g.level) + (session.pieceById(g.id)?.elev ?? 0);
-      if (Math.abs(nb - g.base) > 1e-6) { g.base = nb; const f2 = floorHit(ray, nb); if (f2) session.dragTo(f2[0] + g.off[0], f2[2] + g.off[1]); }
+      if (Math.abs(nb - g.base) > 1e-6) { g.base = nb; const a2 = surfaceAt(ray, host, nb); if (a2) session.dragTo(a2[0] + g.off[0], a2[1] + g.off[1]); }
     }, true);
     const finish = (e, cancelled) => {
       const g = gest; if (!g || g.pointerId !== e.pointerId) return;
@@ -426,7 +447,8 @@ try {
     };
     dom.addEventListener('pointerup', (e) => finish(e, false), true);
     dom.addEventListener('pointercancel', (e) => finish(e, true), true);
-    // keys (not while a form field has the focus): Delete or Backspace removes, R turns, Ctrl or Cmd + Z undoes, with Shift (or Ctrl + Y) redoes, Escape clears the selection
+    // keys (not while a form field has the focus): Delete or Backspace removes, R turns, Ctrl or Cmd + Z undoes, with Shift (or Ctrl + Y) redoes, Escape clears the selection.
+    // This listener comes before the shell's (onShellKey below): an Escape that cleared a selection is marked as taken, so the open shell stays open until the next one.
     addEventListener('keydown', (e) => {
       if (isFormTarget(e.target)) return;
       const mod = e.ctrlKey || e.metaKey, k = String(e.key).toLowerCase();
@@ -434,7 +456,7 @@ try {
       else if (mod && k === 'y') { session.redo(); e.preventDefault(); }
       else if (!mod && !e.altKey && (e.key === 'Delete' || e.key === 'Backspace')) { session.remove(); e.preventDefault(); }
       else if (!mod && !e.altKey && k === 'r') session.turn(90);
-      else if (e.key === 'Escape') session.select(null);
+      else if (e.key === 'Escape' && (session.selected() || session.selectedRoom())) { session.select(null); e.preventDefault(); }
     });
     // for test tools: the piece's place in client pixels, the number of pieces, the selected id
     const v3 = new THREE.Vector3();
@@ -472,13 +494,44 @@ try {
         const r = dom.getBoundingClientRect();
         return { x: r.left + (v3.x * 0.5 + 0.5) * r.width, y: r.top + (-v3.y * 0.5 + 0.5) * r.height };
       },
+      // where the piece is drawn now (upper part of its box), in client pixels: from its own group, so a piece that hangs on a turned wall is found where the wall has put it
       screenOf(id) {
         const f = session.pieceById(id); if (!f) return null;
         camera.updateMatrixWorld(true);
-        v3.set(f.x, levelBase(session.levelOf(id)) + f.elev + f.size[2] * 0.75, f.y).project(camera);
+        const g = furn.pieces.get(id);
+        if (g) { g.updateWorldMatrix(true, false); v3.set(0, f.size[2] * 0.75, 0).applyMatrix4(g.matrixWorld); }
+        else v3.set(f.x, levelBase(session.levelOf(id)) + f.elev + f.size[2] * 0.75, f.y);
+        v3.project(camera);
         const r = dom.getBoundingClientRect();
         return { x: r.left + (v3.x * 0.5 + 0.5) * r.width, y: r.top + (-v3.y * 0.5 + 0.5) * r.height };
       },
+      // How far the selection outline is from the piece it outlines: the largest distance in client pixels between the eight corners of the piece's box as drawn
+      // (its own group) and the same corners of the outline (its group, inside the frame that turns it with a wall). null when the piece is not the selected one.
+      outlineGap(id) {
+        const f = session.pieceById(id), g = furn.pieces.get(id);
+        if (!f || !g || !outline.visible || session.state.selection !== id) return null;
+        camera.updateMatrixWorld(true); g.updateWorldMatrix(true, false); outline.group.updateWorldMatrix(true, false);
+        const r = dom.getBoundingClientRect(), [w, d, h] = f.size, a = new THREE.Vector3(), b = new THREE.Vector3();
+        let worst = 0;
+        for (const sx of [-1, 1]) for (const sz of [-1, 1]) for (const y of [0, h]) {
+          a.set((sx * w) / 2, y, (sz * d) / 2).applyMatrix4(g.matrixWorld).project(camera);
+          b.set((sx * w) / 2, y, (sz * d) / 2).applyMatrix4(outline.group.matrixWorld).project(camera);
+          worst = Math.max(worst, Math.hypot((a.x - b.x) * 0.5 * r.width, (a.y - b.y) * 0.5 * r.height));
+        }
+        return +worst.toFixed(2);
+      },
+      // the point `d` metres along the wall from the piece, as drawn now, in client pixels (the width axis of a hung piece runs along its wall): where a finger goes to slide it
+      alongWall(id, d) {
+        const f = session.pieceById(id), g = furn.pieces.get(id); if (!f || !g) return null;
+        camera.updateMatrixWorld(true); g.updateWorldMatrix(true, false);
+        v3.set(d, f.size[2] * 0.75, 0).applyMatrix4(g.matrixWorld).project(camera);
+        const r = dom.getBoundingClientRect();
+        return { x: r.left + (v3.x * 0.5 + 0.5) * r.width, y: r.top + (-v3.y * 0.5 + 0.5) * r.height };
+      },
+      // whether the piece is drawn as an object of its own (not inside the merged meshes): true for the piece being dragged and for pieces that hang on a turned wall
+      own: (id) => !!furn.pieces.get(id)?.visible,
+      // the id of the wall that holds the piece while the shell is open (null: none), and the matrix that turns it
+      hostOf: (id) => { const h = shell?.hostOf(id); return h ? { wall: h.wall, matrix: [...h.matrix] } : null; },
     };
   }
   // The bars exist now: the view is framed again above them, and again whenever they change size (a wrapped row, another language, a turned screen).
@@ -507,7 +560,7 @@ try {
   window.__planInfo = () => ({ pieces: furn.pieces.size, levels: model.levels.length, rooms: model.levels.reduce((n, l) => n + (l.rooms?.length ?? 0), 0), extent: [ext.minX, ext.maxX, ext.minZ, ext.maxZ].map((v) => +v.toFixed(2)) }); // for test tools
   window.__setT = setTime; window.__setPreset = setPreset; window.__setQuality = setQ;
   window.__camera = { get azimuth() { return cam.state.azimuth; }, get polar() { return cam.state.polar; }, get distance() { return cam.state.distance; }, get near() { return sidesKey(near); }, get busy() { return cam.busy; }, set: (azimuth, polar) => cam.set({ azimuth, polar }), reset: () => cam.reset(false) };
-  // For test tools and the film (there while the shell is built, not while editing): the clock (0 closed, 1 open), the target and the mode, open/close/toggle like the button, the pose of every wall,
+  // For test tools and the film (there while the shell is built, also while editing): the clock (0 closed, 1 open), the target and the mode, open/close/toggle like the button, the pose of every wall,
   // the camera as three.js holds it, and seek(p) which puts the walls at clock p without any transition and resolves after the frame that shows it.
   if (useShell) {
     window.__shell = {
