@@ -138,9 +138,9 @@ try {
     const hung = open ? shell.adopt(furn.group, furn.pieces, (x, z) => wallCutHeight(x, z, ext, 0.3, near)) : (shell?.release(), null); // ids of the pieces that turn with a wall
     furn.emitters = emittersOf(furn.pieces);
     if (furn.merged) { disposeComposed(furn.merged.group); furn.merged = null; }
-    if (params.merge && (params.edit || hung?.size)) { // the editor merges the pieces nobody moves; the one being dragged (and the ones that turn with a wall) stays its own object
-      const keep = hung?.size ? new Set([...live, ...hung]) : live;
-      furn.cutHidden = new Set(); for (const [id, g] of furn.pieces) if (!g.visible || hung?.has(id)) furn.cutHidden.add(id); // hidden by the cutaway or moved by the shell: not pickable
+    if (params.merge && (params.edit || hung?.size)) { // the editor merges the pieces nobody moves (the one being dragged stays its own object); with the shell open the pieces that turn with a wall stay their own objects
+      const keep = hung?.size ? hung : live; // the editor and the shell never run together, so `live` is empty while pieces hang on a wall
+      furn.cutHidden = new Set(); for (const [id, g] of furn.pieces) if (!g.visible) furn.cutHidden.add(id); // hidden by the cutaway: not pickable
       furn.merged = mergeByMaterial(furn, keep);
       for (const [id, g] of furn.pieces) if (!keep.has(id)) g.visible = false; // the merged meshes draw them
       furn.group.visible = true;
@@ -214,11 +214,16 @@ try {
     // everything new is built first, so a plan that cannot be built leaves the page as it was
     const built = buildPlanParts(next, params.seed, { analyzePlan, modelOf, buildModel, modelExtent, makeScene, autoFurnish, piecesImplemented });
     if (!built) return false;
+    let nextShell = null, nextExt = built.ext, nextPts;
+    try { // the frame and the shell of the new plan too, before the old scene goes
+      if (useShell) { nextExt = openExtent(built.model, built.ext); nextPts = openPoints(built.model, built.ext); nextShell = createOpenShell(built.scene, built.model); }
+    } catch { try { built.scene.dispose?.(); } catch { /* dropped anyway */ } return false; }
+    shell?.dispose();
     if (furn) { disposeComposed(furn.group, furn.merged?.group); furn = null; }
     scene.remove(ps.group); ps.dispose(); stage.dispose();
-    model = built.model; ext = built.ext; frameExt = useShell ? openExtent(model, ext) : ext; framePts = useShell ? openPoints(model, ext) : undefined; ps = built.scene; layout = built.layout; curLayout = layout; focus = focusRoom(model, layout);
+    model = built.model; ext = built.ext; frameExt = nextExt; framePts = nextPts; ps = built.scene; layout = built.layout; curLayout = layout; focus = focusRoom(model, layout);
     scene.add(ps.group);
-    shell = useShell ? createOpenShell(ps, model) : null; shellTarget = 0; S.shellOpen = false; ui?.update(S); // a new plan starts closed
+    shell = nextShell; shellTarget = 0; S.shellOpen = false; ui?.update(S); // a new plan starts closed
     stage = createStage({ renderer, scene, bounds: frameExt, quality: level, preset: S.preset, t: S.t });
     wantFit = useShell && params.cam !== 'close'; near = nearSides(current.azimuth); recut();
     furnish(); // the pieces first: the camera below may re-cut the walls and the pieces
@@ -490,7 +495,7 @@ try {
     if (e.shiftKey && e.key === 'ArrowRight') setTime(S.t + 0.02); else if (e.shiftKey && e.key === 'ArrowLeft') setTime(S.t - 0.02);
     else if (['1', '2', '3'].includes(e.key)) setPreset(['amber', 'clear', 'lamplit'][Number(e.key) - 1]);
   });
-  // Open shell: Space opens or closes it, Escape closes it (shellKey in shell.js decides; a button or a form field that has the focus keeps those keys for itself).
+  // Open shell: Space opens or closes it, Escape closes it (shellKey in shell.js decides: a held key counts once, a form field keeps both keys, a button or a link keeps Space).
   const onShellKey = (e) => {
     const act = shellKey(e, shellTarget === 1);
     if (!act) return;

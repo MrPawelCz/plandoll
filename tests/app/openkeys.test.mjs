@@ -1,4 +1,4 @@
-// What Space and Escape do to the open shell (shellKey in shell.js), and that the page registers that one handler and nothing else for the shell.
+// What Space and Escape do to the open shell (shellKey in shell.js), and that the page registers its key handler only while the shell is on.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -20,6 +20,11 @@ test('keys that belong to something else are left alone', () => {
   assert.equal(shellKey(key('Escape', { tagName: 'BUTTON' }), true), 'close', 'Escape on a button still closes the shell');
   for (const mods of [{ ctrlKey: true }, { metaKey: true }, { altKey: true }]) { assert.equal(shellKey(key(' ', undefined, mods), false), null); assert.equal(shellKey(key('Escape', undefined, mods), true), null); }
   assert.equal(shellKey(null, true), null); assert.equal(shellKey({}, true), null); assert.equal(shellKey({ key: ' ' }, false), 'open', 'an event without a target is a key on the page');
+});
+
+test('a key that is held down counts once: the repeats do nothing', () => {
+  assert.equal(shellKey(key(' ', undefined, { repeat: false }), false), 'open');
+  for (const wantOpen of [false, true]) { assert.equal(shellKey(key(' ', undefined, { repeat: true }), wantOpen), null); assert.equal(shellKey(key('Escape', undefined, { repeat: true }), wantOpen), null); }
 });
 
 test('main.js listens for the shell keys only while the shell is on (not while editing) and through shellKey', () => {

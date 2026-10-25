@@ -49,7 +49,7 @@ test('with the shell the button comes first among the tools, says what it does i
   assert.equal(shell.textContent, 'Otwórz bryłę'); assert.match(shell.title, /spacja albo Esc/);
   ui.update({ shellOpen: true });
   assert.equal(shell.textContent, 'Złóż bryłę');
-  assert.ok(!`${shell.textContent}${shell.title}`.match(/[–—]/), 'no long dashes in the words of the button');
+  assert.ok(!`${shell.textContent}${shell.title}`.match(/[\u2013\u2014]/), 'no long dashes in the words of the button');
 });
 
 test('while editing the shell button stays on the bar, dimmed, and its hint says what to do; leaving the editor wakes it again', () => {
@@ -65,7 +65,7 @@ test('while editing the shell button stays on the bar, dimmed, and its hint says
   assert.equal(ui.root.className, 'editing has-tools');
   ui.update({ lang: 'pl' });
   assert.equal(shell.title, 'Zakończ edycję, żeby otworzyć bryłę'); assert.equal(shell.textContent, 'Otwórz bryłę');
-  assert.ok(!shell.title.match(/[–—]/));
+  assert.ok(!shell.title.match(/[\u2013\u2014]/));
   ui.update({ editing: false });
   assert.equal(shell.attrs['aria-disabled'], 'false'); assert.match(shell.title, /spacja albo Esc/);
 });

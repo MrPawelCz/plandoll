@@ -46,7 +46,7 @@ test('the words are in both languages and without long dashes', () => {
   ui.update({ lang: 'pl' });
   assert.deepEqual(buttons.map((b) => b.textContent), ['Mieszkanie', 'Dupleks']);
   assert.equal(group.attrs['aria-label'], 'Przykładowe plany');
-  for (const b of buttons) assert.ok(!`${b.textContent}${b.title}`.match(/[–—]/), b.textContent);
+  for (const b of buttons) assert.ok(!`${b.textContent}${b.title}`.match(/[\u2013\u2014]/), b.textContent);
   assert.match(buttons[0].title, /jedno piętro/); assert.match(buttons[1].title, /dwa piętra/);
   ui.update({ lang: 'en' });
   assert.match(buttons[0].title, /one floor/); assert.match(buttons[1].title, /two floors/);

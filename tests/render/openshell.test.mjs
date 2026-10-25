@@ -125,7 +125,7 @@ test('the cutaway lifts the walls that fall to full height as they start to turn
     });
     assert.ok(lifted > 0, `${name}: some low walls were lifted`);
     shell.pose(0.5); applyWallCut(ps, ext, NEAR_DEFAULT, { height: shell.heightFor });
-    for (const c of ps.cuttables) if (!owned.has(c.mesh) && c.mesh.visible && c.mesh.scale.y <= WALL_PART + 1e-9) assert.ok(c.mesh.scale.y <= WALL_PART + 1e-9);
+    ps.cuttables.forEach((c, i) => { if (!owned.has(c.mesh)) near(c.mesh.visible ? c.mesh.scale.y : 0, low[i], 1e-12, `${name} #${i} outside the shell is unchanged half way`); });
     assert.equal(shell.heightFor({}, 1.5), 1.5, 'a box that no wall owns keeps its height');
     assert.equal(shell.heightFor(ps.cuttables.find((c) => owned.has(c.mesh)), Infinity), Infinity);
   }
