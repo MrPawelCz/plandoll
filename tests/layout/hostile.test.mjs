@@ -39,7 +39,7 @@ function run(plan, { expectValid = true } = {}) {
   return { model, lay, ms };
 }
 
-test('200 rooms: within the time and piece limits', () => {
+test('200 rooms: the validator refuses them quickly', () => {
   const rooms = [];
   for (let i = 0; i < 200; i++) rooms.push({ polygon: rect((i % 20) * 4.2, Math.floor(i / 20) * 4.2, 4, 4), name: ['Salon', 'Bedroom', 'Kuchnia', 'Łazienka', 'Hall', 'Gabinet', 'xyz', 'Kids', 'WC', 'Jadalnia'][i % 10], window: i % 2 === 0 });
   const plan = planOf(rooms);
@@ -73,13 +73,13 @@ test('150 rooms (the validator cap) are furnished within the limits', () => {
   assert.ok(r.lay.levels[0].pieces.length > 100);
 });
 
-test('a room of 0.2 square metres gets nothing and nothing breaks', () => {
+test('a room of 0.2 square metres: the validator refuses it and nothing breaks', () => {
   const plan = planOf([{ polygon: rect(0, 0, 0.5, 0.4), name: 'Salon', door: false }, { polygon: rect(1, 0, 4, 3), name: 'Salon' }]);
   const r = run(plan, { expectValid: false });
   if (r) assert.equal(r.lay.levels[0].pieces.filter((p) => p.room === 'room0').length, 0);
 });
 
-test('a self crossing polygon is rejected or ignored', () => {
+test('a self crossing polygon: the validator refuses it', () => {
   const bow = [[0, 0], [4, 3], [4, 0], [0, 3]];
   const plan = planOf([{ polygon: bow, name: 'Salon', door: false }, { polygon: rect(5, 0, 4, 3), name: 'Bedroom' }]);
   const r = run(plan, { expectValid: false });
