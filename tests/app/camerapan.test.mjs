@@ -327,7 +327,8 @@ test('controller with a lift: the middle of the free part looks at the target, a
 
 test('controller setLift moves the centre of the projection, bad values are no lift, and pointerToRay agrees with groundAt', () => {
   const r = rig(); assert.equal(r.cam.lift, 0);
-  r.cam.setLift(0.2); assert.equal(r.cam.lift, 0.2);
+  const g0 = r.cam.groundAt(200, 300); r.cam.setLift(0.2); assert.equal(r.cam.lift, 0.2);
+  assert.ok(!nearPt(r.cam.groundAt(200, 300), g0, 1e-3), 'the same pixel now looks at another ground point');
   r.cam.setLift(5); assert.equal(r.cam.lift, BOTTOM_MAX); r.cam.setLift(NaN); assert.equal(r.cam.lift, 0);
   r.cam.setLift(0.25);
   for (const [x, y] of [[100, 150], [320, 500], [200, 300]]) {
@@ -357,7 +358,6 @@ test('controller: a first finger that goes down while a pointer from before is s
   for (let k = 1; k <= 12; k++) r.move(9, 200 + 6 * k, 400);
   assert.ok(r.cam.state.azimuth !== az0, 'turned by one finger, not treated as two fingers');
   r.up(9, 272, 400, { isPrimary: true });
-  assert.equal(r.cam.busy === false || r.queue.length >= 0, true);
 });
 
 test('controller: a window that loses the focus lets go of the fingers it kept', () => {
@@ -407,4 +407,36 @@ test('controller: the limits box can grow by its own share, setLimits keeps it, 
   far.cam.setLimits({ minX: target[0] - 0.5, maxX: target[0] + 0.5, minZ: target[2] - 0.5, maxZ: target[2] + 0.5 }, 0);
   const back = far.cam.target; assert.ok(Math.abs(back[0] - target[0]) <= 0.5 + 1e-9 && Math.abs(back[2] - target[2]) <= 0.5 + 1e-9, `brought back: ${back}`);
   const home = rig({ limits: box }); assert.ok(near(home.cam.limits.maxX, 11.5), 'the default share is PAN_GROW');
+});
+
+test('controller: a long one-finger drag still gets its inertia, a two-finger gesture never does, and a mouse going down does not let go of a finger', () => {
+  const r = rig(), az0 = r.cam.state.azimuth;
+  r.down(1, 100, 400, { isPrimary: true }); for (let k = 1; k <= 20; k++) r.move(1, 100 + 12 * k, 400); // 240 px of path, well over 99
+  r.up(1, 340, 400, { isPrimary: true });
+  assert.ok(r.cam.state.azimuth !== az0 && r.cam.busy, 'a flick after a long drag keeps turning for a moment');
+  const q = rig(); q.down(1, 150, 400, { isPrimary: true }); q.down(2, 250, 400, { isPrimary: false });
+  for (let k = 1; k <= 20; k++) { q.move(1, 150 + 12 * k, 400); q.move(2, 250 + 12 * k, 400); }
+  q.up(2, 490, 400, { isPrimary: false }); q.up(1, 390, 400, { isPrimary: true });
+  assert.equal(q.cam.busy, false, 'no flick after a multi-finger gesture');
+  const m = rig(), a0 = m.cam.state.azimuth; // a finger is down, then the mouse (each has its own primary pointer): they are two pointers, so nothing turns
+  m.down(1, 150, 400, { isPrimary: true });
+  m.fire('pointerdown', { pointerId: 2, pointerType: 'mouse', isPrimary: true, button: 0, clientX: 250, clientY: 400 });
+  for (let k = 1; k <= 8; k++) { m.move(1, 150 - 5 * k, 400); m.move(2, 250 + 5 * k, 400, { pointerType: 'mouse' }); }
+  assert.equal(m.cam.state.azimuth, a0, 'the finger was not dropped: two pointers move and zoom, they do not turn');
+  assert.ok(m.gestures.some((g) => g.kind === 'pinch' || g.kind === 'pan'));
+});
+
+test('controller: a page that goes to the background lets go of the fingers it kept', () => {
+  const seen = {}, doc = { visibilityState: 'visible', addEventListener(t, f) { seen[t] = f; }, removeEventListener(t) { delete seen[t]; } };
+  globalThis.document = doc; let r;
+  try { r = rig(); } finally { delete globalThis.document; }
+  assert.equal(typeof seen.visibilitychange, 'function');
+  const az0 = r.cam.state.azimuth;
+  r.down(1, 150, 400, { isPrimary: false }); r.down(2, 250, 400, { isPrimary: false });
+  doc.visibilityState = 'visible'; seen.visibilitychange(); // a switch that comes back does not drop them (only a hidden page does)
+  r.move(1, 140, 400); assert.equal(r.cam.state.azimuth, az0, 'still two fingers');
+  doc.visibilityState = 'hidden'; seen.visibilitychange();
+  r.down(3, 200, 400, { isPrimary: false }); for (let k = 1; k <= 12; k++) r.move(3, 200 + 6 * k, 400);
+  assert.ok(r.cam.state.azimuth !== az0, 'after the page was hidden one finger turns the model again');
+  r.cam.dispose(); assert.equal(seen.visibilitychange, undefined);
 });

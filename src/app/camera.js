@@ -336,13 +336,16 @@ export function createCameraController(options) {
     const mouse = e.pointerType === 'mouse';
     if (!enabled || (mouse && e.button > 2)) return;
     stopMotion();
-    if (e.isPrimary && pointers.size) { pointers.clear(); gesture = null; } // a first finger (or the mouse) cannot go down while another one is: whatever is kept from before is stale (a missed pointerup)
+    if (e.isPrimary) { // a first finger (or the mouse) cannot go down while another pointer of its kind is: whatever is kept from before is stale (a missed pointerup)
+      for (const [id, p] of pointers) if (p.type === e.pointerType) pointers.delete(id);
+      if (!pointers.size) gesture = null;
+    }
     if (mouse && e.button !== 0) e.preventDefault?.(); // no autoscroll on the middle button
-    pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    pointers.set(e.pointerId, { x: e.clientX, y: e.clientY, type: e.pointerType });
     try { element.setPointerCapture(e.pointerId); } catch {}
     const t = now();
     if (pointers.size === 1) gesture = { t0: t, x0: e.clientX, y0: e.clientY, moved: 0, last: t, vx: 0, vy: 0, pinch: 0, mid: null, multi: false, type: e.pointerType, pan: mouse && (e.button !== 0 || !!e.shiftKey) };
-    else if (gesture) { gesture.moved = 99; gesture.multi = true; } // a second finger: never a tap, and the finger that stays after the others lift does not turn the model
+    else if (gesture) gesture.multi = true; // a second finger: never a tap or a flick, and the finger that stays after the others lift does not turn the model
     refer();
   };
   const onMove = (e) => {
@@ -373,9 +376,9 @@ export function createCameraController(options) {
     const g = gesture, t = now();
     if (pointers.size > 0) { refer(); return; }
     gesture = null; if (!g || !enabled || g.pan) return;
-    if (g.moved < slopOf(g) && t - g.t0 < 350) { // a tap: two close taps are a double tap
+    if (!g.multi && g.moved < slopOf(g) && t - g.t0 < 350) { // a tap: two close taps are a double tap
       if (tap && t - tap.t < 350 && Math.hypot(e.clientX - tap.x, e.clientY - tap.y) < 30) { tap = null; reset(true); } else tap = { t, x: e.clientX, y: e.clientY };
-    } else if (g.moved >= slopOf(g) && g.moved < 99 && t - g.last < 80 && Math.hypot(g.vx, g.vy) > 0.02) { spin = { vx: g.vx, vy: g.vy, last: t }; schedule(); }
+    } else if (!g.multi && g.moved >= slopOf(g) && t - g.last < 80 && Math.hypot(g.vx, g.vy) > 0.02) { spin = { vx: g.vx, vy: g.vy, last: t }; schedule(); }
   };
   const onCancel = (e) => { pointers.delete(e.pointerId); if (!pointers.size) gesture = null; else refer(); };
   const onWheel = (e) => { // zooms towards the pointer: the ground point under it stays under it

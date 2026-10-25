@@ -364,6 +364,22 @@ test('fitView with lift: the box is fitted around the middle of the free part wi
   for (const b of [NaN, -1, 'x', null, Infinity, 5]) { const r = fitView({ azimuth: 35, polar: 45 }, twoStorey, { aspect: phone, bottom: b, lift: true }); assert.ok(Number.isFinite(r.distance) && r.target.every(Number.isFinite), `bottom ${b} gives a usable lifted fit`); }
 });
 
+test('fitView with lift and a list of points (the open shell): every point fits the free half height and the target stays in the middle of the points', () => {
+  const pts = [[-3, 0, -3], [15, 0, -3], [-3, 0, 12], [15, 0, 12], [0, 2.8, 0], [12, 2.8, 9], [6, 0.02, 4.5]]; // a wide flat spread with a closed house in the middle
+  for (const aspect of [phone, 1.78]) for (const azimuth of [35, 125, 215, 305]) for (const bottom of [0.3, BOTTOM_MAX]) {
+    const margin = 0.08, state0 = { azimuth, polar: 45 }, fit = fitView(state0, twoStorey, { aspect, margin, bottom, lift: true, points: pts }), state = { ...state0, distance: fit.distance };
+    const k = 1 - margin, half = (1 - bottom) * k;
+    let lo = Infinity, hi = -Infinity;
+    for (const c of pts) {
+      const q = project(state, fit.target, 27, aspect, c);
+      assert.ok(q.depth > 0 && Math.abs(q.x) <= k + 1e-6 && Math.abs(q.y) <= half + 1e-6, `point ${c} fits (az ${azimuth}, bottom ${bottom}, aspect ${aspect.toFixed(2)}): ${q.x.toFixed(3)}, ${q.y.toFixed(3)}`);
+      lo = Math.min(lo, q.y); hi = Math.max(hi, q.y);
+    }
+    assert.ok(Math.abs(lo + hi) / 2 < 0.03, `the points are centred on the projection centre (${lo.toFixed(3)} to ${hi.toFixed(3)})`);
+    assert.ok(Math.hypot(fit.target[0] - 6, fit.target[2] - 4.5) < 2.5, `the target is among the points: ${fit.target}`);
+  }
+});
+
 test('lowestOnPicture agrees with the projection and refuses a box it cannot project', () => {
   const tgt = [6, 2.8, 4.5];
   for (const azimuth of [0, 35, 140, 250]) for (const polar of [30, 45, 70]) {

@@ -233,8 +233,9 @@ async function cameraBlock(tag) {
     const far = await camNow(), boardNow = JSON.parse(await ev('JSON.stringify(window.__shell ? window.__stats.board : null)'));
     const lim = boardNow ?? JSON.parse(await ev('JSON.stringify(window.__planInfo().extent)')), grow = boardNow ? 0.04 : 0.15;
     const box = Array.isArray(lim) ? { minX: lim[0], maxX: lim[1], minZ: lim[2], maxZ: lim[3] } : lim, gx = (box.maxX - box.minX) * grow, gz = (box.maxZ - box.minZ) * grow;
-    record(label(boardNow ? 'a long drag stops at the edge of the card board grown by 4 percent' : 'a long drag stops at the edge of the model grown by 15 percent'), panLen(far) > 1 && far.target[0] >= box.minX - gx - 0.01 && far.target[0] <= box.maxX + gx + 0.01 && far.target[2] >= box.minZ - gz - 0.01 && far.target[2] <= box.maxZ + gz + 0.01,
-      { target: far.target.map(round2), box: [box.minX, box.maxX, box.minZ, box.maxZ].map(round2), grow, pan: far.pan.map(round2) });
+    const edgeGap = Math.min(Math.abs(far.target[0] - (box.minX - gx)), Math.abs(far.target[0] - (box.maxX + gx)), Math.abs(far.target[2] - (box.minZ - gz)), Math.abs(far.target[2] - (box.maxZ + gz))); // the drag really reached the limit on one side
+    record(label(boardNow ? 'a long drag stops at the edge of the card board grown by 4 percent' : 'a long drag stops at the edge of the model grown by 15 percent'), panLen(far) > 1 && edgeGap < 0.2 && far.target[0] >= box.minX - gx - 0.01 && far.target[0] <= box.maxX + gx + 0.01 && far.target[2] >= box.minZ - gz - 0.01 && far.target[2] <= box.maxZ + gz + 0.01,
+      { target: far.target.map(round2), box: [box.minX, box.maxX, box.minZ, box.maxZ].map(round2), grow, edgeGap: round2(edgeGap), pan: far.pan.map(round2) });
     await homeAgain();
     await resizeKeepsPan(tag);
   } else {

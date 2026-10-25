@@ -105,8 +105,9 @@ try {
   const dh = stateFrom(pose.pos, pose.target), askAz = params.az ?? dh.azimuth, askPol = params.pol ?? dh.polar;
   let wantFit = params.cam !== 'close' && (useShell || Math.abs(wrapDegrees(askAz - dh.azimuth + 180) - 180) > 1 || Math.abs(askPol - dh.polar) > 1); // with the shell the view is always fitted to the closed and the open model
   let cover = 0; // the share of the window height that the bars at the bottom cover (stack.js): the model is kept above it
-  // How far the centre of the projection is moved up (picture units): the fitted view looks at the middle of the model and puts that point in the middle of the
-  // part above the bars, so that turning and zooming happen about what the person sees. The default view of liftPose (no fit) lowers its target instead and has none.
+  // How far the centre of the projection is moved up (picture units): a fitted view (fitPose, and liftPose when it has to fit) looks at the middle of the model and
+  // puts that point in the middle of the part above the bars, so that turning and zooming happen about what the person sees; a default view that already shows
+  // the whole box above the bars is left as cameraFor gives it, with no lift.
   let viewLift = 0;
   // Where the view may go: with the shell the card board of the moment (it hugs the closed house and holds the walls as they fall) plus a hand's breadth, so that a
   // pinch or a drag over the empty ground cannot lose the model; without the shell the box of the whole model grown by PAN_GROW.
@@ -120,7 +121,7 @@ try {
   }
   const fitPose = (p) => {
     const fit = fitView({ azimuth: askAz, polar: askPol }, frameExt, { fov: p.fov, aspect: W / H, bottom: cover, points: framePts, lift: true });
-    return { ...p, target: fit.target, pos: positionOf({ azimuth: askAz, polar: askPol, distance: fit.distance }, fit.target) };
+    return { ...p, target: fit.target, pos: positionOf({ azimuth: askAz, polar: askPol, distance: fit.distance }, fit.target), lifted: true };
   };
   // The default view stays exactly as cameraFor gives it while the whole box shows above the bars; when its lowest corner would sit behind them (a tall
   // model on a phone) it is fitted into the part of the picture above the bars, from the same side and tilt.
@@ -128,8 +129,8 @@ try {
     if (!(cover > 0) || params.cam === 'close') return p;
     const st = stateFrom(p.pos, p.target);
     if (lowestOnPicture(st, p.target, frameExt, p.fov) >= -1 + 2 * cover + 0.04) return p;
-    const fit = fitView(st, frameExt, { fov: p.fov, aspect: W / H, bottom: cover });
-    return { ...p, target: fit.target, pos: positionOf({ azimuth: st.azimuth, polar: st.polar, distance: fit.distance }, fit.target) };
+    const fit = fitView(st, frameExt, { fov: p.fov, aspect: W / H, bottom: cover, lift: true });
+    return { ...p, target: fit.target, pos: positionOf({ azimuth: st.azimuth, polar: st.polar, distance: fit.distance }, fit.target), lifted: true };
   };
   if (wantFit) pose = fitPose(pose);
   const home0 = stateFrom(pose.pos, pose.target);
@@ -177,7 +178,7 @@ try {
     cover = barsCover();
     pose = cameraFor(frameExt, W / H, params.cam, focus);
     pose = wantFit ? fitPose(pose) : liftPose(pose);
-    viewLift = wantFit ? liftOf(cover) : 0;
+    viewLift = pose.lifted ? liftOf(cover) : 0; // only a fitted view has its target in the middle of the model and the centre of the projection over the free part
     if (cam) { cam.setLift(viewLift); cam.setLimits(...limitsOf()); cam.setTarget(pose.target); cam.rehome(stateFrom(pose.pos, pose.target)); current = cam.state; } // the pan stays, now from the new home
     const eye = cam ? cam.target : pose.target; // what the camera looks at: the home target and the pan
     camera.fov = pose.fov; camera.aspect = W / H; camera.near = nearPlane(current.distance);
@@ -601,7 +602,7 @@ try {
       open: () => shellGo(true), close: () => shellGo(false), toggle: () => shellGo(shellTarget !== 1),
       state: () => shell.state(),
       extent: () => ({ minX: frameExt.minX, maxX: frameExt.maxX, minZ: frameExt.minZ, maxZ: frameExt.maxZ }), // the closed model with every wall lying flat (the board of the open shell holds it)
-      view: () => ({ position: camera.position.toArray(), quaternion: camera.quaternion.toArray(), fov: camera.fov, aspect: camera.aspect, target: cam.target }),
+      view: () => ({ position: camera.position.toArray(), quaternion: camera.quaternion.toArray(), fov: camera.fov, aspect: camera.aspect, target: cam.target, lift: cam.lift }), // lift: the centre of the projection sits this far above the middle of the picture (half pictures)
       // where the corners of the closed model and of every wall lying flat land in the picture (px), and the top of the control bar: the fit check
       project() {
         camera.updateMatrixWorld(true); camera.updateProjectionMatrix();
