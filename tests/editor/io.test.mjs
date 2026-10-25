@@ -185,7 +185,7 @@ test('two hundred rooms and four hundred pieces do not hang the parser and the w
   assert.equal(noModel.layout.levels[0].pieces.length, 400);
   assert.equal(withModel.ok, true);
   assert.equal(withModel.layout.levels[0].pieces.length, 0);
-  assert.ok(withModel.warnings.length <= IO_LIMITS.warnings + 1, `${withModel.warnings.length} warnings`);
+  assert.ok(withModel.warnings.length <= IO_LIMITS.warnings, `${withModel.warnings.length} warnings`);
   assert.match(withModel.warnings.at(-1), /more warnings/);
   assert.ok(ms < 1000, `${ms.toFixed(0)} ms`);
 });

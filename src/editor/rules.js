@@ -3,7 +3,7 @@
 // built model (buildModel output) and a layout (docs/DESIGN.md section 3); no DOM, no three.js, bounded loops.
 // Pieces are treated as immutable: boxes are cached per piece object.
 import { specOf } from '../furniture/specs.js';
-import { obb, penetration, boxInsidePolygon, roomInterior, levelZones, rotFromFront, pointInPolygon } from '../layout/geometry.js';
+import { obb, penetration, boxInsidePolygon, roomInterior, levelZones, rotFromFront, pointInPolygon, frontOf, axisOf } from '../layout/geometry.js';
 import { blocks } from '../layout/engine.js';
 
 export const SNAP_DEFAULTS = Object.freeze({
@@ -13,8 +13,11 @@ export const SNAP_DEFAULTS = Object.freeze({
   wallGapMounted: 0.004, // the same for pieces that hang on the wall or follow a window
   wallReach: 0.2,    // a wall pulls the back of a piece from this far away
   wallAngle: 20,     // ... and only when the piece is turned at most this far from facing away from the wall
+  edges: false,      // true switches on snapping to the sides of neighbouring pieces (off unless asked for)
+  edgeReach: 0.15,   // a neighbour pulls a side from this far away (both pieces parallel)
+  edgeGap: 0.005,    // the gap left between the two sides (0 to 1 cm)
 });
-// Problems that strict mode refuses; the others (door zone, stair, tall piece at a window) are warnings in every mode.
+// Problems that strict mode refuses; the others (door zone, stair, tall piece at a window, blocked front) are warnings in every mode.
 export const HARD_KINDS = Object.freeze(['overlap', 'outside-room', 'floating-prop']);
 
 const r3 = (v) => Math.round(v * 1000) / 1000;
@@ -93,8 +96,25 @@ export function supportAt(layout, levelId, spec, selfId, x, y) {
   return best;
 }
 
+// Pieces that stand on the floor and keep their front free (the layout engine's definition of solid).
+const solidSpec = (spec) => spec.place.mode === 'floor' || spec.place.mode === 'corner';
+// Pieces that are meant to stand in front of another one: they do not count as blocking its front.
+const SEATS = ['sofa2', 'sofa3', 'sofa-bed', 'armchair'];
+const LOW_TABLES = ['coffee-table', 'coffee-table-round'];
+const FRONT_COMPANIONS = new Map([...SEATS.map((t) => [t, LOW_TABLES]), ['desk', ['desk-chair']], ['tv-unit', [...SEATS, ...LOW_TABLES]]]);
+
+// The strip in front of a piece that has to stay free (`place.clearFront` deep, 90% of the width), as a box, or null.
+export function clearBox(piece) {
+  const spec = piece ? specOf(piece.type) : null;
+  if (!spec || !solidSpec(spec) || !(spec.place.clearFront > 0) || !finitePiece(piece)) return null;
+  const cf = spec.place.clearFront, [fx, fy] = frontOf(piece.rot);
+  return obb(piece.x + fx * (piece.size[1] / 2 + cf / 2), piece.y + fy * (piece.size[1] / 2 + cf / 2), piece.size[0] * 0.9, cf, piece.rot);
+}
+
 // Everything wrong with the piece as it stands: [{ kind, with? }]. Kinds: unknown-type, bad-number, outside-room, door-zone, stair,
-// tall-before-window, overlap, floating-prop. The room checks need the model; overlaps and props only need the layout.
+// tall-before-window, overlap, floating-prop, front-blocked. The room checks need the model; overlaps and props only need the layout.
+// `front-blocked` (soft): the free strip in front of the piece reaches another piece of the same room (`with`) or the wall (no `with`).
+// checkLayout does not report it; the layout engine uses the same strip when it places pieces.
 export function placementProblems(model, layout, levelId, piece) {
   const spec = piece ? specOf(piece.type) : null;
   if (!spec) return [{ kind: 'unknown-type' }];
@@ -124,6 +144,17 @@ export function placementProblems(model, layout, levelId, piece) {
       const ok = par && finitePiece(par) && spec.place.onTop?.includes(par.type) && Math.abs(piece.elev - (par.elev + par.size[2])) <= 0.02
         && Math.hypot(piece.x - par.x, piece.y - par.y) <= Math.max(par.size[0], par.size[1]) / 2;
       if (!ok) out.push({ kind: 'floating-prop', ...(piece.on ? { with: piece.on } : {}) });
+    }
+    const strip = piece.on ? null : clearBox(piece);
+    if (strip) {
+      let hit = null;
+      for (const q of level.pieces) {
+        if (q.id === piece.id || q.room !== piece.room || !finitePiece(q)) continue;
+        const qs = specOf(q.type);
+        if (qs && solidSpec(qs) && !q.on && !FRONT_COMPANIONS.get(piece.type)?.includes(q.type) && penetration(strip, adapt(q)._obb) > 0.01) { hit = q.id; break; }
+      }
+      if (hit) out.push({ kind: 'front-blocked', with: hit });
+      else if (ctx) { const ip = interiorOf(ctx, piece.room); if (ip && !boxInsidePolygon(strip, ip.poly, 0.01)) out.push({ kind: 'front-blocked' }); }
     }
   }
   return out;
@@ -157,6 +188,46 @@ function wallSnap(ip, spec, x, y, rot, size, sn) {
   return best;
 }
 
+// Pull a side of the piece to the side of a close neighbour (floor pieces only, both turned the same way modulo 90 degrees, the
+// neighbour closer than edgeReach, the pieces side by side with some overlap along the shared side). One shift, the smallest.
+// Returns { x, y } or null.
+function edgeSnap(layout, levelId, piece, x, y, rot, sn) {
+  const level = levelOf(layout, levelId), spec = specOf(piece.type);
+  if (!level || !spec || !solidSpec(spec) || piece.on) return null;
+  let best = null;
+  for (const q of level.pieces) {
+    if (q.id === piece.id || q.room !== piece.room || q.on || !finitePiece(q)) continue;
+    const qs = specOf(q.type);
+    if (!qs || !solidSpec(qs)) continue;
+    const dr = angleDiff(rot, q.rot) % 90;
+    if (Math.min(dr, 90 - dr) > 0.5) continue;
+    const swap = Math.abs(((((rot - q.rot) % 180) + 180) % 180) - 90) < 45;
+    const mu = (swap ? piece.size[1] : piece.size[0]) / 2, mf = (swap ? piece.size[0] : piece.size[1]) / 2;
+    const [ux, uy] = axisOf(q.rot), [fx, fy] = frontOf(q.rot);
+    const du = (x - q.x) * ux + (y - q.y) * uy, df = (x - q.x) * fx + (y - q.y) * fy;
+    const hw = q.size[0] / 2, hd = q.size[1] / 2;
+    const gu = Math.abs(du) - (hw + mu), gf = Math.abs(df) - (hd + mf);
+    const cands = [];
+    if (Math.abs(df) < hd + mf && gu >= 0 && gu <= sn.edgeReach) cands.push([gu - sn.edgeGap, Math.sign(du) || 1, ux, uy]);
+    if (Math.abs(du) < hw + mu && gf >= 0 && gf <= sn.edgeReach) cands.push([gf - sn.edgeGap, Math.sign(df) || 1, fx, fy]);
+    for (const [shift, sgn, ax, ay] of cands) if (!best || Math.abs(shift) < Math.abs(best.shift)) best = { shift, x: x - sgn * shift * ax, y: y - sgn * shift * ay };
+  }
+  return best;
+}
+
+// A piece that stands with its back on a wall keeps its back there when its depth changes: returns the new { x, y } or null.
+// `before` and `after` are the piece with its old and new size; the back counts as on the wall within 3 cm of the usual gap.
+export function keepBackOnWall(model, levelId, before, after, snap = {}) {
+  const spec = before ? specOf(before.type) : null, ctx = levelCtx(model, levelId);
+  if (!spec || !ctx || !finitePiece(before) || !finitePiece(after)) return null;
+  const ip = interiorOf(ctx, after.room);
+  if (!ip) return null;
+  const sn = { ...SNAP_DEFAULTS, ...(snap && typeof snap === 'object' ? snap : {}) };
+  if (!wallSnap(ip, spec, before.x, before.y, before.rot, before.size, { ...sn, wallReach: 0.03, wallAngle: 1 })) return null;
+  const w = wallSnap(ip, spec, after.x, after.y, after.rot, after.size, { ...sn, wallReach: 0.2, wallAngle: 1 });
+  return w ? { x: r3(w.x), y: r3(w.y) } : null;
+}
+
 // Snap a wanted place and say what is wrong with it. `piece` is the piece being placed (type, size, room, id, on, elev, rot);
 // `want` is { x, y, rot? }. Options: snap (false, or { grid, angle, wallGap, wallReach, wallAngle } overrides), keepRot (the angle
 // step is skipped: used by moves, so a piece turned to 17 degrees stays at 17).
@@ -178,6 +249,11 @@ export function placeAt(model, layout, levelId, piece, want, opts = {}) {
   const ctx = levelCtx(model, levelId);
   let room = piece.room;
   if (ctx) { const r = roomAt(model, levelId, x, y, piece.room); if (r) room = r; }
+  if (sn && sn.edges === true && spec) {
+    snapped.edge = false;
+    const e = edgeSnap(layout, levelId, { ...piece, room }, x, y, rot, sn);
+    if (e) { x = e.x; y = e.y; snapped.edge = true; }
+  }
   if (sn && ctx) {
     const ip = interiorOf(ctx, room);
     const w = ip && spec ? wallSnap(ip, spec, x, y, rot, piece.size, sn) : null;

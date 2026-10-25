@@ -4,7 +4,7 @@
 import { specOf } from '../furniture/specs.js';
 import { LIMITS } from '../layout/engine.js';
 import { roomInterior, boxInsidePolygon, obb, pointInPolygon } from '../layout/geometry.js';
-import { sizeFrom, cleanColor } from './state.js';
+import { sizeFrom, cleanColor, validRoomId, ROOM_PARTS, ROOM_LIMIT } from './state.js';
 import { normRot } from './rules.js';
 
 export const IO_LIMITS = Object.freeze({ chars: 2000000, levels: 20, warnings: 60 });
@@ -20,19 +20,39 @@ function canonPiece(p) {
   return { id: p.id, type: p.type, room: p.room, x: r3(p.x), y: r3(p.y), rot: r3(p.rot), size: p.size.map(r3), elev: r3(p.elev), on: p.on ?? null, colors };
 }
 
+// Room colours of a level as [[roomId, { wall?, floor? }], ...] sorted by id; empty entries and invalid values are left out.
+function canonRooms(rooms) {
+  if (!isObj(rooms)) return [];
+  const out = [];
+  for (const id of Object.keys(rooms).sort()) {
+    const src = rooms[id];
+    if (!validRoomId(id) || !isObj(src)) continue;
+    const entry = {};
+    for (const part of ROOM_PARTS) { const c = Object.prototype.hasOwnProperty.call(src, part) ? cleanColor(src[part]) : null; if (c) entry[part] = c; }
+    if (Object.keys(entry).length) out.push([id, entry]);
+  }
+  return out.slice(0, ROOM_LIMIT);
+}
+
 // Text for a layout, or null when the layout is not a layout or holds a number that is not finite (it could not be read back).
-// Same layout, same text (key order is fixed, colour slots sorted).
+// Same layout, same text (key order is fixed, colour slots and rooms sorted; levels without room colours have no "rooms" key).
 export function serializeLayout(layout) {
   try {
     if (!isObj(layout) || !Array.isArray(layout.levels)) return null;
     const lines = ['{', '  "version": 1,', `  "seed": ${JSON.stringify(fin(layout.seed) ? layout.seed : 1)},`, '  "levels": ['];
     layout.levels.forEach((lv, i) => {
       lines.push('    {', `      "id": ${JSON.stringify(lv.id)},`);
-      if (!lv.pieces.length) lines.push('      "pieces": []');
+      const rooms = canonRooms(lv.rooms), tail = rooms.length ? ',' : '';
+      if (!lv.pieces.length) lines.push(`      "pieces": []${tail}`);
       else {
         lines.push('      "pieces": [');
         lv.pieces.forEach((p, j) => lines.push(`        ${JSON.stringify(canonPiece(p))}${j < lv.pieces.length - 1 ? ',' : ''}`));
-        lines.push('      ]');
+        lines.push(`      ]${tail}`);
+      }
+      if (rooms.length) {
+        lines.push('      "rooms": {');
+        rooms.forEach(([id, entry], j) => lines.push(`        ${JSON.stringify(id)}: ${JSON.stringify(entry)}${j < rooms.length - 1 ? ',' : ''}`));
+        lines.push('      }');
       }
       lines.push(i < layout.levels.length - 1 ? '    },' : '    }');
     });
@@ -50,7 +70,7 @@ export function parseLayout(text, model = null, opts = {}) {
   let more = 0;
   const warn = (m) => { if (warnings.length < IO_LIMITS.warnings) warnings.push(m); else more++; };
   const done = (layout) => {
-    if (more) warnings.push(`${more} more warnings left out.`);
+    if (more) warnings[IO_LIMITS.warnings - 1] = `${more + 1} more warnings left out.`; // the list never grows past the limit
     const strict = isObj(opts) && opts.strict === true;
     const ok = errors.length === 0 && !(strict && warnings.length > 0);
     return { ok, layout: ok ? layout : null, errors: strict && errors.length === 0 ? warnings.slice() : errors, warnings };
@@ -85,7 +105,10 @@ export function parseLayout(text, model = null, opts = {}) {
       seenLevel.add(lv.id);
       const ml = mlevels ? mlevels.find((l) => l && l.id === lv.id) : null;
       if (mlevels && !ml) { warn(`Level ${lv.id} is not in the plan: its ${lv.pieces.length} pieces were skipped.`); continue; }
-      levels.push({ id: lv.id, pieces: readPieces(lv, ml, seenId, warn) });
+      const level = { id: lv.id, pieces: readPieces(lv, ml, seenId, warn) };
+      const rooms = readRooms(lv, ml, warn);
+      if (rooms) level.rooms = rooms;
+      levels.push(level);
     }
     if (mlevels) {
       const byId = new Map(levels.map((l) => [l.id, l]));
@@ -101,6 +124,32 @@ export function parseLayout(text, model = null, opts = {}) {
   } catch {
     return stop('The layout could not be read.');
   }
+}
+
+// levels[].rooms: only the known parts, valid colours and (with a model) rooms of the plan; at most ROOM_LIMIT rooms. Or null.
+function readRooms(lv, mlevel, warn) {
+  if (lv.rooms === undefined || lv.rooms === null) return null;
+  if (!isObj(lv.rooms)) { warn(`Level ${lv.id}: the room colours are not a list and were ignored.`); return null; }
+  const known = mlevel ? new Set((mlevel.rooms ?? []).slice(0, 400).map((r) => r && r.id)) : null;
+  const keys = Object.keys(lv.rooms);
+  if (keys.length > ROOM_LIMIT) warn(`Level ${lv.id} has colours for more than ${ROOM_LIMIT} rooms: the rest were left out.`);
+  const out = {};
+  for (const id of keys.slice(0, ROOM_LIMIT)) {
+    if (!validRoomId(id)) { warn(`Room colours for "${id.slice(0, 30)}" were skipped: not a valid room id.`); continue; }
+    if (known && !known.has(id)) { warn(`Room ${id} is not on level ${lv.id} of the plan: its colours were skipped.`); continue; }
+    const src = lv.rooms[id];
+    if (!isObj(src)) { warn(`Room ${id}: the colours are not a list and were ignored.`); continue; }
+    const got = {};
+    for (const k of Object.keys(src).slice(0, 20)) {
+      if (!ROOM_PARTS.includes(k)) { warn(`Room ${id}: "${k.slice(0, 30)}" is not a colour of a room (use wall or floor).`); continue; }
+      const c = cleanColor(src[k]);
+      if (c) got[k] = c; else warn(`Room ${id}: the ${k} colour is not valid and was left out.`);
+    }
+    const entry = {};
+    for (const part of ROOM_PARTS) if (got[part]) entry[part] = got[part];
+    if (Object.keys(entry).length) out[id] = entry;
+  }
+  return Object.keys(out).length ? out : null;
 }
 
 function readPieces(lv, mlevel, seenId, warn) {

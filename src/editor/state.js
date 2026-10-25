@@ -10,7 +10,8 @@
 import { specOf } from '../furniture/specs.js';
 import { LIMITS, autoFurnish } from '../layout/engine.js';
 import { MATERIAL_DEFS } from '../render/matgen.js';
-import { placeAt, placementProblems, hardProblems, roomAt, normRot } from './rules.js';
+import { axisOf, frontOf } from '../layout/geometry.js';
+import { placeAt, placementProblems, hardProblems, roomAt, normRot, keepBackOnWall } from './rules.js';
 
 export const HISTORY_LIMIT = 200;
 export const MATERIAL_KEYS = Object.freeze(Object.keys(MATERIAL_DEFS));
@@ -19,6 +20,10 @@ const HEX = /^#[0-9a-fA-F]{6}$/;
 
 const r3 = (v) => Math.round(v * 1000) / 1000;
 const fin = (v) => typeof v === 'number' && Number.isFinite(v);
+// Plan coordinates stay within this many metres of the origin (the file reader applies the same limit), heights within 0 to ELEV_LIMIT.
+export const COORD_LIMIT = 1000;
+export const ELEV_LIMIT = 10;
+const coord = (v) => fin(v) && Math.abs(v) <= COORD_LIMIT;
 const isObj = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
 const own = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
 
@@ -168,7 +173,7 @@ export const addPiece = guarded((state, req, opts) => {
   const spec = specOf(a.type);
   if (!spec) return fail(state, 'unknown-type');
   const rot0 = a.rot === undefined ? 0 : a.rot;
-  if (!fin(a.x) || !fin(a.y) || !fin(rot0)) return fail(state, 'bad-number');
+  if (!coord(a.x) || !coord(a.y) || !fin(rot0)) return fail(state, 'bad-number');
   let li = -1;
   if (a.level !== undefined) li = state.layout.levels.findIndex((l) => l.id === a.level);
   else { const f = state.selection ? findPiece(state.layout, state.selection) : null; li = f ? f.li : state.layout.levels.length ? 0 : -1; }
@@ -182,7 +187,7 @@ export const addPiece = guarded((state, req, opts) => {
   const mode = modeOf(o);
   const lvModel = o.model?.levels?.find?.((l) => l.id === levelId);
   let elev = a.elev;
-  if (elev !== undefined && !fin(elev)) return fail(state, 'bad-number');
+  if (elev !== undefined && (!fin(elev) || elev < 0 || elev > ELEV_LIMIT)) return fail(state, 'bad-number');
   if (elev === undefined) {
     const pm = spec.place.mode;
     elev = pm === 'wall-mount' ? (spec.place.elevation ?? 0) : pm === 'ceiling' ? Math.min(spec.place.elevation ?? 2, (lvModel?.height ?? 2.7) - sz.size[2] - 0.05) : 0;
@@ -218,7 +223,7 @@ export const movePiece = guarded((state, id, x, y, opts) => {
   const o = optsOf(opts);
   const f = findPiece(state.layout, id);
   if (!f) return fail(state, 'unknown-id');
-  if (!fin(x) || !fin(y)) return fail(state, 'bad-number');
+  if (!coord(x) || !coord(y)) return fail(state, 'bad-number');
   return placeFound(state, f, { x, y, rot: f.piece.rot }, o, { keepRot: true });
 });
 
@@ -277,16 +282,51 @@ export const resizePiece = guarded((state, id, size, opts) => {
   const sz = sizeFrom(spec, f.piece.size, size);
   if (!sz) return fail(state, 'bad-number');
   if (sz.size.every((v, i) => Math.abs(v - f.piece.size[i]) < 1e-9)) return fail(state, sz.clamped ? 'fixed-size' : 'no-change');
-  const next = { ...f.piece, size: sz.size };
-  let problems = [];
+  let next = { ...f.piece, size: sz.size };
+  let problems = [], pulled = false;
   if (modeOf(o) !== 'off') {
+    // a piece standing with its back on a wall keeps its back there when the depth changes
+    if (o.snap !== false && Math.abs(sz.size[1] - f.piece.size[1]) > 1e-9) {
+      const pull = keepBackOnWall(o.model, f.level.id, f.piece, next, isObj(o.snap) ? o.snap : {});
+      if (pull) { next = { ...next, x: pull.x, y: pull.y }; pulled = true; }
+    }
     problems = placementProblems(o.model, state.layout, f.level.id, next);
     if (modeOf(o) === 'strict') { const hard = hardProblems(problems); if (hard.length) return fail(state, hard[0].kind, { problems }); }
   }
   const changes = new Map([[next.id, next]]);
   const dTop = (next.elev + next.size[2]) - (f.piece.elev + f.piece.size[2]);
-  if (Math.abs(dTop) > 1e-9) for (const c of descendants(f.level, next.id)) changes.set(c.id, { ...c, elev: r3(c.elev + dTop) });
-  return { state: commit(state, replacePieces(state.layout, changes), { selection: next.id, key: o.coalesceKey }), ok: true, clamped: sz.clamped, problems };
+  const dx = next.x - f.piece.x, dy = next.y - f.piece.y;
+  if (Math.abs(dTop) > 1e-9 || pulled) for (const c of descendants(f.level, next.id)) changes.set(c.id, { ...c, x: r3(c.x + dx), y: r3(c.y + dy), elev: r3(c.elev + dTop) });
+  return { state: commit(state, replacePieces(state.layout, changes), { selection: next.id, key: o.coalesceKey }), ok: true, clamped: sz.clamped, problems, snapped: { wall: pulled } };
+});
+
+// duplicatePiece(state, id, opts): a copy 0.3 m to the right of the piece and 0.3 m in front of it (in the piece's own directions),
+// snapped and checked like a new piece, with a fresh id and selected. What stands on the piece is not copied. One undo step.
+export const DUPLICATE_OFFSET = 0.3;
+export const duplicatePiece = guarded((state, id, opts) => {
+  const o = optsOf(opts);
+  const f = findPiece(state.layout, id);
+  if (!f) return fail(state, 'unknown-id');
+  const p = f.piece, spec = specOf(p.type);
+  if (!spec) return fail(state, 'unknown-type');
+  if (![p.x, p.y, p.rot, p.elev, ...(Array.isArray(p.size) ? p.size : [NaN])].every(fin) || p.size.length !== 3) return fail(state, 'bad-number');
+  if (f.level.pieces.length >= LIMITS.perLevel) return fail(state, 'limit-level');
+  if (pieceCount(state.layout) >= LIMITS.total) return fail(state, 'limit-total');
+  const [ux, uy] = axisOf(p.rot), [fx, fy] = frontOf(p.rot);
+  const want = { x: p.x + DUPLICATE_OFFSET * (ux + fx), y: p.y + DUPLICATE_OFFSET * (uy + fy), rot: p.rot };
+  if (!coord(want.x) || !coord(want.y)) return fail(state, 'bad-number');
+  const base = { ...p, id: nextId(state.layout), size: p.size.slice(), colors: { ...p.colors }, on: null };
+  let piece, problems = [], snapped = null;
+  if (modeOf(o) !== 'off') {
+    const res = placeAt(o.model, state.layout, f.level.id, base, want, { ...placeOpts(o), keepRot: true });
+    const bad = judge(state, res, o);
+    if (bad) return bad;
+    piece = { ...base, x: res.x, y: res.y, rot: res.rot, room: res.room ?? base.room, on: res.on, elev: res.elev };
+    problems = res.problems;
+    snapped = res.snapped;
+  } else piece = { ...base, x: r3(want.x), y: r3(want.y) };
+  const layout = withPieces(state.layout, f.li, f.level.pieces.concat([piece]));
+  return { state: commit(state, layout, { selection: piece.id, key: o.coalesceKey }), ok: true, id: piece.id, problems, snapped };
 });
 
 // recolorPiece(state, id, slot, color, opts): color is `#rrggbb`, a material library key, or null to go back to the piece's default.
@@ -307,7 +347,59 @@ export const recolorPiece = guarded((state, id, slot, color, opts) => {
   return { state: commit(state, replacePieces(state.layout, new Map([[id, { ...f.piece, colors }]])), { selection: id, key: o.coalesceKey }), ok: true };
 });
 
-// resetToAuto(state, model, { seed?, allowedTypes? }): the layout engine furnishes the plan again (one undo step).
+// ---- room colours: levels[].rooms = { "<room id>": { wall?, floor? } } ----
+export const ROOM_PARTS = Object.freeze(['wall', 'floor']);
+export const ROOM_LIMIT = 200;
+const ROOM_ID = /^[A-Za-z0-9_.:-]{1,40}$/;
+export const validRoomId = (id) => typeof id === 'string' && ROOM_ID.test(id) && id !== '__proto__' && id !== 'constructor' && id !== 'prototype';
+
+// The colours set for a room: { wall?, floor? } (a fresh object, only valid values), or {} when there are none.
+export function roomColorsOf(layout, levelId, roomId) {
+  const lv = validLayout(layout) ? layout.levels.find((l) => l.id === levelId) : null;
+  const rooms = lv && isObj(lv.rooms) ? lv.rooms : null;
+  const entry = rooms && validRoomId(roomId) && own(rooms, roomId) && isObj(rooms[roomId]) ? rooms[roomId] : null;
+  const out = {};
+  if (entry) for (const part of ROOM_PARTS) { const c = own(entry, part) ? cleanColor(entry[part]) : null; if (c) out[part] = c; }
+  return out;
+}
+
+// recolorRoom(state, levelId, roomId, part, color, opts): part is 'wall' or 'floor'; color is `#rrggbb`, a material library key or
+// null (back to the plan's own look). With opts.model the room must exist in the plan. One undo step; a series with the same
+// coalesceKey (a colour picker being dragged) is one step.
+export const recolorRoom = guarded((state, levelId, roomId, part, color, opts) => {
+  const o = optsOf(opts);
+  const li = state.layout.levels.findIndex((l) => l.id === levelId);
+  if (li < 0) return fail(state, 'unknown-level');
+  if (!ROOM_PARTS.includes(part)) return fail(state, 'bad-part');
+  if (!validRoomId(roomId)) return fail(state, 'unknown-room');
+  const mlevel = o.model?.levels?.find?.((l) => l && l.id === levelId);
+  if (o.model && !(mlevel && (mlevel.rooms ?? []).some((r) => r && r.id === roomId))) return fail(state, 'unknown-room');
+  const level = state.layout.levels[li];
+  const rooms = isObj(level.rooms) ? level.rooms : {};
+  const entry = own(rooms, roomId) && isObj(rooms[roomId]) ? { ...rooms[roomId] } : {};
+  if (color === null) {
+    if (!own(entry, part)) return fail(state, 'no-change');
+    delete entry[part];
+  } else {
+    const c = cleanColor(color, o.materialKeys);
+    if (!c) return fail(state, 'bad-color');
+    if (entry[part] === c) return fail(state, 'no-change');
+    entry[part] = c;
+  }
+  const nextRooms = { ...rooms };
+  if (Object.keys(entry).length) {
+    if (!own(rooms, roomId) && Object.keys(rooms).length >= ROOM_LIMIT) return fail(state, 'limit-rooms');
+    nextRooms[roomId] = entry;
+  } else delete nextRooms[roomId];
+  const nextLevel = { ...level };
+  if (Object.keys(nextRooms).length) nextLevel.rooms = nextRooms; else delete nextLevel.rooms;
+  const levels = state.layout.levels.slice();
+  levels[li] = nextLevel;
+  return { state: commit(state, { ...state.layout, levels }, { key: o.coalesceKey }), ok: true };
+});
+
+// resetToAuto(state, model, { seed?, allowedTypes? }): the layout engine furnishes the plan again (one undo step). The result has no
+// room colours, so a reset clears those too (undo brings them back with the pieces).
 export const resetToAuto = guarded((state, model, opts) => {
   const o = optsOf(opts);
   let layout;

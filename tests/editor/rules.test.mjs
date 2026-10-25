@@ -87,10 +87,11 @@ test('overlap uses the turned rectangles, not their bounding boxes', () => {
   // a narrow shelf turned 45 degrees leaves the corner next to it free
   l.levels[0].pieces.push({ id: 'p9', type: 'bookshelf', room: 'r', x: 9, y: 9, rot: 45, size: [1.8, 0.32, 1.9], elev: 0, on: null, colors: {} });
   const st = createState(l);
+  const hard = (list) => list.filter((p) => p.kind !== 'front-blocked');
   const clear = placementProblems(null, st.layout, 'L0', { id: 'q', type: 'armchair', room: 'r', x: 9.9, y: 8.2, rot: 0, size: [0.4, 0.4, 0.85], elev: 0, on: null, colors: {} });
-  assert.deepEqual(clear, [], 'the bounding box of the shelf covers this point, the shelf itself does not');
+  assert.deepEqual(hard(clear), [], 'the bounding box of the shelf covers this point, the shelf itself does not');
   const hit = placementProblems(null, st.layout, 'L0', { id: 'q', type: 'armchair', room: 'r', x: 9.3, y: 8.7, rot: 0, size: [0.4, 0.4, 0.85], elev: 0, on: null, colors: {} });
-  assert.deepEqual(hit.map((p) => p.kind), ['overlap']);
+  assert.deepEqual(hard(hit).map((p) => p.kind), ['overlap']);
 });
 
 test('props: a vase dropped on another table moves onto it; on the bare floor it has no support', () => {
@@ -193,7 +194,8 @@ for (const { name, model, layout } of plans) {
         const moved = piece(r.state, p.id);
         const found = checkLayout(model, r.state.layout).filter((v) => KIND[v.kind] && (v.piece === p.id || v.other === p.id));
         const want = [...new Set(found.map((v) => v.kind))].sort();
-        const got = [...new Set(r.problems.map((q) => q.kind))].sort();
+        // front-blocked is a soft rule of the editor that checkLayout does not have (see the test below)
+        const got = [...new Set(r.problems.map((q) => q.kind).filter((k) => k !== 'front-blocked'))].sort();
         assert.deepEqual(got, want, `${p.id} ${p.type} moved to ${moved.x},${moved.y}`);
         compared++;
         if (got.length) withProblems++;
