@@ -50,7 +50,7 @@ test('a change made during a draw is not lost', () => {
   assert.deepEqual(drawn, [1, 2, 3]);
 });
 
-test('live mode waits for a request even for the first frame, and still draws only on demand', () => {
+test('live mode draws only the first frame at the start, then waits for a request and still draws only on demand', () => {
   const r = rig({ frames: 4, live: true });
   r.loop.start(); r.run();
   assert.deepEqual(r.drawn, [1], 'the first frame is drawn because the page starts out dirty');

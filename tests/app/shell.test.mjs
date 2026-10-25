@@ -1,7 +1,7 @@
 // The decisions of the page shell (shell.js): start options, the failure card, which parts are built, and the order in which a loaded plan is built.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { NO_WEBGL2, hasWebgl2, failureDetail, planChoice, startState, partsOf, buildPlanParts } from '../../src/app/shell.js';
+import { NO_WEBGL2, hasWebgl2, failureDetail, planChoice, startState, partsOf, buildPlanParts, isFormTarget } from '../../src/app/shell.js';
 import { parseParams } from '../../src/app/params.js';
 import { analyzePlan, modelOf } from '../../src/core/validate.js';
 import { buildModel, modelExtent } from '../../src/model/geometry.js';
@@ -101,4 +101,18 @@ test('buildPlanParts: the example plan builds a model and a furnished layout (th
   assert.equal(JSON.stringify(a.layout), JSON.stringify(b.layout));
   a.scene.dispose(); b.scene.dispose();
   assert.equal(buildPlanParts({ version: 1, levels: [{ id: 'L0', rooms: 'nope' }] }, 1, real()), null);
+});
+
+test('isFormTarget: form fields and editable text keep their keys, the page, the canvas and the buttons do not', () => {
+  for (const tagName of ['INPUT', 'SELECT', 'TEXTAREA', 'input']) assert.equal(isFormTarget({ tagName }), true, tagName);
+  assert.equal(isFormTarget({ tagName: 'DIV', isContentEditable: true }), true);
+  for (const target of [{ tagName: 'BODY' }, { tagName: 'CANVAS' }, { tagName: 'BUTTON' }, { tagName: 'DIV', isContentEditable: false }, {}, null, undefined]) assert.equal(isFormTarget(target), false);
+});
+
+test('both key listeners of the page (the editor keys and the mood and time keys) leave form fields alone', () => {
+  const src = readFileSync(new URL('../../src/app/main.js', import.meta.url), 'utf8');
+  const listeners = src.split("addEventListener('keydown', (e) => {").slice(1);
+  assert.equal(listeners.length, 2, 'main.js has two key listeners');
+  for (const body of listeners) assert.match(body.slice(0, 260), /isFormTarget\(e\.target\)/);
+  assert.match(listeners[1].slice(0, 260), /e\.ctrlKey \|\| e\.metaKey \|\| e\.altKey/, 'the mood keys ignore Ctrl, Cmd and Alt');
 });

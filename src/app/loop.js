@@ -1,6 +1,6 @@
 // Draw scheduling for the page. The first `frames` frames are drawn one after the other (tools wait for them); after that a frame
-// is drawn only when something asked for one, and nothing is queued while the page is idle. With live = true even the first frame
-// waits for a request. Pure logic: the browser's requestAnimationFrame is passed in, so it is tested in Node with a fake one.
+// is drawn only when something asked for one, and nothing is queued while the page is idle. With live = true only the first frame is
+// drawn at the start, the rest wait for a request. Pure logic: the browser's requestAnimationFrame is passed in, so it is tested in Node with a fake one.
 //   draw(n) is called with the number of the frame being drawn (1 for the first).
 export function createLoop({ draw, frames = 4, live = false, request = (f) => requestAnimationFrame(f) }) {
   let drawn = 0, dirty = true, queued = false;

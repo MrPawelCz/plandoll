@@ -14,7 +14,7 @@ import { frameRequest } from './capture.js';
 import { createLoop } from './loop.js';
 import { createUI, createEditBar, showErrorCard } from './ui.js';
 import { createEditSession, placeCheck } from './edit.js';
-import { NO_WEBGL2, hasWebgl2, failureDetail, planChoice, startState, partsOf, buildPlanParts } from './shell.js';
+import { NO_WEBGL2, hasWebgl2, failureDetail, planChoice, startState, partsOf, buildPlanParts, isFormTarget } from './shell.js';
 import { coverShare, isNarrow } from './stack.js';
 import { readPlanText } from './planfile.js';
 import { pickPiece, floorHit } from './pick.js';
@@ -372,8 +372,7 @@ try {
     dom.addEventListener('pointercancel', (e) => finish(e, true), true);
     // keys (not while a form field has the focus): Delete or Backspace removes, R turns, Ctrl or Cmd + Z undoes, with Shift (or Ctrl + Y) redoes, Escape clears the selection
     addEventListener('keydown', (e) => {
-      const tag = String(e.target?.tagName ?? '').toLowerCase();
-      if (tag === 'input' || tag === 'select' || tag === 'textarea' || e.target?.isContentEditable) return;
+      if (isFormTarget(e.target)) return;
       const mod = e.ctrlKey || e.metaKey, k = String(e.key).toLowerCase();
       if (mod && k === 'z') { if (e.shiftKey) session.redo(); else session.undo(); e.preventDefault(); }
       else if (mod && k === 'y') { session.redo(); e.preventDefault(); }
@@ -434,8 +433,9 @@ try {
   }
   restack();
   if (typeof ResizeObserver === 'function') { const watch = new ResizeObserver(() => restack()); for (const s of ['#ps-ui', '#ps-edit']) { const el = document.querySelector(s); if (el) watch.observe(el); } }
-  // Arrow keys turn the model (see camera.js); Shift + left or right moves the time of day, 1 to 3 pick a mood.
+  // Arrow keys turn the model (see camera.js); Shift + left or right moves the time of day, 1 to 3 pick a mood (never while a form field has the focus).
   addEventListener('keydown', (e) => {
+    if (isFormTarget(e.target) || e.ctrlKey || e.metaKey || e.altKey) return; // typing a size in the panel must not change the mood or the time
     if (e.shiftKey && e.key === 'ArrowRight') setTime(S.t + 0.02); else if (e.shiftKey && e.key === 'ArrowLeft') setTime(S.t - 0.02);
     else if (['1', '2', '3'].includes(e.key)) setPreset(['amber', 'clear', 'lamplit'][Number(e.key) - 1]);
   });

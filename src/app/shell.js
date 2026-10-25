@@ -4,6 +4,12 @@
 export const NO_WEBGL2 = 'WebGL2 is not available';
 
 // true when the canvas that makeCanvas returns gives a WebGL2 context; a probe that throws or returns nothing counts as no.
+// A key press that lands in a form field (a size box in the panel, a pasted text) belongs to the field, never to the shortcuts of the page.
+export function isFormTarget(target) {
+  const tag = String(target?.tagName ?? '').toLowerCase();
+  return tag === 'input' || tag === 'select' || tag === 'textarea' || target?.isContentEditable === true;
+}
+
 export function hasWebgl2(makeCanvas) {
   try { return !!makeCanvas()?.getContext?.('webgl2'); } catch { return false; }
 }
