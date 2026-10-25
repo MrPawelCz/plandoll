@@ -211,16 +211,48 @@ export function mat(name, look = 'clay') {
 export const floorName = (kind) => `floor:${kind in { wood: 1, tile: 1, carpet: 1, stone: 1, concrete: 1 } ? kind : 'wood'}`;
 export const floorMat = (kind, look = 'clay') => mat(floorName(kind), look);
 
+// A copy of mat(name, look) that a scene may colour for one room: `color` ('#rrggbb') re-tints it (a texture keeps its structure and
+// its average becomes the colour, a plain material gets the colour as is), `offset` pulls it a little towards the camera (floors, skins on
+// walls). The copies are kept in a small cache, oldest dropped first: asking for the same surface again gives the same material.
+const PAINT_LIMIT = 48;
+const paints = new Map();
+export function paintMat(name, color, look = 'clay', offset = false) {
+  const hex = color === undefined || color === null ? '' : new THREE.Color(color).getHexString();
+  const id = `${look}|${name}|${hex}|${offset ? 1 : 0}`;
+  const held = paints.get(id);
+  if (held) { paints.delete(id); paints.set(id, held); return held; }
+  const m = mat(name, look).clone();
+  if (hex) {
+    const want = new THREE.Color(color), key = look === 'textured' && !name.startsWith(LIBRARY_PREFIX) ? TEXTURED[name] : undefined;
+    if (key) {
+      const [r, g, b] = TEXTURE_SPECS[key].avg;
+      const avg = new THREE.Color().setRGB(r / 255, g / 255, b / 255, THREE.SRGBColorSpace);
+      const c = new THREE.Color(want.r / Math.max(avg.r, 1e-4), want.g / Math.max(avg.g, 1e-4), want.b / Math.max(avg.b, 1e-4));
+      const top = Math.max(c.r, c.g, c.b);
+      if (top > 1.25) c.multiplyScalar(1.25 / top); // a very light colour on a dark texture would burn out
+      m.color.copy(c);
+    } else m.color.copy(want);
+  }
+  if (offset) { m.polygonOffset = true; m.polygonOffsetFactor = -1; m.polygonOffsetUnits = -1; }
+  m.name = `${name}${hex ? `#${hex}` : ''}`;
+  paints.set(id, m);
+  if (paints.size > PAINT_LIMIT) { const [oldId, old] = paints.entries().next().value; paints.delete(oldId); old.dispose(); }
+  return m;
+}
+export const paintCount = () => paints.size;
+
 // Runs fn with the normal maps detached (a GLB export without them is much smaller), then puts them back.
 export async function withoutNormalMaps(fn) {
   const held = [];
-  for (const m of cache.values()) if (m.normalMap) { held.push([m, m.normalMap]); m.normalMap = null; m.needsUpdate = true; }
+  for (const m of [...cache.values(), ...paints.values()]) if (m.normalMap) { held.push([m, m.normalMap]); m.normalMap = null; m.needsUpdate = true; }
   try { return await fn(); } finally { for (const [m, n] of held) { m.normalMap = n; m.needsUpdate = true; } }
 }
 
 export function disposeMaterials() {
   for (const m of cache.values()) m.dispose();
   cache.clear();
+  for (const m of paints.values()) m.dispose();
+  paints.clear();
   for (const set of textures.values()) { set.map.dispose(); set.normalMap?.dispose(); }
   textures.clear();
   disposeLibrary();

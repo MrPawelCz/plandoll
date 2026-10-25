@@ -2,11 +2,13 @@
 // and one colour bar per material slot. It talks to a session object only (see createPanel); it does not move, turn or delete a piece,
 // read or write files, or touch three.js. Texts in English and Polish; styles come from one <style id="ps-panel-style">.
 import { catalogGroups, resizableAxes, clampSize, defaultSizeOf } from '../furniture/catalog.js';
-import { paletteOf, defaultColorOf } from '../furniture/palettes.js';
+import { paletteOf, defaultColorOf, roomPalette } from '../furniture/palettes.js';
 
 const STR = {
   en: {
     add: 'Add', addTitle: 'Add a piece of furniture', listTitle: 'Add furniture', close: 'Close', extra: 'extra', panel: 'Furniture',
+    room: 'Room', collapseRoom: 'Show or hide the colours of the selected room', walls: 'Walls', floor: 'Floor',
+    snap: 'Snap to neighbours', snapTitle: 'Snap a piece to the sides of the pieces next to it',
     selected: 'Selected piece', collapse: 'Show or hide the details of the selected piece', size: 'Size', cm: 'cm',
     axis: { w: 'Width', d: 'Depth', h: 'Height' }, colours: 'Colours', defaultColour: 'Default', defaultTitle: 'Default colour', more: 'more',
     rooms: { living: 'living room', dining: 'dining room', kitchen: 'kitchen', bedroom: 'bedroom', kids: 'kids room', bath: 'bathroom', wc: 'toilet', hall: 'hall', office: 'office', utility: 'utility room', balcony: 'balcony', storage: 'storage', any: 'any room' },
@@ -15,6 +17,8 @@ const STR = {
   },
   pl: {
     add: 'Dodaj', addTitle: 'Dodaj mebel', listTitle: 'Dodaj mebel', close: 'Zamknij', extra: 'dodatek', panel: 'Meble',
+    room: 'Pokój', collapseRoom: 'Pokaż lub ukryj kolory zaznaczonego pokoju', walls: 'Ściany', floor: 'Podłoga',
+    snap: 'Przyciągaj do sąsiadów', snapTitle: 'Przyciągaj sztukę do boków sąsiednich sztuk',
     selected: 'Zaznaczona sztuka', collapse: 'Pokaż lub ukryj szczegóły zaznaczonej sztuki', size: 'Rozmiar', cm: 'cm',
     axis: { w: 'Szerokość', d: 'Głębokość', h: 'Wysokość' }, colours: 'Kolory', defaultColour: 'Domyślny', defaultTitle: 'Kolor domyślny', more: 'więcej',
     rooms: { living: 'salon', dining: 'jadalnia', kitchen: 'kuchnia', bedroom: 'sypialnia', kids: 'pokój dziecka', bath: 'łazienka', wc: 'toaleta', hall: 'przedpokój', office: 'gabinet', utility: 'pomieszczenie gospodarcze', balcony: 'balkon', storage: 'schowek', any: 'każdy pokój' },
@@ -56,7 +60,14 @@ const CSS = `
 .psp-item-name{grid-area:n;font-weight:700;overflow-wrap:anywhere}
 .psp-tag{grid-area:t;font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;background:rgba(200,121,58,.18);color:#80441a;padding:1px 7px;border-radius:8px}
 .psp-item-rooms{grid-area:r;font-size:11px;opacity:.72;overflow-wrap:anywhere}
-.psp-add+.psp-sel{margin-top:10px;padding-top:6px;border-top:2px solid var(--line,rgba(120,96,64,.22))}
+.psp-root[data-open="1"] .psp-add+.psp-sel,.psp-root[data-open="1"] .psp-add+.psp-room{margin-top:10px;padding-top:6px;border-top:2px solid var(--line,rgba(120,96,64,.22))}
+@media (min-width:761px){.psp-groups{max-height:min(340px,46vh);overflow-y:auto;overscroll-behavior:contain}}
+.psp-opts{margin:6px 0 0;padding-top:6px;border-top:1px solid var(--line,rgba(120,96,64,.22))}
+.psp-switch{display:flex;align-items:center;gap:10px;width:100%;min-height:44px;padding:0 4px;border:0;background:none;text-align:left;font-weight:700}
+.psp-knob{flex:none;position:relative;width:40px;height:24px;border-radius:12px;background:rgba(90,70,40,.28);box-shadow:inset 0 0 0 1px rgba(0,0,0,.18);transition:background .15s}
+.psp-knob::after{content:"";position:absolute;top:3px;left:3px;width:18px;height:18px;border-radius:50%;background:#fffaf0;box-shadow:0 1px 3px rgba(0,0,0,.35);transition:transform .15s}
+.psp-switch[aria-checked="true"] .psp-knob{background:var(--accent,#c8793a)}
+.psp-switch[aria-checked="true"] .psp-knob::after{transform:translateX(16px)}
 .psp-sel-head{display:flex;align-items:center;gap:8px;width:100%;min-height:44px;padding:0 4px;border:0;background:none;text-align:left}
 .psp-sel-kicker{display:block;font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;opacity:.65}
 .psp-sel-name{display:block;font-size:15px;font-weight:800;overflow-wrap:anywhere}
@@ -80,8 +91,9 @@ const CSS = `
 @media (pointer:coarse),(max-width:760px){.psp-sw{width:36px;height:36px}.psp-default{height:36px;border-radius:18px}.psp-dot{width:26px;height:26px}.psp-swatches{gap:9px 8px}}
 @media (max-width:760px){
 .psp-root{top:52px;right:12px;width:auto}
-.psp-sheet{position:fixed;left:0;right:0;bottom:0;width:auto;max-height:55vh;max-height:55dvh;border-radius:18px 18px 0 0;padding:8px 12px calc(10px + env(safe-area-inset-bottom,0px))}
+.psp-sheet{position:fixed;left:8px;right:8px;bottom:calc(var(--psp-stack,200px) + 8px);width:auto;max-height:40vh;max-height:40dvh;border-radius:18px;padding:6px 12px 8px}
 .psp-items{grid-template-columns:repeat(auto-fill,minmax(150px,1fr))}
+.psp-swatches{gap:6px}
 }
 `;
 
@@ -92,20 +104,25 @@ function injectStyle(doc) {
 
 const langOf = (lang) => (typeof lang === 'string' && lang.toLowerCase().startsWith('pl') ? 'pl' : 'en');
 const fmtCm = (m) => String(Number((m * 100).toFixed(1))); // 1.4 -> "140", 0.455 -> "45.5"
-const sameHex = (a, b) => typeof a === 'string' && typeof b === 'string' && a.toLowerCase() === b.toLowerCase();
+// '#rrggbb' values match without regard to case; keys ('lib:oak', 'f:wood') match literally.
+const isKey = (v) => /^(lib|f):/i.test(v);
+const sameColor = (a, b) => typeof a === 'string' && typeof b === 'string' && (isKey(a) || isKey(b) ? a === b : a.toLowerCase() === b.toLowerCase());
+const ROOM_DOT = { wall: '#ece6da', floor: '#bfa078' }; // the dot of the "Default" pill of a room: a room has no single default colour
 
 // createPanel({ doc, host, lang, session }) -> { element, refresh(), setLang(lang), dispose() }
 // `session` is the editing session (src/app/edit.js). The panel reads: selected() (a layout piece { id, type, size?, colors? } or null),
-// problems() (list of { kind }), and calls add(type), resize({ w, d, h }) in metres, recolor(slot, color | null); subscribe(fn) tells
-// it when to refresh and returns the function that stops it.
+// problems() (list of { kind }), selectedRoom() ({ level, id, name, colors: { wall?, floor? } } or null; a piece and a room are never both
+// selected), snapEdges(); and calls add(type), resize({ w, d, h }) in metres, recolor(slot, color | null), recolorRoom('wall' | 'floor',
+// color | null), setSnapEdges(bool); subscribe(fn) tells it when to refresh and returns the function that stops it. Every method but
+// selected/subscribe is optional: a section whose methods the session lacks does not appear.
 export function createPanel({ doc = document, host, lang = 'en', session } = {}) {
   injectStyle(doc);
   let L = langOf(lang), S = STR[L];
-  let open = false, selOpen = true, disposed = false, noteKey = null;
+  let open = false, selOpen = true, roomOpen = true, disposed = false, noteKey = null;
   const openGroups = new Set(); // ids of the expanded groups; the first one starts open
-  let selSig = '', probSig = '';
+  let selSig = '', probSig = '', roomSig = '', snapOn = null, stackPx = null;
   let entries = new Map(); // catalogue entries by id, in the current language
-  let fields = {}, slotRows = [];
+  let fields = {}, slotRows = [], roomRows = [];
 
   const el = (tag, cls, text) => {
     const n = doc.createElement(tag);
@@ -137,7 +154,18 @@ export function createPanel({ doc = document, host, lang = 'en', session } = {})
   const sizesBox = el('div', 'psp-sizes'), slotsBox = el('div', 'psp-slots');
   selBody.append(sizesBox, slotsBox);
   selBox.append(selHead, problemsEl, selBody);
-  sheet.append(addBox, selBox);
+  const roomBox = el('section', 'psp-room');
+  const roomHead = button('psp-sel-head'), roomText = el('span', 'psp-sel-text'), roomKicker = el('span', 'psp-sel-kicker'), roomName = el('span', 'psp-sel-name');
+  roomText.append(roomKicker, roomName);
+  roomHead.append(roomText, el('span', 'psp-chev'));
+  const roomBody = el('div', 'psp-sel-body');
+  roomBox.append(roomHead, roomBody);
+  const optsBox = el('div', 'psp-opts');
+  const snapBtn = button('psp-switch'), snapText = el('span', 'psp-switch-text');
+  snapBtn.setAttribute('role', 'switch'); snapBtn.setAttribute('aria-checked', 'false');
+  snapBtn.append(el('span', 'psp-knob'), snapText);
+  optsBox.append(snapBtn);
+  sheet.append(addBox, selBox, roomBox, optsBox);
   root.append(toggle, sheet);
   (host ?? doc.body).appendChild(root);
 
@@ -217,26 +245,81 @@ export function createPanel({ doc = document, host, lang = 'en', session } = {})
     }
     sizesBox.hidden = axes.length === 0;
     for (const slot of entry.slots) {
-      const row = el('div', 'psp-slot'), name = el('div', 'psp-slot-name', slot.label), bar = el('div', 'psp-swatches');
-      row.setAttribute('role', 'group'); row.setAttribute('aria-label', slot.label); bar.setAttribute('role', 'presentation');
-      const pal = paletteOf(piece.type, slot.name), base = defaultColorOf(piece.type, slot.name);
-      const def = button('psp-default'), dot = el('span', 'psp-dot'), defLabel = el('span', 'psp-default-text', S.defaultColour);
-      dot.style.background = base ?? 'transparent';
-      def.title = `${S.defaultTitle}${base ? ` (${base})` : ''}`; def.setAttribute('aria-label', `${slot.label}: ${S.defaultTitle}`);
-      def.dataset.slot = slot.name; def.append(dot, defLabel);
-      def.addEventListener('click', () => recolor(slot.name, null));
-      bar.append(def);
-      const sws = [];
-      for (const c of pal ? pal.colors : []) {
-        const b = button('psp-sw'); b.dataset.slot = slot.name; b.dataset.color = c.hex;
-        b.style.background = c.hex; b.title = c.name[L]; b.setAttribute('aria-label', `${slot.label}: ${c.name[L]}`); b.setAttribute('aria-pressed', 'false');
-        b.addEventListener('click', () => recolor(slot.name, c.hex));
-        bar.append(b); sws.push({ b, hex: c.hex, on: false });
-      }
-      def.setAttribute('aria-pressed', 'false');
-      row.append(name, bar); slotsBox.append(row);
-      slotRows.push({ slot: slot.name, def, defOn: false, sws });
+      const pal = paletteOf(piece.type, slot.name);
+      const list = (pal ? pal.colors : []).map((c) => ({ value: c.hex, swatch: c.swatch ?? c.hex, title: c.name[L] }));
+      const bar = makeBar(slot.name, slot.label, defaultColorOf(piece.type, slot.name), list, (v) => recolor(slot.name, v));
+      slotsBox.append(bar.row); slotRows.push(bar);
     }
+  }
+
+  // One colour bar: the "Default" pill (pick(null)) and one swatch per list entry { value, swatch, title } (pick(value)).
+  function makeBar(slotName, label, base, list, pick) {
+    const row = el('div', 'psp-slot'), name = el('div', 'psp-slot-name', label), bar = el('div', 'psp-swatches');
+    row.setAttribute('role', 'group'); row.setAttribute('aria-label', label); bar.setAttribute('role', 'presentation');
+    const def = button('psp-default'), dot = el('span', 'psp-dot'), defLabel = el('span', 'psp-default-text', S.defaultColour);
+    dot.style.background = base ?? 'transparent';
+    def.title = `${S.defaultTitle}${base ? ` (${base})` : ''}`; def.setAttribute('aria-label', `${label}: ${S.defaultTitle}`);
+    def.dataset.slot = slotName; def.append(dot, defLabel);
+    def.addEventListener('click', () => pick(null));
+    def.setAttribute('aria-pressed', 'false');
+    bar.append(def);
+    const sws = [];
+    for (const c of list) {
+      const b = button('psp-sw'); b.dataset.slot = slotName; b.dataset.color = c.value;
+      b.style.background = c.swatch; b.title = c.title; b.setAttribute('aria-label', `${label}: ${c.title}`); b.setAttribute('aria-pressed', 'false');
+      b.addEventListener('click', () => pick(c.value));
+      bar.append(b); sws.push({ b, value: c.value, on: false });
+    }
+    row.append(name, bar);
+    return { slot: slotName, row, def, defOn: false, sws };
+  }
+
+  // Marks the pill or the swatch that matches `cur` (a colour, a library key or nothing).
+  function syncBar(row, cur) {
+    const none = cur === undefined || cur === null;
+    if (row.defOn !== none) { row.defOn = none; row.def.setAttribute('aria-pressed', String(none)); }
+    for (const sw of row.sws) {
+      const on = !none && sameColor(cur, sw.value);
+      if (sw.on !== on) { sw.on = on; sw.b.setAttribute('aria-pressed', String(on)); }
+    }
+  }
+
+  // ---- the selected room
+  const roomNow = () => (typeof session.selectedRoom === 'function' ? session.selectedRoom() : null) ?? null;
+
+  function buildRoom(room) {
+    clear(roomBody); roomRows = [];
+    roomKicker.textContent = S.room;
+    roomName.textContent = String(room.name ?? room.id);
+    roomHead.setAttribute('aria-label', `${S.room}: ${roomName.textContent}. ${S.collapseRoom}`);
+    for (const part of ['wall', 'floor']) {
+      const list = (roomPalette(part, L) ?? []).map((e) => ({ value: e.value, swatch: e.swatch, title: e.name }));
+      const bar = makeBar(part, part === 'wall' ? S.walls : S.floor, ROOM_DOT[part], list, (v) => { if (typeof session.recolorRoom === 'function') session.recolorRoom(part, v); refresh(); });
+      roomBody.append(bar.row); roomRows.push(bar);
+    }
+  }
+
+  function syncRoom(room) {
+    const colors = room.colors && typeof room.colors === 'object' ? room.colors : {};
+    for (const row of roomRows) syncBar(row, colors[row.slot]);
+  }
+
+  function syncSnap() {
+    const has = typeof session.snapEdges === 'function' && typeof session.setSnapEdges === 'function';
+    optsBox.hidden = !has;
+    if (!has) return;
+    const on = !!session.snapEdges();
+    if (on !== snapOn) { snapOn = on; snapBtn.setAttribute('aria-checked', String(on)); }
+  }
+
+  // The sheet of a phone sits above the page's own bars: the page publishes their height as --ps-stack-h on the root element
+  // (a number of pixels, with or without "px"); 200 px is assumed while it is missing.
+  function syncStack() {
+    const de = doc.documentElement, view = doc.defaultView;
+    if (!de || !view || typeof view.getComputedStyle !== 'function' || !root.style || typeof root.style.setProperty !== 'function') return;
+    const n = parseFloat(view.getComputedStyle(de).getPropertyValue('--ps-stack-h'));
+    const px = Number.isFinite(n) && n >= 0 ? Math.round(n) : 200;
+    if (px !== stackPx) { stackPx = px; root.style.setProperty('--psp-stack', `${px}px`); }
   }
 
   function syncSelected(piece) {
@@ -247,15 +330,7 @@ export function createPanel({ doc = document, host, lang = 'en', session } = {})
       if (input.value !== v) input.value = v;
     }
     const colors = piece.colors && typeof piece.colors === 'object' ? piece.colors : {};
-    for (const row of slotRows) {
-      const cur = colors[row.slot];
-      const none = cur === undefined || cur === null;
-      if (row.defOn !== none) { row.defOn = none; row.def.setAttribute('aria-pressed', String(none)); }
-      for (const sw of row.sws) {
-        const on = !none && sameHex(cur, sw.hex);
-        if (sw.on !== on) { sw.on = on; sw.b.setAttribute('aria-pressed', String(on)); }
-      }
-    }
+    for (const row of slotRows) syncBar(row, colors[row.slot]);
     const list = (typeof session.problems === 'function' ? session.problems() : null) ?? [];
     const sig = `${L}|${list.map((p) => p.kind).join(',')}`;
     if (sig !== probSig) {
@@ -268,12 +343,13 @@ export function createPanel({ doc = document, host, lang = 'en', session } = {})
     }
   }
 
-  function syncShell(piece) {
-    const has = !!piece;
-    root.dataset.open = open ? '1' : '0'; root.dataset.sel = has ? '1' : '0';
+  function syncShell(piece, room) {
+    const has = !!piece, inRoom = !!room;
+    root.dataset.open = open ? '1' : '0'; root.dataset.sel = has ? '1' : '0'; root.dataset.room = inRoom ? '1' : '0';
     toggle.setAttribute('aria-expanded', String(open));
-    addBox.hidden = !open; selBox.hidden = !has; sheet.hidden = !(open || has);
+    addBox.hidden = !open; selBox.hidden = !has; roomBox.hidden = !inRoom; sheet.hidden = !(open || has || inRoom);
     selBody.hidden = !selOpen; selHead.setAttribute('aria-expanded', String(selOpen));
+    roomBody.hidden = !roomOpen; roomHead.setAttribute('aria-expanded', String(roomOpen));
     note.hidden = !noteKey; // a refusal stays visible until the next successful add or the next opening
     note.textContent = noteKey ? (S.fail[noteKey] ?? S.fail.other) : '';
   }
@@ -282,30 +358,45 @@ export function createPanel({ doc = document, host, lang = 'en', session } = {})
     toggleText.textContent = S.add; toggle.title = S.addTitle; toggle.setAttribute('aria-label', S.addTitle);
     title.textContent = S.listTitle; closeBtn.setAttribute('aria-label', S.close); closeBtn.title = S.close;
     sheet.setAttribute('aria-label', S.panel);
+    snapText.textContent = S.snap; snapBtn.title = S.snapTitle; snapBtn.setAttribute('aria-label', S.snap);
   }
 
   // ---- events
   toggle.addEventListener('click', () => { open = !open; if (open) noteKey = null; refresh(); });
   closeBtn.addEventListener('click', () => { open = false; refresh(); toggle.focus?.(); });
   selHead.addEventListener('click', () => { selOpen = !selOpen; refresh(); });
+  roomHead.addEventListener('click', () => { roomOpen = !roomOpen; refresh(); });
+  snapBtn.addEventListener('click', () => { if (typeof session.setSnapEdges === 'function') session.setSnapEdges(!session.snapEdges()); refresh(); });
   root.addEventListener('keydown', (e) => { if (e.key === 'Escape' && open) { open = false; refresh(); toggle.focus?.(); } });
+  const view = doc.defaultView;
+  const onResize = () => syncStack();
+  if (view && typeof view.addEventListener === 'function') view.addEventListener('resize', onResize);
 
   function refresh() {
     if (disposed) return;
     const piece = pieceNow();
+    const room = piece ? null : roomNow(); // a piece and a room exclude each other; the piece wins if a session reports both
     const sig = piece ? `${piece.id}\u0001${piece.type}` : '';
     if (sig !== selSig) {
       selSig = sig; probSig = '';
       if (piece) buildSelected(piece); else { clear(sizesBox); clear(slotsBox); clear(problemsEl); fields = {}; slotRows = []; }
     }
     if (piece) syncSelected(piece);
-    syncShell(piece);
+    const rsig = room ? `${room.level}\u0001${room.id}\u0001${room.name}` : '';
+    if (rsig !== roomSig) {
+      roomSig = rsig;
+      if (room) buildRoom(room); else { clear(roomBody); roomRows = []; }
+    }
+    if (room) syncRoom(room);
+    syncSnap();
+    syncShell(piece, room);
+    syncStack();
   }
 
   function setLang(next) {
     const n = langOf(next);
     if (n === L) return;
-    L = n; S = STR[L]; selSig = '';
+    L = n; S = STR[L]; selSig = ''; roomSig = '';
     texts(); renderGroups(); refresh();
   }
 
@@ -320,6 +411,7 @@ export function createPanel({ doc = document, host, lang = 'en', session } = {})
       if (disposed) return;
       disposed = true;
       if (typeof unsubscribe === 'function') unsubscribe();
+      if (view && typeof view.removeEventListener === 'function') view.removeEventListener('resize', onResize);
       root.remove();
     },
   };

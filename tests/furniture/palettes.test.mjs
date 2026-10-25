@@ -4,27 +4,55 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
 import { SPECS } from '../../src/furniture/specs.js';
-import { buildPiece } from '../../src/furniture/index.js';
-import { PALETTES, paletteOf, defaultColorOf } from '../../src/furniture/palettes.js';
+import { buildPiece, isSlotColor } from '../../src/furniture/index.js';
+import { PALETTES, ROOM_PALETTES, paletteOf, defaultColorOf } from '../../src/furniture/palettes.js';
+import { MATERIAL_KEYS } from '../../src/render/library.js';
 
 const HEX = /^#[0-9a-f]{6}$/;
 const LONG_DASH = new RegExp(`[${String.fromCharCode(0x2013, 0x2014)}]`); // en dash and em dash
 const meshes = (g) => { const out = []; g.traverse((o) => { if (o.isMesh) out.push(o); }); return out; };
 
-test('every palette has 8 to 12 distinct, well formed colours with names in both languages', () => {
+test('every palette has 8 to 14 distinct, well formed colours with names in both languages', () => {
   const ids = Object.keys(PALETTES);
   assert.ok(ids.length >= 6, `${ids.length} palettes`);
   for (const [id, p] of Object.entries(PALETTES)) {
     assert.equal(p.id, id);
     assert.ok(p.label.en && p.label.pl && p.label.en !== p.label.pl || p.label.en === 'Metal', `${id}: label`);
-    assert.ok(p.colors.length >= 8 && p.colors.length <= 12, `${id}: ${p.colors.length} colours`);
+    assert.ok(p.colors.length >= 8 && p.colors.length <= 14, `${id}: ${p.colors.length} colours`);
     assert.equal(new Set(p.colors.map((c) => c.hex)).size, p.colors.length, `${id}: repeated colour`);
     assert.equal(new Set(p.colors.map((c) => c.name.en)).size, p.colors.length, `${id}: repeated English name`);
     for (const c of p.colors) {
-      assert.match(c.hex, HEX, `${id}: ${c.hex}`);
+      if (c.hex.startsWith('lib:')) assert.match(c.swatch, HEX, `${id}/${c.hex}: swatch`); else assert.match(c.hex, HEX, `${id}: ${c.hex}`);
       for (const n of [c.name.en, c.name.pl, p.label.en, p.label.pl]) assert.ok(typeof n === 'string' && n.length > 0 && !LONG_DASH.test(n), `${id}/${c.hex}: name "${n}"`);
     }
   }
+});
+
+test('every value of every palette is a colour the builders and the scene accept: #rrggbb, a library key or a set key', () => {
+  let libs = 0;
+  for (const [id, p] of Object.entries(PALETTES)) {
+    for (const c of p.colors) {
+      assert.ok(isSlotColor(c.hex), `${id}: ${c.hex} is not accepted by isSlotColor`);
+      if (c.hex.startsWith('lib:')) { libs++; assert.ok(MATERIAL_KEYS.includes(c.hex.slice(4)), `${id}: ${c.hex} is not in the library`); }
+    }
+  }
+  for (const [kind, list] of Object.entries(ROOM_PALETTES)) {
+    for (const e of list) {
+      assert.ok(HEX.test(e.value) || (e.value.startsWith('lib:') && MATERIAL_KEYS.includes(e.value.slice(4))), `${kind}: ${e.value}`);
+      assert.match(e.swatch, HEX, `${kind}/${e.value}: swatch`);
+      if (e.value.startsWith('lib:')) libs++;
+    }
+  }
+  assert.ok(libs >= 12, `${libs} library swatches in all palettes`);
+  const copy = paletteOf('sofa2', 'upholstery');
+  assert.ok(copy.colors.some((c) => c.hex === 'lib:boucle' && c.swatch === '#c7c0b2'), 'a copy keeps the swatch of a library entry');
+});
+
+test('a library swatch recolours a slot with the material of the library', () => {
+  const g = buildPiece('sofa2', { seed: 1, quality: 'low', colors: { upholstery: 'lib:boucle' } });
+  const m = meshes(g).find((x) => x.userData.slot === 'upholstery');
+  assert.ok(m, 'the slot has a mesh');
+  assert.ok(m.material.userData.libraryKey === 'boucle' || m.material.name.includes('boucle'), 'the material of the library is used');
 });
 
 test('every slot of every type has a palette and a default colour', () => {

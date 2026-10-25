@@ -121,7 +121,7 @@ export function bathroomCabinet(b) {
   b.box('body', 'f:white', [0, h / 2, front - door / 2], [w - 0.004, h - 0.004, door], 0.004);
   b.box('mirror', 'k:paper', [0, h / 2, front + 0.0004], [w - 0.05, h - 0.05, 0.002], 0.0005);
   b.add('mirror', glossPlane(w - 0.05, h - 0.05, { lo: 0.78, hi: 1, streak: 0.14 }), 'k:mirror', M(0, h / 2, front + 0.0016), { uv: 'keep' });
-  b.box('handle', 'k:chrome', [-(w / 2 - 0.03), h / 2, d / 2 - 0.0045], [0.012, Math.min(0.2, h * 0.3), 0.009], 0.003);
+  b.box('handle', 'k:chrome', [-(w / 2 - 0.035), h / 2, d / 2 - 0.007], [0.022, Math.min(0.22, h * 0.32), 0.014], 0.005);
 }
 
 export const builders = { toilet, washbasin, shower, bathtub, 'bathroom-cabinet': bathroomCabinet };

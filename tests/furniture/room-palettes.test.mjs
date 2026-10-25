@@ -7,10 +7,11 @@ import { MATERIAL_KEYS } from '../../src/render/library.js';
 const HEX = /^#[0-9a-f]{6}$/;
 const LONG_DASH = new RegExp(`[${String.fromCharCode(0x2013, 0x2014)}]`);
 
-test('walls and floors have 8 to 12 distinct entries with valid values and names in both languages', () => {
+test('walls and floors have 8 to 16 distinct entries with valid values and names in both languages', () => {
   assert.deepEqual(Object.keys(ROOM_PALETTES).sort(), ['floor', 'wall']);
   for (const [kind, list] of Object.entries(ROOM_PALETTES)) {
-    assert.ok(list.length >= 8 && list.length <= 12, `${kind}: ${list.length} entries`);
+    assert.ok(list.length >= 8 && list.length <= 16, `${kind}: ${list.length} entries`);
+    assert.ok(list.some((e) => e.value.startsWith('lib:')), `${kind}: has surfaces of the material library`);
     assert.equal(new Set(list.map((e) => e.value)).size, list.length, `${kind}: repeated value`);
     assert.equal(new Set(list.map((e) => e.name.en)).size, list.length, `${kind}: repeated English name`);
     assert.equal(new Set(list.map((e) => e.name.pl)).size, list.length, `${kind}: repeated Polish name`);

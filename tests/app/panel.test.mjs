@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { createPanel, PANEL_TEXT } from '../../src/app/panel.js';
 import { catalog, catalogGroups, resizableAxes, clampSize, defaultSizeOf } from '../../src/furniture/catalog.js';
-import { paletteOf, defaultColorOf } from '../../src/furniture/palettes.js';
+import { paletteOf, defaultColorOf, roomPalette } from '../../src/furniture/palettes.js';
 import { LOOK_COLOR } from '../../src/render/materials.js';
 
 const LONG_DASH = new RegExp(`[${String.fromCharCode(0x2013, 0x2014)}]`);
@@ -352,12 +352,155 @@ test('the style sheet keeps the panel inside a phone screen and the controls at 
   assert.match(css, /max-width:calc\(100vw - 24px\)/);
   assert.match(css, /\.psp-root\[hidden\]/, 'the whole panel can be hidden with the hidden attribute');
   assert.match(css, /@media \(max-width:760px\)/);
-  assert.match(css, /max-height:55vh/);
+  assert.match(css, /max-height:40vh/, 'the sheet of a phone takes at most 40 percent of the height');
+  assert.match(css, /\.psp-sheet\{[^}]*bottom:calc\(var\(--psp-stack,200px\) \+ 8px\)/, 'and sits above the bars of the page');
   assert.match(css, /\.psp-item\{[^}]*min-height:44px/);
   assert.match(css, /\.psp-toggle\{[^}]*min-height:44px/);
+  assert.match(css, /\.psp-switch\{[^}]*min-height:44px/);
   assert.match(css, /font-size:16px/, 'inputs are 16px so that phones do not zoom in');
   assert.ok(!LONG_DASH.test(css));
   assert.ok(!/localStorage|sessionStorage|indexedDB|fetch\(|XMLHttpRequest/.test(css));
+});
+
+// ---- the room section and the snap switch
+function roomSession() {
+  const s = makeSession();
+  Object.assign(s, { room: null, snap: false });
+  Object.assign(s, {
+    selectedRoom: () => s.room,
+    recolorRoom(part, color) {
+      s.calls.push(['recolorRoom', part, color]);
+      const colors = { ...s.room.colors };
+      if (color === null) delete colors[part]; else colors[part] = color;
+      s.room = { ...s.room, colors }; s.emit(); return { ok: true };
+    },
+    snapEdges: () => s.snap,
+    setSnapEdges(v) { s.calls.push(['snap', v]); s.snap = v; s.emit(); },
+    pickRoom(room) { s.room = room; if (room) s.sel = null; s.emit(); },
+  });
+  return s;
+}
+const setupRoom = (lang = 'en') => {
+  const doc = makeDoc(), session = roomSession();
+  const panel = createPanel({ doc, host: doc.body, lang, session });
+  return { doc, session, panel, root: panel.element };
+};
+const living = { level: 'L1', id: 'living', name: 'Living room', colors: {} };
+const bars = (root) => findAll(root, cls('psp-room'))[0] && findAll(find(root, cls('psp-room')), cls('psp-slot'));
+const swatchesOf = (bar) => findAll(bar, cls('psp-sw'));
+
+test('the room section shows only for a selected room, with its name and two colour bars', () => {
+  for (const lang of ['en', 'pl']) {
+    const { root, session } = setupRoom(lang);
+    const box = find(root, cls('psp-room'));
+    assert.equal(box.hidden, true, 'no room: no section');
+    session.pickRoom(living);
+    assert.equal(box.hidden, false); assert.equal(find(root, cls('psp-sheet')).hidden, false);
+    assert.equal(find(box, cls('psp-sel-name')).textContent, 'Living room');
+    assert.equal(find(box, cls('psp-sel-kicker')).textContent, PANEL_TEXT[lang].room);
+    const [wall, floor] = bars(root);
+    assert.deepEqual([wall, floor].map((b) => find(b, cls('psp-slot-name')).textContent), [PANEL_TEXT[lang].walls, PANEL_TEXT[lang].floor]);
+    assert.deepEqual(swatchesOf(wall).map((b) => b.dataset.color), roomPalette('wall', lang).map((e) => e.value));
+    assert.deepEqual(swatchesOf(floor).map((b) => b.dataset.color), roomPalette('floor', lang).map((e) => e.value));
+    assert.ok(swatchesOf(floor).every((b) => b.title && b.attrs['aria-label']));
+    assert.equal(findAll(wall, cls('psp-default')).length, 1);
+    assert.equal(findAll(root, (n) => n.tag === 'input').length, 0, 'a room has no size fields');
+    session.pickRoom(null);
+    assert.equal(box.hidden, true); assert.equal(find(root, cls('psp-sheet')).hidden, true);
+  }
+});
+
+test('touching a swatch of a room calls recolorRoom with the part and the value, and Default clears it', () => {
+  const { root, session } = setupRoom('pl');
+  session.pickRoom(living);
+  const [wall, floor] = bars(root);
+  const w = swatchesOf(wall)[3], f = swatchesOf(floor)[1];
+  w.fire('click'); f.fire('click');
+  assert.deepEqual(session.calls.filter((c) => c[0] === 'recolorRoom'), [['recolorRoom', 'wall', w.dataset.color], ['recolorRoom', 'floor', f.dataset.color]]);
+  const [wall2, floor2] = bars(root);
+  assert.equal(wall2, wall, 'the bars stay in place while a colour changes');
+  assert.deepEqual(swatchesOf(wall2).filter((b) => b.attrs['aria-pressed'] === 'true'), [w]);
+  assert.deepEqual(swatchesOf(floor2).filter((b) => b.attrs['aria-pressed'] === 'true'), [f]);
+  assert.equal(find(wall2, cls('psp-default')).attrs['aria-pressed'], 'false');
+  find(wall2, cls('psp-default')).fire('click');
+  assert.deepEqual(session.calls.at(-1), ['recolorRoom', 'wall', null]);
+  assert.equal(find(wall2, cls('psp-default')).attrs['aria-pressed'], 'true');
+  assert.equal(swatchesOf(wall2).filter((b) => b.attrs['aria-pressed'] === 'true').length, 0);
+  assert.equal(swatchesOf(floor2).filter((b) => b.attrs['aria-pressed'] === 'true').length, 1, 'the other part keeps its colour');
+});
+
+test('a room colour is matched without regard to case, and a library key only literally', () => {
+  const { root, session } = setupRoom();
+  session.pickRoom({ ...living, colors: { wall: roomPalette('wall')[2].value.toUpperCase(), floor: 'lib:oak' } });
+  const [wall, floor] = bars(root);
+  assert.deepEqual(swatchesOf(wall).filter((b) => b.attrs['aria-pressed'] === 'true').map((b) => b.dataset.color), [roomPalette('wall')[2].value]);
+  const libSwatches = swatchesOf(floor).filter((b) => b.dataset.color.startsWith('lib:'));
+  assert.equal(swatchesOf(floor).filter((b) => b.attrs['aria-pressed'] === 'true').length, libSwatches.some((b) => b.dataset.color === 'lib:oak') ? 1 : 0);
+  session.pickRoom({ ...living, colors: { floor: 'LIB:OAK' } });
+  assert.equal(swatchesOf(bars(root)[1]).filter((b) => b.attrs['aria-pressed'] === 'true').length, 0, 'a key in another case is not the same key');
+});
+
+test('a piece and a room exclude each other', () => {
+  const { root, session } = setupRoom();
+  const box = find(root, cls('psp-room')), sel = find(root, cls('psp-sel'));
+  session.pickRoom(living);
+  assert.equal(box.hidden, false); assert.equal(sel.hidden, true);
+  session.select(sofa); // a session that keeps both reports: the piece wins
+  assert.equal(sel.hidden, false); assert.equal(box.hidden, true);
+  assert.equal(root.dataset.sel, '1'); assert.equal(root.dataset.room, '0');
+  session.select(null); session.pickRoom(living);
+  assert.equal(box.hidden, false); assert.equal(sel.hidden, true); assert.equal(root.dataset.room, '1');
+  session.pickRoom({ level: 'L1', id: 'bed', name: 'Bedroom', colors: {} });
+  assert.equal(find(box, cls('psp-sel-name')).textContent, 'Bedroom', 'another room rebuilds the section');
+});
+
+test('the room section folds by its heading and follows the language', () => {
+  const { root, session, panel } = setupRoom('en');
+  session.pickRoom(living);
+  const head = find(find(root, cls('psp-room')), cls('psp-sel-head')), body = find(find(root, cls('psp-room')), cls('psp-sel-body'));
+  assert.equal(body.hidden, false);
+  head.fire('click'); assert.equal(body.hidden, true); assert.equal(head.attrs['aria-expanded'], 'false');
+  head.fire('click'); assert.equal(body.hidden, false);
+  panel.setLang('pl');
+  assert.equal(find(find(root, cls('psp-room')), cls('psp-sel-kicker')).textContent, 'Pokój');
+  assert.ok(texts(root).includes('Ściany') && texts(root).includes('Podłoga') && texts(root).includes('Przyciągaj do sąsiadów'));
+});
+
+test('the snap switch follows the session and flips it; it is missing when the session cannot snap', () => {
+  const { root, session } = setupRoom();
+  const opts = find(root, cls('psp-opts')), sw = find(root, cls('psp-switch'));
+  session.select(sofa);
+  assert.equal(opts.hidden, false); assert.equal(sw.attrs.role, 'switch'); assert.equal(sw.attrs['aria-checked'], 'false');
+  assert.equal(find(sw, cls('psp-switch-text')).textContent, 'Snap to neighbours');
+  sw.fire('click');
+  assert.deepEqual(session.calls.at(-1), ['snap', true]); assert.equal(sw.attrs['aria-checked'], 'true');
+  sw.fire('click');
+  assert.deepEqual(session.calls.at(-1), ['snap', false]); assert.equal(sw.attrs['aria-checked'], 'false');
+  session.snap = true; session.emit();
+  assert.equal(sw.attrs['aria-checked'], 'true', 'a change made elsewhere shows up');
+  const plain = setup();
+  assert.equal(find(plain.root, cls('psp-opts')).hidden, true);
+});
+
+test('200 refreshes with a room selected do not grow the page, and the sheet reads the height of the page bars', () => {
+  const { root, session, panel } = setupRoom();
+  session.pickRoom(living);
+  const n = all(root).length;
+  for (let i = 0; i < 200; i++) panel.refresh();
+  assert.equal(all(root).length, n);
+  for (let i = 0; i < 40; i++) session.pickRoom({ ...living, id: `r${i}` });
+  const m = all(root).length;
+  for (let i = 0; i < 200; i++) panel.refresh();
+  assert.equal(all(root).length, m);
+  for (const [value, want] of [[' 190px', '190px'], ['210', '210px'], ['', '200px'], ['nonsense', '200px']]) {
+    const doc = makeDoc(), orig = doc.createElement;
+    doc.createElement = (t) => { const x = orig(t); x.style.setProperty = (k, v) => { x.style[k] = v; }; return x; };
+    doc.documentElement = {};
+    doc.defaultView = { getComputedStyle: () => ({ getPropertyValue: (k) => (k === '--ps-stack-h' ? value : '') }), addEventListener() {}, removeEventListener() {} };
+    const p = createPanel({ doc, host: doc.body, lang: 'en', session: makeSession() });
+    assert.equal(p.element.style['--psp-stack'], want, `stack ${JSON.stringify(value)}`);
+    p.dispose();
+  }
 });
 
 test('the source of the panel keeps nothing in the browser, makes no request, has no randomness and does not import three.js', () => {

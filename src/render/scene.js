@@ -1,7 +1,8 @@
 // three.js scene graph for a model: named groups (level:, wall:, opening:, room:, stair:, furniture:). All names double as GLB node names.
 // The presentation scene (light, base, backdrop) is in src/look/stage.js.
 import * as THREE from 'three';
-import { mat, floorMat, floorName, texScale } from './materials.js';
+import { mat, floorMat, floorName, texScale, paintMat, LOOKS } from './materials.js';
+import { MATERIAL_KEYS } from './library.js';
 import { buildFurniture, SCENE_MESHES } from '../furniture/legacy.js';
 import { levelOffsets } from '../model/geometry.js';
 import { boxGeometry, setBoxUV } from './uv.js';
@@ -98,6 +99,21 @@ function makeLabel(name, area, widthWorld) {
   return sprite;
 }
 
+// Room colours: '#rrggbb' or 'lib:<key of the material library>'; anything else means "no colour".
+const HEX = /^#[0-9a-fA-F]{6}$/;
+const okColor = (v) => typeof v === 'string' && (HEX.test(v) || (v.startsWith('lib:') && MATERIAL_KEYS.includes(v.slice(4))));
+const own = (o, k) => (o && typeof o === 'object' && Object.hasOwn(o, k) ? o[k] : undefined);
+const SKIN_GAP = 0.002; // a painted skin floats 2 mm in front of the wall face
+
+function inPolygon(x, y, poly) {
+  let c = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const [xi, yi] = poly[i], [xj, yj] = poly[j];
+    if ((yi > y) !== (yj > y) && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) c = !c;
+  }
+  return c;
+}
+
 // Stretches a box between the heights y0 and y1; its uv follow, so a texture keeps its scale (and its height above the floor) when a wall is cut.
 function place(m, y0, y1) {
   m.position.y = (y0 + y1) / 2;
@@ -120,6 +136,10 @@ export class PlanScene {
     this.labels = [];
     this.arcs = [];
     this.furnitureBudget = { left: SCENE_MESHES };
+    this.roomFloors = []; // the floor mesh of every room, for setRoomColors
+    this.wallPieces = []; // every wall piece with its box and the level it stands on
+    this.skins = new Map(); // painted skins on wall faces, by id
+    this.roomColors = {};
     this.levelGroups = model.levels.map((lv) => this._level(lv));
     this.levelGroups.forEach((g) => this.group.add(g));
     this.setExplode(0);
@@ -166,10 +186,11 @@ export class PlanScene {
       wg.name = `wall:${w.id}`;
       w.pieces.forEach((p, i) => {
         const um = (p.u0 + p.u1) / 2;
-        this._box(wg, {
+        const box = this._box(wg, {
           name: `wall:${w.id}/${p.part}${i}`, mat: 'wall', y0: p.y0, y1: p.y1,
           cx: w.from[0] + w.dir[0] * um, cy: w.from[1] + w.dir[1] * um, sx: p.u1 - p.u0, sz: w.thickness, angle: w.angle,
         }, lv.slab);
+        this.wallPieces.push({ id: `${lv.id}:${w.id}/${i}`, lv, w, p, mesh: box, entry: this.cuttables[this.cuttables.length - 1], parent: wg });
       });
       g.add(wg);
     }
@@ -205,7 +226,8 @@ export class PlanScene {
         const fname = floorName(r.floor);
         const floor = new THREE.Mesh(flatGeometry(r.polygon, r.floorHoles, 0, true, texScale(fname)), floorMat(r.floor));
         floor.name = `room:${r.id}/floor`;
-        floor.pw = { mat: fname };
+        floor.pw = { mat: fname, base: fname, k: texScale(fname), room: [lv.id, r.id], flat: { polygon: r.polygon, holes: r.floorHoles } };
+        this.roomFloors.push(floor);
         floor.receiveShadow = true;
         const slab = new THREE.Mesh(slabGeometry(r.polygon, r.floorHoles, Math.max(0.01, lv.slab - 0.004), texScale('slab')), mat('slab'));
         slab.name = `room:${r.id}/slab`;
@@ -264,9 +286,139 @@ export class PlanScene {
     }
   }
 
+  // ---- room colours
+  // setRoomColors(colors, look): `colors` is { "<level id>": { "<room id>": { wall?, floor? } } } with '#rrggbb' or 'lib:<key>' values.
+  // A floor takes the colour (a texture keeps its structure and gets the colour as its average) or the library material of its room,
+  // with the uv rewritten for that texture. A wall takes it on the faces that look into the room: a thin skin 2 mm in front of the
+  // face, cut where the room ends along the wall, so openings (the pieces around them are separate) and the other side of the wall
+  // stay as they are. A missing or invalid value means the default look; a room that does not exist is ignored; the call is
+  // idempotent (same colours, same scene) and with no colours at all the scene is the one the constructor built.
+  setRoomColors(colors, look) {
+    if (LOOKS.includes(look) && look !== this.look) this.setMaterials(look);
+    this.roomColors = colors && typeof colors === 'object' ? colors : {};
+    for (const floor of this.roomFloors) {
+      const [lvId, roomId] = floor.pw.room;
+      const e = own(own(this.roomColors, lvId), roomId);
+      const v = e && typeof e === 'object' ? e.floor : undefined;
+      this._paintFloor(floor, okColor(v) ? v : null);
+    }
+    this._paintWalls();
+  }
+
+  _paintFloor(floor, value) {
+    const pw = floor.pw, sig = value ?? '';
+    if (pw.sig === sig) return;
+    pw.sig = sig;
+    const lib = !!value && value.startsWith('lib:');
+    const name = lib ? value : pw.base;
+    pw.paint = value ? { color: lib ? undefined : value, offset: true } : null;
+    pw.mat = name;
+    const k = texScale(name);
+    if (k !== pw.k) { // another texture, another repeat per metre
+      floor.geometry.dispose();
+      floor.geometry = flatGeometry(pw.flat.polygon, pw.flat.holes, 0, true, k);
+      pw.k = k;
+    }
+    floor.material = pw.paint ? paintMat(name, pw.paint.color, this.look, true) : mat(name, this.look);
+  }
+
+  // Which room looks at a stretch of a wall piece, per side: [{ side, u0, u1, room }] (found once; the ends are refined to a millimetre).
+  _spans(wp) {
+    if (wp.spans) return wp.spans;
+    const { w, p, lv } = wp, out = [];
+    const rooms = lv.rooms.filter((r) => r.polygon.length >= 3);
+    const nx = -w.dir[1], ny = w.dir[0], off = w.thickness / 2 + 0.03;
+    for (const side of [1, -1]) {
+      const at = (u) => {
+        const x = w.from[0] + w.dir[0] * u + nx * side * off, y = w.from[1] + w.dir[1] * u + ny * side * off;
+        for (const r of rooms) if (inPolygon(x, y, r.polygon)) return r.id;
+        return null;
+      };
+      const edge = (a, b, id) => { for (let i = 0; i < 14; i++) { const m = (a + b) / 2; if (at(m) === id) a = m; else b = m; } return (a + b) / 2; };
+      const len = p.u1 - p.u0, n = Math.max(1, Math.min(120, Math.ceil(len / 0.1)));
+      const mids = Array.from({ length: n }, (_, j) => p.u0 + (len * (j + 0.5)) / n), ids = mids.map(at);
+      let start = p.u0;
+      for (let j = 1; j <= n; j++) {
+        if (j < n && ids[j] === ids[j - 1]) continue;
+        const end = j === n ? p.u1 : edge(mids[j - 1], mids[j], ids[j - 1]);
+        if (ids[j - 1] && end - start > 0.02) out.push({ side, u0: start, u1: end, room: ids[j - 1] });
+        start = end;
+      }
+    }
+    wp.spans = out;
+    return out;
+  }
+
+  _paintWalls() {
+    const keep = new Set();
+    for (const wp of this.wallPieces) {
+      const spans = this._spans(wp);
+      for (let j = 0; j < spans.length; j++) {
+        const s = spans[j], e = own(own(this.roomColors, wp.lv.id), s.room);
+        const v = e && typeof e === 'object' ? e.wall : undefined;
+        if (!okColor(v)) continue;
+        const id = `${wp.id}/${s.side > 0 ? 'a' : 'b'}${j}`;
+        keep.add(id);
+        let skin = this.skins.get(id);
+        const fresh = !skin;
+        if (fresh) { skin = this._makeSkin(wp, s, id); this.skins.set(id, skin); }
+        if (fresh || skin.pw.sig !== v) {
+          const lib = v.startsWith('lib:'), name = lib ? v : 'wall';
+          skin.pw.sig = v; skin.pw.mat = name; skin.pw.paint = { color: lib ? undefined : v, offset: true }; skin.pw.skin.k = texScale(name);
+          skin.material = paintMat(name, skin.pw.paint.color, this.look, true);
+          this._placeSkins(wp.entry);
+        }
+      }
+    }
+    for (const [id, skin] of [...this.skins]) {
+      if (keep.has(id)) continue;
+      const entry = skin.pw.owner.entry;
+      entry.skins = (entry.skins ?? []).filter((x) => x !== skin);
+      skin.parent?.remove(skin);
+      skin.geometry.dispose();
+      this.skins.delete(id);
+    }
+  }
+
+  _makeSkin(wp, span, id) {
+    const { w } = wp;
+    const nx = -w.dir[1], ny = w.dir[0], off = (w.thickness / 2 + SKIN_GAP) * span.side;
+    const a = [w.from[0] + w.dir[0] * span.u0 + nx * off, w.from[1] + w.dir[1] * span.u0 + ny * off];
+    const b = [w.from[0] + w.dir[0] * span.u1 + nx * off, w.from[1] + w.dir[1] * span.u1 + ny * off];
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(12), 3));
+    const nrm = new Float32Array(12);
+    for (let i = 0; i < 4; i++) { nrm[i * 3] = nx * span.side; nrm[i * 3 + 2] = ny * span.side; }
+    g.setAttribute('normal', new THREE.BufferAttribute(nrm, 3));
+    g.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(8), 2));
+    g.setIndex(span.side > 0 ? [0, 1, 2, 0, 2, 3] : [0, 2, 1, 0, 3, 2]); // the front faces into the room
+    const m = new THREE.Mesh(g, mat('wall', this.look));
+    m.name = `skin:${id}`;
+    m.receiveShadow = true;
+    m.pw = { mat: 'wall', paint: null, owner: wp, skin: { a, b, u0: span.u0, u1: span.u1, k: 1 } };
+    wp.parent.add(m);
+    (wp.entry.skins ??= []).push(m);
+    return m;
+  }
+
+  // A skin has the height range of its wall piece (cut or not, never below the floor), the uv of a texture that keeps its scale.
+  _placeSkins(c) {
+    if (!c.skins?.length) return;
+    const y1 = c.mesh.position.y + c.mesh.scale.y / 2, y0 = Math.max(0, c.mesh.position.y - c.mesh.scale.y / 2);
+    for (const s of c.skins) {
+      const { a, b, u0, u1, k } = s.pw.skin, pos = s.geometry.getAttribute('position'), uv = s.geometry.getAttribute('uv');
+      pos.setXYZ(0, a[0], y0, a[1]); pos.setXYZ(1, b[0], y0, b[1]); pos.setXYZ(2, b[0], y1, b[1]); pos.setXYZ(3, a[0], y1, a[1]);
+      uv.setXY(0, u0 * k, y0 * k); uv.setXY(1, u1 * k, y0 * k); uv.setXY(2, u1 * k, y1 * k); uv.setXY(3, u0 * k, y1 * k);
+      pos.needsUpdate = true; uv.needsUpdate = true;
+      s.geometry.computeBoundingSphere();
+      s.visible = c.mesh.visible && y1 - y0 > 1e-3;
+    }
+  }
+
   // The dark cap of a wall piece sits on its current top (at most 4 cm thick, thinner on a very low wall) and shows only in
   // the textured look and only while the walls are cut: a full height wall is closed by the ceiling.
   _placeCap(c) {
+    this._placeSkins(c); // called after every change of the height of a wall piece (setCut and the cutaway of the page), so the painted skins follow
     const cap = c.cap;
     if (!cap) return;
     const top = c.mesh.position.y + c.mesh.scale.y / 2, t = Math.min(0.04, Math.max(0, (top - c.y0) * 0.5));
@@ -296,7 +448,7 @@ export class PlanScene {
     this.look = look;
     this.group.traverse((o) => {
       if (!o.isMesh) return;
-      if (o.pw?.mat) o.material = mat(o.pw.mat, look);
+      if (o.pw?.mat) o.material = o.pw.paint ? paintMat(o.pw.mat, o.pw.paint.color, look, o.pw.paint.offset) : mat(o.pw.mat, look);
       if (o.pw?.look) o.visible = o.pw.look === look; // shapes that exist in one look only (soft furnishings, leaves, their clay boxes)
     });
     for (const c of this.cuttables) this._placeCap(c);

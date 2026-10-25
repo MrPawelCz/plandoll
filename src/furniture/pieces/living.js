@@ -43,7 +43,9 @@ export const armchair = (b) => sofaBody(b, { seats: 1, cushionSlot: 'cushion', a
 export function sofaBed(b) {
   const { w, d } = b, armW = 0.12, legH = 0.11;
   sofaBody(b, { seats: clamp(Math.round((w - 0.32) / 0.62), 2, 4), cushionSlot: 'cushions', armW, backD: 0.2, legH, scatter: true });
-  b.box('upholstery', 'f:fabric', [0, legH + 0.075, d / 2 - 0.002], [w - 2 * armW - 0.03, 0.11, 0.02], 0.008, { seg: 2 });
+  // The pulled-out base shows as a fabric front that steps out clearly from the seat, with a wooden slide rail under it.
+  b.box('upholstery', 'f:fabric', [0, legH + 0.075, d / 2 + 0.001], [w - 2 * armW - 0.03, 0.11, 0.026], 0.008, { seg: 2 });
+  b.box('legs', 'f:wood', [0, legH + 0.012, d / 2 + 0.004], [w - 2 * armW - 0.03, 0.02, 0.02], 0.004);
 }
 
 // Two floating boards joined by slim side posts, a dark back panel and a row of books on the lower board. y = 0 is the bottom edge.

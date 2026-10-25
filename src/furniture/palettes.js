@@ -1,10 +1,11 @@
 // Colour palettes for the material slots of the furniture, for an editor that recolours a slot (see `colors` in docs/DESIGN.md).
 //
-//   PALETTES               the named palettes: { id, label: { en, pl }, colors: [{ hex, name: { en, pl } }] }, 8 to 12 colours each
+//   PALETTES               the named palettes: { id, label: { en, pl }, colors: [{ hex, name: { en, pl }, swatch? }] }, 8 to 14 colours each
+//                          (`hex` is '#rrggbb' or, for a surface of the material library, 'lib:<key>' with `swatch` as its average colour)
 //   paletteOf(type, slot)  the palette that suits the slot (a copy), or null for an unknown type or slot
 //   defaultColorOf(type, slot, look = 'textured')
 //                          '#rrggbb', the colour the slot has when `colors` does not mention it in the given look, or null
-//   ROOM_PALETTES          { wall: [...], floor: [...] }, 8 to 12 entries each: { value, swatch, name: { en, pl } }
+//   ROOM_PALETTES          { wall: [...], floor: [...] }, 8 to 16 entries each: { value, swatch, name: { en, pl } }
 //   roomPalette(kind, lang)  the entries of one list with the name in one language (a copy), or null for an unknown kind
 //
 // Which palette a slot gets follows the material the builder uses for it (wood, fabric, metal ...), so a new piece needs no entry
@@ -14,8 +15,10 @@ import { specOf } from './specs.js';
 import { buildPiece } from './index.js';
 import { LOOK_COLOR } from '../render/materials.js';
 
+// An entry is [value, English name, Polish name, swatch?]: `value` is '#rrggbb' or a key of the material library ('lib:oak'), and
+// `swatch` (only for a library key) is the average colour of that material, to draw in a picker.
 function palette(id, en, pl, list) {
-  return { id, label: { en, pl }, colors: list.map(([hex, nameEn, namePl]) => ({ hex, name: { en: nameEn, pl: namePl } })) };
+  return { id, label: { en, pl }, colors: list.map(([hex, nameEn, namePl, swatch]) => ({ hex, name: { en: nameEn, pl: namePl }, ...(swatch ? { swatch } : {}) })) };
 }
 
 export const PALETTES = {
@@ -23,16 +26,19 @@ export const PALETTES = {
     ['#d9d2c5', 'Oat', 'Owsiany'], ['#c9b8a6', 'Sand', 'Piaskowy'], ['#a89580', 'Camel', 'Karmelowy'], ['#857d72', 'Taupe', 'Szarobeżowy'],
     ['#6e7a6a', 'Moss', 'Mech'], ['#8a9a8b', 'Sage', 'Szałwiowy'], ['#a9bccb', 'Mist blue', 'Mglisty błękit'], ['#5f7a8a', 'Slate blue', 'Błękit łupkowy'],
     ['#b9735a', 'Terracotta', 'Terakota'], ['#8c4a4a', 'Brick', 'Cegła'], ['#c9a35a', 'Mustard', 'Musztarda'], ['#3f4247', 'Graphite', 'Grafit'],
+    ['lib:boucle', 'Woven bouclé', 'Tkany bukl', '#c7c0b2'], ['lib:velvet', 'Green velvet', 'Zielony welur', '#6b8475'],
   ]),
   wood: palette('wood', 'Wood', 'Drewno', [
     ['#e3cfae', 'Birch', 'Brzoza'], ['#d4b78f', 'Ash', 'Jesion'], ['#cdb08c', 'Natural oak', 'Dąb naturalny'], ['#b88e5f', 'Honey oak', 'Dąb miodowy'],
     ['#a89a88', 'Grey oak', 'Dąb szary'], ['#a05a3c', 'Cherry', 'Wiśnia'], ['#9c7048', 'Walnut', 'Orzech'], ['#7a5236', 'Dark walnut', 'Orzech ciemny'],
     ['#5e4030', 'Chestnut', 'Kasztan'], ['#3d2e26', 'Wenge', 'Wenge'],
+    ['lib:oak', 'Oak boards', 'Deski dębowe', '#be9a6b'], ['lib:oak-smoked', 'Smoked oak boards', 'Deski z dębu wędzonego', '#5c412b'], ['lib:walnut', 'Walnut grain', 'Usłojenie orzecha', '#5c3c25'],
   ]),
   painted: palette('painted', 'Painted', 'Malowane', [
     ['#f3f1ec', 'Chalk', 'Kreda'], ['#e8e3d9', 'Cream', 'Śmietanka'], ['#d8d2c8', 'Linen', 'Len'], ['#e3c9b8', 'Blush', 'Pudrowy róż'],
     ['#d9a58a', 'Peach clay', 'Brzoskwiniowa glina'], ['#b8c4b8', 'Pale sage', 'Jasna szałwia'], ['#8d9c8e', 'Eucalyptus', 'Eukaliptus'], ['#b7c7d1', 'Pale blue', 'Jasny błękit'],
     ['#5d6f7a', 'Slate', 'Łupek'], ['#3f4a52', 'Charcoal', 'Antracyt'], ['#26292d', 'Ink', 'Tusz'],
+    ['lib:lacquer-white', 'White lacquer', 'Biały lakier', '#f1efea'],
   ]),
   metal: palette('metal', 'Metal', 'Metal', [
     ['#2a2b2e', 'Black', 'Czarny'], ['#6b7077', 'Gunmetal', 'Grafitowa stal'], ['#8e949a', 'Brushed nickel', 'Nikiel szczotkowany'], ['#c4c8cc', 'Steel', 'Stal'],
@@ -106,7 +112,7 @@ function probe(type) {
 }
 
 const hasSlot = (type, slot) => !!specOf(type)?.slots.includes(slot);
-const copy = (p) => ({ id: p.id, label: { ...p.label }, colors: p.colors.map((c) => ({ hex: c.hex, name: { ...c.name } })) });
+const copy = (p) => ({ id: p.id, label: { ...p.label }, colors: p.colors.map((c) => ({ hex: c.hex, name: { ...c.name }, ...(c.swatch ? { swatch: c.swatch } : {}) })) });
 
 export function paletteOf(type, slot) {
   if (!hasSlot(type, slot)) return null;
@@ -137,11 +143,14 @@ export const ROOM_PALETTES = {
     ['#f4f0e8', 'Chalk white', 'Kredowa biel'], ['#ece4d4', 'Warm linen', 'Ciepły len'], ['#e3d3b8', 'Dune', 'Wydma'], ['#dcc2ad', 'Clay blush', 'Glinkowy róż'],
     ['#cf9f82', 'Baked clay', 'Wypalona glina'], ['#c3cfc0', 'Sage mist', 'Szałwiowa mgiełka'], ['#a9bdb3', 'Eucalyptus', 'Eukaliptus'], ['#b9c9d6', 'Morning blue', 'Poranny błękit'],
     ['#d7d4ce', 'Pebble', 'Otoczak'], ['#7f8b72', 'Olive grove', 'Gaj oliwny'], ['#5b6670', 'Slate', 'Łupek'], ['#3f464d', 'Night slate', 'Nocny łupek'],
+    ['lib:plaster-warm', 'Warm plaster', 'Tynk ciepły', '#ebe1d1'], ['lib:plaster-cool', 'Cool plaster', 'Tynk chłodny', '#dde3e3'], ['lib:limewash', 'Limewash', 'Wapno', '#ddd5c3'],
   ]),
   floor: swatches([
     ['#dcc59f', 'Pale oak', 'Dąb jasny'], ['#c7a67a', 'Natural oak', 'Dąb naturalny'], ['#a9825a', 'Warm oak', 'Dąb ciepły'], ['#8a6446', 'Walnut', 'Orzech'],
     ['#5e4636', 'Smoked oak', 'Dąb wędzony'], ['#d9d3c7', 'Pale stone', 'Jasny kamień'], ['#a2a29e', 'Concrete', 'Beton'], ['#ebe7de', 'White tile', 'Biała płytka'],
     ['#76878a', 'Slate tile', 'Płytka łupkowa'], ['#bba892', 'Oat carpet', 'Wykładzina owsiana'], ['#8b8f93', 'Grey carpet', 'Wykładzina szara'],
+    ['lib:oak', 'Oak boards', 'Deski dębowe', '#be9a6b'], ['lib:oak-smoked', 'Smoked oak boards', 'Deski z dębu wędzonego', '#5c412b'],
+    ['lib:tile-grey', 'Grey porcelain tile', 'Szary gres', '#abaeae'], ['lib:stone-light', 'Honed limestone', 'Szlifowany wapień', '#cbbda6'],
   ]),
 };
 
