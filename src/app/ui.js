@@ -10,6 +10,13 @@ const STR = {
   pl: { time: 'Pora dnia', quality: 'Jakość obrazu', auto: 'Auto', high: 'Wysoka', medium: 'Średnia', low: 'Niska', lang: 'EN', reset: 'Reset widoku', resetTitle: 'Wróć do widoku początkowego', hint: 'Przeciągnij, żeby obrócić',
     qualityHelp: 'Wysoka: ostrzejszy obraz, miękkie dokładne cienie, ciemnienie w narożnikach, poświata lamp, rozmycie góry i dołu kadru, połysk i ziarno; działa wolniej i zużywa więcej baterii. Średnia: pośrodku. Niska: szybciej i oszczędniej, mniej efektów. Auto dobiera poziom do urządzenia.' },
 };
+// Texts of the edit bar (shown with edit=1): the visible word, and the longer label for screen readers and tooltips.
+export const EDIT_STR = {
+  en: { turn: 'Turn', turnLabel: 'Turn the selected piece by 90 degrees', remove: 'Delete', removeLabel: 'Delete the selected piece', undo: 'Undo', undoLabel: 'Undo the last change', redo: 'Redo', redoLabel: 'Redo the change you undid',
+    auto: 'Auto layout', autoLabel: 'Go back to the automatic layout', group: 'Edit the layout' },
+  pl: { turn: 'Obróć', turnLabel: 'Obróć zaznaczoną sztukę o 90 stopni', remove: 'Usuń', removeLabel: 'Usuń zaznaczoną sztukę', undo: 'Cofnij', undoLabel: 'Cofnij ostatnią zmianę', redo: 'Ponów', redoLabel: 'Ponów cofniętą zmianę',
+    auto: 'Auto układ', autoLabel: 'Wróć do układu automatycznego', group: 'Edycja układu' },
+};
 export const ERROR_TEXT = {
   en: { title: 'This page needs WebGL 2', body: 'Your browser or device did not give us a WebGL 2 context. Try a current Chrome, Edge, Firefox or Safari and make sure hardware acceleration is on.' },
   pl: { title: 'Ta strona potrzebuje WebGL 2', body: 'Przeglądarka lub urządzenie nie udostępniło kontekstu WebGL 2. Użyj aktualnego Chrome, Edge, Firefox lub Safari i włącz przyspieszenie sprzętowe.' },
@@ -41,6 +48,13 @@ const CSS = `
 #ps-ui .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
 #ps-hint{position:fixed;left:50%;top:14px;transform:translateX(-50%);font:600 13px/1.3 ui-rounded,"SF Pro Rounded","Avenir Next","Segoe UI",system-ui,sans-serif;color:var(--ink);background:var(--paper);padding:6px 14px;border-radius:16px;border:1px solid var(--line);box-shadow:0 6px 18px rgba(40,28,12,.22);-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px);pointer-events:none;max-width:calc(100vw - 24px);box-sizing:border-box;text-align:center}
 @media (max-width:760px){#ps-ui{flex-wrap:wrap;justify-content:center;gap:8px}#ps-ui label.time{min-width:100%}#ps-ui label.quality{flex-direction:column;align-items:flex-start;gap:2px}#ps-ui select{padding:4px 6px}}
+#ps-edit{position:fixed;left:50%;bottom:96px;transform:translateX(-50%);display:flex;gap:6px;padding:6px 8px;border-radius:18px;background:var(--paper);border:1px solid var(--line);box-shadow:0 8px 24px rgba(40,28,12,.26);-webkit-backdrop-filter:blur(12px);backdrop-filter:blur(12px);max-width:calc(100vw - 12px);box-sizing:border-box;font:600 12px/1.2 ui-rounded,"SF Pro Rounded","Avenir Next","Segoe UI",system-ui,sans-serif;color:var(--ink)}
+#ps-edit button{all:unset;cursor:pointer;box-sizing:border-box;min-width:44px;min-height:44px;padding:0 9px;display:flex;align-items:center;justify-content:center;text-align:center;border-radius:12px;border:1px solid var(--line);background:#fffaf0;font-weight:600;touch-action:manipulation;white-space:nowrap}
+#ps-edit button:hover:not([disabled]){background:rgba(200,121,58,.14)}
+#ps-edit button[disabled]{opacity:.36;cursor:default}
+#ps-edit button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+#ps-edit-panel{position:fixed;right:10px;top:10px;max-width:calc(100vw - 20px);max-height:calc(100vh - 140px);overflow:auto}
+#ps-edit-panel:empty{display:none}
 #ps-card{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:#efe6d4;padding:24px;box-sizing:border-box}
 #ps-card .box{max-width:520px;padding:28px 30px;border-radius:22px;background:#fffaf0;border:1px solid var(--line);box-shadow:0 14px 40px rgba(60,40,10,.2)}
 #ps-card h1{font-size:20px;margin:0 0 8px}#ps-card p{margin:0 0 18px}#ps-card h1:last-of-type{margin-top:6px}#ps-card .detail{font:11px/1.4 ui-monospace,Menlo,monospace;opacity:.6;white-space:pre-wrap;margin:0}
@@ -123,4 +137,38 @@ export function createUI(handlers, state, doc = document) {
   }
   update(state);
   return { root, update, hideHint: () => { if (hint) { hint.remove(); hint = null; } }, setVisible: (v) => { root.style.display = v ? '' : 'none'; if (hint) hint.style.display = v ? '' : 'none'; }, dispose: () => { root.remove(); hint?.remove(); } };
+}
+
+// The edit bar (edit=1): Turn, Delete, Undo, Redo and Auto layout, one row above the controls, every button at least 44 px; plus the empty
+// container #ps-edit-panel that other parts of the page fill. handlers: { onTurn(), onRemove(), onUndo(), onRedo(), onAuto() }.
+// update({ lang, selected, canUndo, canRedo }) sets the language and which buttons are enabled; `anchor` is the control bar that the edit bar sits above.
+export function createEditBar(handlers, state = {}, doc = document, anchor = null) {
+  injectStyles(doc);
+  const root = doc.createElement('div'); root.id = 'ps-edit'; root.setAttribute('role', 'toolbar');
+  const defs = [['turn', 'onTurn'], ['remove', 'onRemove'], ['undo', 'onUndo'], ['redo', 'onRedo'], ['auto', 'onAuto']];
+  const buttons = {};
+  for (const [key, handler] of defs) {
+    const b = doc.createElement('button'); b.type = 'button'; b.dataset.edit = key;
+    b.addEventListener('click', () => { if (!b.disabled) handlers[handler]?.(); });
+    root.append(b); buttons[key] = b;
+  }
+  const panel = doc.createElement('div'); panel.id = 'ps-edit-panel';
+  doc.body.append(root, panel);
+  function place() { // sits one line above the control bar (and the line of its mood caption), wherever the bar has grown to
+    const h = anchor?.root?.offsetHeight || anchor?.offsetHeight || 0;
+    root.style.bottom = `${(h ? h + 18 : 78) + 8 + 30}px`;
+  }
+  function update(s = {}) {
+    Object.assign(state, s);
+    const L = EDIT_STR[state.lang] ?? EDIT_STR.en;
+    root.setAttribute('aria-label', L.group);
+    for (const [key] of defs) { buttons[key].textContent = L[key]; buttons[key].title = L[`${key}Label`]; buttons[key].setAttribute('aria-label', L[`${key}Label`]); }
+    buttons.turn.disabled = !state.selected; buttons.remove.disabled = !state.selected;
+    buttons.undo.disabled = !state.canUndo; buttons.redo.disabled = !state.canRedo; buttons.auto.disabled = false;
+    place();
+  }
+  const onResize = () => place();
+  if (typeof window !== 'undefined') window.addEventListener('resize', onResize);
+  update(state);
+  return { root, panel, buttons, update, place, dispose: () => { window.removeEventListener('resize', onResize); root.remove(); panel.remove(); } };
 }

@@ -2,9 +2,11 @@
 // by default with a phone screen and touch input. It waits for the first frames, then taps a mood button, drags the time-of-day
 // slider and changes the quality, and after each step checks that the PICTURE changed, not only the controls.
 //   node tools/interact.mjs [--html dist/planstage.html | --html https://host/path/] [--size 390x844] [--scale 3] [--desktop]
-//                           [--hash "frames=2"] [--out DIR] [--timeout 240] [--settle 12]
+//                           [--hash "frames=2"] [--out DIR] [--timeout 240] [--settle 12] [--edit]
 // --desktop uses mouse input and a plain window. --hash is the address hash; empty (the default) is the page exactly as a visitor
 // opens it. --settle is how many seconds to wait for a redraw when the page does not report its frame count (older builds).
+// --edit opens the page with edit=1 and adds the steps of the layout editor (select, drag, turn, undo, redo, delete, automatic layout);
+// without it the page is tested as a visitor sees it and the check is that there is no edit bar.
 // Exits 1 when a step fails, the page reports an error, writes to storage or asks for anything outside its own address.
 // On a small machine run only one browser at a time (tools/chrome-lock.sh).
 import { spawn } from 'node:child_process';
@@ -14,12 +16,13 @@ import { dirname, join, resolve } from 'node:path';
 import { pathToFileURL, fileURLToPath } from 'node:url';
 
 const argv = process.argv.slice(2);
-const opt = { html: null, size: '390x844', scale: '3', hash: '', out: null, timeout: 240, settle: 12, desktop: false };
+const opt = { html: null, size: '390x844', scale: '3', hash: '', out: null, timeout: 240, settle: 12, desktop: false, edit: false };
 for (let i = 0; i < argv.length; i++) {
   const a = argv[i];
   if (a === '--desktop') opt.desktop = true;
+  else if (a === '--edit') opt.edit = true;
   else if (a.startsWith('--') && a.slice(2) in opt && i + 1 < argv.length) opt[a.slice(2)] = argv[++i];
-  else { console.error(`usage: node tools/interact.mjs [--html FILE|URL] [--size WxH] [--scale N] [--desktop] [--hash H] [--out DIR] [--timeout S] [--settle S] (got ${a})`); process.exit(2); }
+  else { console.error(`usage: node tools/interact.mjs [--html FILE|URL] [--size WxH] [--scale N] [--desktop] [--edit] [--hash H] [--out DIR] [--timeout S] [--settle S] (got ${a})`); process.exit(2); }
 }
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const [W, H] = opt.size.split('x').map(Number);
@@ -119,7 +122,8 @@ try {
   await send('Page.enable'); await send('Runtime.enable'); await send('Network.enable');
   await send('Emulation.setDeviceMetricsOverride', { width: W, height: H, deviceScaleFactor: opt.desktop ? 1 : Number(opt.scale), mobile: !opt.desktop });
   if (!opt.desktop) await send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 });
-  const url = `${target}${opt.hash ? `#${opt.hash}` : ''}`;
+  const hash = [opt.hash, opt.edit ? 'edit=1' : ''].filter(Boolean).join('&');
+  const url = `${target}${hash ? `#${hash}` : ''}`;
   await send('Page.navigate', { url });
 
   // 1. the first frames
@@ -130,6 +134,10 @@ try {
   if (!(ready && info.done && !info.fail)) throw new Error('the page did not draw its first frames');
   const bar = await rectOf('#ps-ui');
   record('controls on screen', !!bar && bar.x >= -1 && bar.x + bar.w <= W + 1 && bar.y >= 0 && bar.y + bar.h <= H + 1, { bar });
+  if (!opt.edit) {
+    const none = await ev(`JSON.stringify({ bar: !!document.querySelector('#ps-edit'), panel: !!document.querySelector('#ps-edit-panel'), api: typeof window.__edit })`);
+    record('no edit bar without edit=1', JSON.parse(none).bar === false && JSON.parse(none).panel === false && JSON.parse(none).api === 'undefined', JSON.parse(none));
+  }
   let pic = await picture('0-start');
 
   // 2. tap a mood button
@@ -190,7 +198,14 @@ try {
   const turnAz = () => ev('window.__camera ? window.__camera.azimuth : -1');
   const wrap = (d) => ((d % 360) + 540) % 360 - 180;
   const upToBar = await ev(`Math.floor(document.querySelector('#ps-ui').getBoundingClientRect().top)`);
-  const dragPx = Math.round(0.45 * Math.min(W, H)), y = Math.round(upToBar * 0.35), x0 = Math.round(W * 0.2);
+  const dragPx = Math.round(0.45 * Math.min(W, H));
+  let y = Math.round(upToBar * 0.35), x0 = Math.round(W * 0.2);
+  if (opt.edit) { // with the editor on, a drag that starts on a piece moves the piece: start the turn where no piece is under the finger
+    search: for (const fy of [0.35, 0.2, 0.5, 0.1, 0.65]) for (const fx of [0.2, 0.1, 0.3, 0.05, 0.4]) {
+      const px = Math.round(W * fx), py = Math.round(upToBar * fy);
+      if ((await ev(`window.__edit.hit(${px}, ${py})`)) === null) { x0 = px; y = py; break search; }
+    }
+  }
   const a0 = await turnAz(), f4 = await frames(), picBefore = pic;
   await drag(x0, y, Math.min(W - 10, x0 + dragPx), y, 150);
   await waitFor('window.__camera && window.__camera.busy === false', 60);
@@ -223,6 +238,110 @@ try {
   const r7 = await redrawn(f7);
   const a4 = await turnAz(), pic7 = await picture('8-reset-button');
   record('reset button', Math.abs(wrap(a3 - a0)) > 45 && Math.abs(wrap(a4 - a0)) < 2 && pic7 !== picTurned && r7.ok !== false, { azimuth: `${a3.toFixed(0)} -> ${a4.toFixed(0)}`, pictureChanged: pic7 !== picTurned });
+
+  // 10b. the layout editor (--edit): select a piece, drag it, turn, undo, redo, delete, automatic layout
+  if (opt.edit) {
+    const pieceInfo = (pid) => ev(`(() => { const p = window.__edit.session.pieceById(${JSON.stringify(pid)}); return p ? { x: p.x, y: p.y, rot: p.rot } : null; })()`);
+    const layoutJson = () => ev('JSON.stringify(window.__edit.session.state.layout)');
+    const selected = () => ev('window.__edit.selectedId()');
+    const count = () => ev('window.__edit.count()');
+    const click = async (what) => { const r = await rectOf(`#ps-edit button[data-edit="${what}"]`); await tap(r.x + r.w / 2, r.y + r.h / 2); };
+    const key = async (k, code, vk, modifiers = 0, text) => { for (const type of ['keyDown', 'keyUp']) await send('Input.dispatchKeyEvent', { type, key: k, code, windowsVirtualKeyCode: vk, modifiers, ...(type === 'keyDown' && text ? { text } : {}) }); };
+    const startLayout = await layoutJson();
+    const bars = JSON.parse(await ev(`JSON.stringify((() => { const r = (e) => { const b = e.getBoundingClientRect(); return { x: b.left, y: b.top, w: b.width, h: b.height }; }; const bar = document.querySelector('#ps-edit'); const ctl = document.querySelector('#ps-ui'); if (!bar) return null; return { bar: r(bar), ui: r(ctl), buttons: [...bar.querySelectorAll('button')].map((b) => ({ name: b.dataset.edit, ...r(b), disabled: b.disabled, label: b.getAttribute('aria-label') })), panel: !!document.querySelector('#ps-edit-panel') }; })())`));
+    const barOk = !!bars && bars.panel && bars.buttons.length === 5 && bars.buttons.every((b) => b.w >= 43.5 && b.h >= 43.5 && b.x >= -1 && b.x + b.w <= W + 1 && b.label) && bars.bar.y + bars.bar.h <= bars.ui.y + 1 && bars.bar.h < 80;
+    record('edit bar', barOk, { bar: bars?.bar, buttons: bars?.buttons.map((b) => `${b.name} ${Math.round(b.w)}x${Math.round(b.h)}${b.disabled ? ' off' : ''}`) });
+    const area = Math.floor(bars ? Math.min(bars.bar.y, bars.ui.y) : 400) - 6;
+    const cands = await ev(`(() => { const out = []; for (const lv of window.__edit.session.state.layout.levels) for (const p of lv.pieces) if (!p.on && p.elev === 0 && p.size[2] > 0.3) out.push({ id: p.id, type: p.type, area: p.size[0] * p.size[1] }); return out.sort((a, b) => b.area - a.area).slice(0, 12); })()`);
+    const inside = (pt) => pt && pt.x > 8 && pt.x < W - 8 && pt.y > 8 && pt.y < area;
+
+    // select: a tap on a piece selects it (the outline shows), the id reported by the page is the one tapped
+    let chosen = null, f = await frames(), picBeforeSel = pic;
+    for (const c of cands) {
+      const pt = await ev(`window.__edit.screenOf(${JSON.stringify(c.id)})`);
+      if (!inside(pt)) continue;
+      await tap(pt.x, pt.y); await sleep(350);
+      if ((await selected()) === c.id) { chosen = { ...c, pt }; break; }
+    }
+    await redrawn(f);
+    const picSel = await picture('9-edit-selected');
+    const bars2 = JSON.parse(await ev(`JSON.stringify([...document.querySelectorAll('#ps-edit button')].map((b) => b.disabled))`));
+    record('edit: tap selects a piece', !!chosen && picSel !== picBeforeSel && bars2[0] === false && bars2[1] === false, { piece: chosen ? `${chosen.id} ${chosen.type}` : null, pictureChanged: picSel !== picBeforeSel, disabled: bars2.join(',') });
+    pic = picSel;
+    if (!chosen) throw new Error('no piece could be selected by a tap');
+    const id = chosen.id;
+
+    // drag: about 80 px over the floor; the piece moves in the layout, the picture changes, the camera does not turn
+    const p0 = await pieceInfo(id), az0 = await turnAz(); f = await frames();
+    const sel0 = await ev('window.__edit.screenOf(' + JSON.stringify(id) + ')');
+    await drag(sel0.x, sel0.y, Math.min(W - 12, sel0.x + 80), Math.min(area - 6, sel0.y + 30));
+    await sleep(300); await redrawn(f);
+    const p1 = await pieceInfo(id), az1 = await turnAz(), picDrag = await picture('10-edit-dragged');
+    const moved = Math.hypot(p1.x - p0.x, p1.y - p0.y);
+    record('edit: drag moves the piece', moved > 0.1 && picDrag !== pic && Math.abs(az1 - az0) < 0.5 && (await selected()) === id, { moved: `${moved.toFixed(2)} m`, from: `${p0.x.toFixed(2)},${p0.y.toFixed(2)}`, to: `${p1.x.toFixed(2)},${p1.y.toFixed(2)}`, cameraTurned: +(az1 - az0).toFixed(2), pictureChanged: picDrag !== pic });
+    pic = picDrag;
+
+    // drag onto another piece: the place is flagged (red outline), then the drag is undone in one step
+    const other = await (async () => { for (const c of cands) { if (c.id === id) continue; const pt = await ev(`window.__edit.screenOf(${JSON.stringify(c.id)})`); if (inside(pt)) return { ...c, pt }; } return null; })();
+    if (other) {
+      const here = await ev('window.__edit.screenOf(' + JSON.stringify(id) + ')'); f = await frames();
+      const before = await layoutJson();
+      await drag(here.x, here.y, other.pt.x, other.pt.y);
+      await sleep(300); await redrawn(f);
+      const kinds = await ev('JSON.stringify(window.__edit.session.problems().map((p) => p.kind))');
+      const picOver = await picture('11-edit-overlap');
+      await click('undo'); await sleep(300);
+      record('edit: dropping on another piece shows a problem, undo takes the drag back', /overlap/.test(kinds) && (await layoutJson()) === before, { onto: `${other.id} ${other.type}`, problems: kinds, pictureChanged: picOver !== pic });
+      pic = await picture('11b-edit-undone');
+    }
+
+    // turn: +90 degrees; undo and redo
+    const t0 = await pieceInfo(id); f = await frames();
+    await click('turn'); await sleep(300); await redrawn(f);
+    const t1 = await pieceInfo(id), turnedBy = (((t1.rot - t0.rot) % 360) + 360) % 360;
+    await click('undo'); await sleep(300);
+    const t2 = await pieceInfo(id), redoOn = await ev(`!document.querySelector('#ps-edit button[data-edit="redo"]').disabled`);
+    await click('redo'); await sleep(300);
+    const t3 = await pieceInfo(id), picTurn = await picture('12-edit-turned');
+    record('edit: turn, undo, redo', Math.abs(turnedBy - 90) < 1 && t2.rot === t0.rot && redoOn && t3.rot === t1.rot, { rot: `${t0.rot} -> ${t1.rot}, undo ${t2.rot}, redo ${t3.rot}`, turnedBy, redoEnabledAfterUndo: redoOn });
+    await click('undo'); await sleep(200);
+
+    // delete and undo
+    const n0 = await count(); f = await frames();
+    await click('remove'); await sleep(300); await redrawn(f);
+    const n1 = await count(), selAfter = await selected(), picDel = await picture('13-edit-deleted');
+    await click('undo'); await sleep(400);
+    const n2 = await count();
+    record('edit: delete removes the piece, undo brings it back', n1 < n0 && selAfter === null && n2 === n0 && picDel !== picTurn, { count: `${n0} -> ${n1} -> ${n2}`, selectedAfter: selAfter, pictureChanged: picDel !== picTurn });
+
+    // automatic layout: the layout is the automatic one again
+    f = await frames();
+    const changed = (await layoutJson()) !== startLayout; // the first drag is still in place
+    await click('auto'); await sleep(500); await redrawn(f);
+    const auto = (await layoutJson()) === startLayout;
+    record('edit: automatic layout restores the first layout', changed && auto, { changedBeforeReset: changed, equalsFirstLayout: auto });
+    pic = await picture('14-edit-auto');
+
+    // keys on the desktop: R turns the selected piece, Ctrl + Z undoes, Delete removes
+    if (opt.desktop) {
+      await tap(chosen.pt.x, chosen.pt.y); await sleep(300);
+      const k0 = await pieceInfo(id);
+      await key('r', 'KeyR', 82, 0, 'r'); await sleep(300);
+      const k1 = await pieceInfo(id);
+      await key('z', 'KeyZ', 90, 2); await sleep(300);
+      const k2 = await pieceInfo(id);
+      await key('z', 'KeyZ', 90, 10); await sleep(300); // Ctrl + Shift + Z: redo
+      const k3 = await pieceInfo(id);
+      await key('z', 'KeyZ', 90, 2); await sleep(200);
+      const m0 = await count();
+      await key('Delete', 'Delete', 46); await sleep(300);
+      const m1 = await count();
+      await key('z', 'KeyZ', 90, 2); await sleep(300);
+      const m2 = await count();
+      await key('Escape', 'Escape', 27); await sleep(200);
+      record('edit: keys R, Ctrl+Z, Ctrl+Shift+Z, Delete, Escape', k1.rot !== k0.rot && k2.rot === k0.rot && k3.rot === k1.rot && m1 < m0 && m2 === m0 && (await selected()) === null, { rot: `${k0.rot} ${k1.rot} ${k2.rot} ${k3.rot}`, count: `${m0} ${m1} ${m2}` });
+    }
+  }
 
   // 11. at rest the page draws nothing: no frames, nothing queued
   await sleep(1500);

@@ -1,5 +1,6 @@
 // Page shell: reads the address parameters, builds the plan scene, the stage (light, base, backdrop) and the post chain, draws.
-// Parameters: #preset&t=&q=&cam=&az=&pol=&plan=&frames=&lang=&ui=&live= (see params.js). No network, no storage, no external files.
+// Parameters: #preset&t=&q=&cam=&az=&pol=&plan=&frames=&lang=&ui=&live=&edit= (see params.js). No network, no storage, no external files.
+// With edit=1 a piece can be selected, dragged over the floor, turned and deleted, with undo and redo (edit.js, pick.js, render/outline.js).
 // The model can be turned round (camera.js): the outer walls that face the camera are cut low (render/cutaway.js).
 import * as THREE from 'three';
 import { analyzePlan, modelOf } from '../core/validate.js';
@@ -10,7 +11,10 @@ import { createPost } from '../look/post.js';
 import { resolveQuality } from '../look/quality.js';
 import { parseParams } from './params.js';
 import { createLoop } from './loop.js';
-import { createUI, showErrorCard } from './ui.js';
+import { createUI, createEditBar, showErrorCard } from './ui.js';
+import { createEditSession } from './edit.js';
+import { pickPiece, floorHit } from './pick.js';
+import { createOutline, outlineKind } from '../render/outline.js';
 import { autoFurnish } from '../layout/index.js';
 import { piecesImplemented } from '../furniture/index.js';
 import { composeLayout, cutawayPieces, emittersOf, focusRoom, mergeByMaterial, setLampGlow, disposeComposed } from '../render/compose.js';
@@ -79,12 +83,15 @@ try {
   let near = nearSides(current.azimuth);
   applyWallCut(ps, ext, near);
 
-  let furn = null;
+  let furn = null, curLayout = layout, sigs = new Map(); // curLayout is the layout on the stage (the editor replaces it); sigs the build signature of each piece
+  const sigOf = (p) => `${p.type}|${p.size.join(',')}|${JSON.stringify(p.colors ?? {})}`;
+  const sigsOf = (lay) => { const m = new Map(); for (const lc of lay.levels) for (const p of lc.pieces) m.set(p.id, sigOf(p)); return m; };
   function furnish() {
     if (furn) disposeComposed(furn.group, furn.merged?.group);
-    furn = composeLayout({ model, layout, quality: level, look: 'textured', seed: params.seed });
+    furn = composeLayout({ model, layout: curLayout, quality: level, look: 'textured', seed: params.seed });
+    if (params.edit) { sigs = sigsOf(curLayout); scene.add(furn.group); } // not merged: the pieces must be in the scene before the shadow casters are chosen
     settle();
-    scene.add(furn.group);
+    if (!params.edit) scene.add(furn.group);
   }
   // After the pieces or the set of near walls changed: hide what the cutaway would spoil, rebuild the merged meshes and the lights.
   function settle() {
@@ -115,7 +122,7 @@ try {
   function setPreset(name, keepT) { const p = stage.setPreset(name); S.preset = p.id; if (!keepT) S.t = p.t; applyAll(); ui?.update(S); redraw(); }
   function setTime(t) { S.t = Math.min(1, Math.max(0, t)); applyAll(); ui?.update(S); redraw(); }
   function setQ(q) { S.q = q; level = resolveQuality(q, env); S.level = level; stage.setQuality(level); furnish(); post.setQuality(level); applyAll(); ui?.update(S); redraw(); }
-  function setLang(l) { S.lang = l; ui?.update(S); }
+  function setLang(l) { S.lang = l; ui?.update(S); editBar?.update({ lang: l }); }
   // the camera reports every change of the view; a change in the set of near edges re-cuts the walls and the pieces (not every frame of a turn)
   function onCamera(s) {
     current = s;
@@ -124,9 +131,107 @@ try {
     if (!sameSides(n, near)) { near = n; applyWallCut(ps, ext, near); settle(); }
     redraw();
   }
+  let editBar = null;
   const ui = params.ui ? createUI({ onPreset: (n) => setPreset(n), onTime: setTime, onQuality: setQ, onLang: setLang, onReset: () => cam?.reset(true) }, S) : null;
   cam = createCameraController({ element: renderer.domElement, home: home0, initial: { azimuth: params.az, polar: params.pol }, target: pose.target, fov: pose.fov, onChange: onCamera, onGesture: () => ui?.hideHint() });
   applyAll();
+  // ---------- edit mode (edit=1): select a piece, drag it over the floor, turn, delete, undo and redo ----------
+  let session = null;
+  if (params.edit) {
+    const floorOf = new Map(model.levels.map((lv) => [lv.id, Number(lv.elevation) || 0]));
+    const levelBase = (id) => floorOf.get(id) ?? 0;
+    const outline = createOutline(); scene.add(outline.group);
+    const dom = renderer.domElement;
+    // the pieces move to where the layout says (no rebuilding): a drag, a turn, an undo of a move
+    function syncGroups() {
+      for (const lc of curLayout.levels) for (const p of lc.pieces) {
+        const g = furn.pieces.get(p.id); if (!g) continue;
+        g.position.set(p.x, levelBase(lc.id) + p.elev, p.y); g.rotation.y = (-p.rot * Math.PI) / 180; g.userData.elev = p.elev;
+      }
+      furn.group.updateMatrixWorld(true);
+    }
+    function refreshEdit() {
+      const sel = session.selected();
+      if (sel) outline.set(sel, levelBase(session.levelOf(sel.id)), outlineKind(session.problems())); else outline.hide();
+      editBar?.update({ selected: !!sel, canUndo: session.canUndo(), canRedo: session.canRedo() });
+    }
+    function onEdit(e) {
+      curLayout = session.state.layout;
+      if (e.type === 'structure') {
+        const next = sigsOf(curLayout);
+        if (next.size === sigs.size && [...next].every(([id, sg]) => sigs.get(id) === sg)) { syncGroups(); settle(); } // only places changed
+        else { furnish(); setLampGlow(furn.group, stage.state.lampK); } // pieces added, removed, resized or recoloured
+      } else if (e.type === 'drag') syncGroups();
+      else if (e.type === 'dragend') { syncGroups(); settle(); }
+      refreshEdit(); redraw();
+    }
+    session = createEditSession({ layout, model, allowedTypes: piecesImplemented(), onChange: onEdit });
+    if (params.ui) editBar = createEditBar({ onTurn: () => session.turn(90), onRemove: () => session.remove(), onUndo: () => session.undo(), onRedo: () => session.redo(), onAuto: () => session.reset() }, { lang: S.lang }, document, ui);
+    refreshEdit();
+
+    // One finger or the mouse on a piece selects it and drags it; elsewhere the camera turns as before; a quick tap on nothing clears the selection.
+    let gest = null;
+    const hitAt = (e) => pickPiece(session.state.layout, cam.pointerToRay(e), { levelBase, skip: (id) => !furn.pieces.get(id)?.visible });
+    dom.addEventListener('pointerdown', (e) => {
+      if (e.pointerType === 'mouse' && e.button !== 0) return;
+      if (gest) { // a second finger: the camera takes over and the piece goes back
+        if (gest.dragging) session.cancelDrag();
+        if (gest.id) cam.enabled = true;
+        gest = null; return;
+      }
+      const hit = hitAt(e), base = { pointerId: e.pointerId, x0: e.clientX, y0: e.clientY, t0: performance.now(), moved: 0, id: null, dragging: false };
+      if (!hit) { gest = base; return; }
+      const piece = session.pieceById(hit.id), fh = floorHit(cam.pointerToRay(e), levelBase(hit.level) + piece.elev);
+      gest = { ...base, id: hit.id, base: levelBase(hit.level) + piece.elev, off: fh ? [piece.x - fh[0], piece.y - fh[2]] : [0, 0] };
+      cam.enabled = false; session.select(hit.id);
+      try { dom.setPointerCapture(e.pointerId); } catch {}
+    }, true);
+    dom.addEventListener('pointermove', (e) => {
+      const g = gest; if (!g || !g.id || g.pointerId !== e.pointerId) return;
+      g.moved = Math.max(g.moved, Math.hypot(e.clientX - g.x0, e.clientY - g.y0));
+      if (g.moved < 6) return; // a tap is not a drag
+      if (!g.dragging) { g.dragging = session.beginDrag(g.id); if (!g.dragging) return; }
+      const fh = floorHit(cam.pointerToRay(e), g.base);
+      if (fh) session.dragTo(fh[0] + g.off[0], fh[2] + g.off[1]);
+    }, true);
+    const finish = (e, cancelled) => {
+      const g = gest; if (!g || g.pointerId !== e.pointerId) return;
+      gest = null;
+      if (g.id) {
+        cam.enabled = true;
+        try { dom.releasePointerCapture(e.pointerId); } catch {}
+        if (g.dragging) { if (cancelled) session.cancelDrag(); else session.endDrag(); }
+      } else if (!cancelled && Math.hypot(e.clientX - g.x0, e.clientY - g.y0) < 6 && performance.now() - g.t0 < 350) session.select(null);
+    };
+    dom.addEventListener('pointerup', (e) => finish(e, false), true);
+    dom.addEventListener('pointercancel', (e) => finish(e, true), true);
+    // keys (not while a form field has the focus): Delete or Backspace removes, R turns, Ctrl or Cmd + Z undoes, with Shift (or Ctrl + Y) redoes, Escape clears the selection
+    addEventListener('keydown', (e) => {
+      const tag = String(e.target?.tagName ?? '').toLowerCase();
+      if (tag === 'input' || tag === 'select' || tag === 'textarea' || e.target?.isContentEditable) return;
+      const mod = e.ctrlKey || e.metaKey, k = String(e.key).toLowerCase();
+      if (mod && k === 'z') { if (e.shiftKey) session.redo(); else session.undo(); e.preventDefault(); }
+      else if (mod && k === 'y') { session.redo(); e.preventDefault(); }
+      else if (!mod && !e.altKey && (e.key === 'Delete' || e.key === 'Backspace')) { session.remove(); e.preventDefault(); }
+      else if (!mod && !e.altKey && k === 'r') session.turn(90);
+      else if (e.key === 'Escape') session.select(null);
+    });
+    // for test tools: the piece's place in client pixels, the number of pieces, the selected id
+    const v3 = new THREE.Vector3();
+    window.__edit = {
+      session,
+      count: () => session.state.layout.levels.reduce((n, lv) => n + lv.pieces.length, 0),
+      hit: (x, y) => hitAt({ clientX: x, clientY: y })?.id ?? null, // the piece under a client point, or null
+      selectedId: () => session.state.selection,
+      screenOf(id) {
+        const f = session.pieceById(id); if (!f) return null;
+        camera.updateMatrixWorld(true);
+        v3.set(f.x, levelBase(session.levelOf(id)) + f.elev + f.size[2] * 0.75, f.y).project(camera);
+        const r = dom.getBoundingClientRect();
+        return { x: r.left + (v3.x * 0.5 + 0.5) * r.width, y: r.top + (-v3.y * 0.5 + 0.5) * r.height };
+      },
+    };
+  }
   // Arrow keys turn the model (see camera.js); Shift + left or right moves the time of day, 1 to 3 pick a mood.
   addEventListener('keydown', (e) => {
     if (e.shiftKey && e.key === 'ArrowRight') setTime(S.t + 0.02); else if (e.shiftKey && e.key === 'ArrowLeft') setTime(S.t - 0.02);
