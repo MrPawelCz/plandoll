@@ -1,5 +1,5 @@
-// The button of the open shell (shell=1): absent without the flag, in the tools row with it, its word and hint follow the state in both languages, and the
-// address parameter reads back. Against the tiny DOM stub of ui.test.mjs (no browser).
+// The button of the open shell: on by default (shell=0 takes it away), in the tools row after the example plans, its word and hint follow the state in both
+// languages, it is dimmed while editing and says why, and the address parameter reads back. Against the tiny DOM stub of ui.test.mjs (no browser).
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createUI } from '../../src/app/ui.js';
@@ -15,21 +15,24 @@ function makeDoc() {
 const every = (n) => [n, ...n.children.flatMap(every)];
 const toolButtons = (ui) => every(ui.root).filter((n) => n.className === 'tool');
 
-test('shell=1 is read from the address, off for everything else, and survives the edit toggle', () => {
-  assert.equal(parseParams('#shell=1').shell, true);
-  for (const h of ['', '#amber', '#shell=0', '#shell=true', '#shell=', '#shell=2']) assert.equal(parseParams(h).shell, false, h);
-  assert.equal(parseParams('#shell=1&edit=1').shell, true);
-  assert.equal(parseParams(`#${editHash('#shell=1&plan=duplex-1', true, { preset: 'clear', t: 0.4, q: 'auto', lang: 'pl' })}`).shell, true, 'switching the editor on keeps the flag');
+test('the shell is on by default, shell=0 turns it off, and the choice survives the edit toggle', () => {
+  for (const h of ['', '#amber', '#shell=1', '#shell=true', '#shell=', '#shell=2']) assert.equal(parseParams(h).shell, true, h);
+  assert.equal(parseParams('#shell=0').shell, false);
+  assert.equal(parseParams('#shell=0&edit=1').shell, false);
+  const state = { preset: 'clear', t: 0.4, q: 'auto', lang: 'pl' };
+  assert.equal(parseParams(`#${editHash('#shell=0&plan=duplex-1', true, state)}`).shell, false, 'switching the editor on keeps shell=0');
+  assert.equal(parseParams(`#${editHash('#plan=duplex-1', true, state)}`).shell, true, 'and leaves the default alone');
 });
 
-test('without the flag the tools row has the three buttons it always had and the bar keeps its class', () => {
-  const doc = makeDoc(), ui = createUI({ onPreset() {}, onTime() {}, onQuality() {}, onLang() {} }, { preset: 'amber', t: 0.5, q: 'auto', lang: 'en', tools: true }, doc);
+test('without the shell button the tools row has the example plans and the three buttons it always had, and the bar says it has tools', () => {
+  const doc = makeDoc(), ui = createUI({ onPreset() {}, onTime() {}, onQuality() {}, onLang() {} }, { preset: 'amber', t: 0.5, q: 'auto', lang: 'en', tools: true, plan: 'flat-1' }, doc);
   assert.deepEqual(toolButtons(ui).map((b) => b.dataset.tool), ['edit', 'saveImage', 'loadPlan']);
-  assert.equal(ui.root.className, '');
-  ui.update({ editing: true }); assert.equal(ui.root.className, 'editing');
+  assert.equal(ui.root.className, 'has-tools');
+  ui.update({ editing: true }); assert.equal(ui.root.className, 'editing has-tools');
+  ui.update({ editing: false, tools: false }); assert.equal(ui.root.className, '', 'btn=0 leaves the bar as it was');
 });
 
-test('with the flag the button comes first in the tools row, says what it does in both languages and calls back', () => {
+test('with the shell the button comes first among the tools, says what it does in both languages and calls back', () => {
   const doc = makeDoc(); let calls = 0;
   const state = { preset: 'amber', t: 0.5, q: 'auto', lang: 'en', tools: true, shell: true, shellOpen: false };
   const ui = createUI({ onPreset() {}, onTime() {}, onQuality() {}, onLang() {}, onShell: () => { calls++; } }, state, doc);
@@ -37,7 +40,8 @@ test('with the flag the button comes first in the tools row, says what it does i
   assert.deepEqual(buttons.map((b) => b.dataset.tool), ['shell', 'edit', 'saveImage', 'loadPlan']);
   assert.equal(shell.textContent, 'Open the shell'); assert.equal(shell.attrs['aria-label'], 'Open the shell'); assert.match(shell.title, /Space or Esc/);
   assert.equal(shell.type, 'button');
-  assert.equal(ui.root.className, 'has-shell');
+  assert.equal(shell.attrs['aria-disabled'], 'false');
+  assert.equal(ui.root.className, 'has-tools');
   shell.listeners.click(); assert.equal(calls, 1);
   ui.update({ shellOpen: true });
   assert.equal(shell.textContent, 'Close the shell'); assert.equal(shell.attrs['aria-label'], 'Close the shell'); assert.match(shell.title, /Fold/);
@@ -45,7 +49,23 @@ test('with the flag the button comes first in the tools row, says what it does i
   assert.equal(shell.textContent, 'Otwórz bryłę'); assert.match(shell.title, /spacja albo Esc/);
   ui.update({ shellOpen: true });
   assert.equal(shell.textContent, 'Złóż bryłę');
-  ui.update({ editing: true }); assert.equal(ui.root.className, 'editing has-shell');
-  assert.notEqual(shell.style.display, 'none', 'the button stays while editing');
-  assert.ok(!`${shell.textContent}${shell.title}`.match(/[\u2013\u2014]/), 'no long dashes in the words of the button');
+  assert.ok(!`${shell.textContent}${shell.title}`.match(/[–—]/), 'no long dashes in the words of the button');
+});
+
+test('while editing the shell button stays on the bar, dimmed, and its hint says what to do; leaving the editor wakes it again', () => {
+  const doc = makeDoc();
+  const state = { preset: 'amber', t: 0.5, q: 'auto', lang: 'en', tools: true, shell: true, shellOpen: false, editing: true };
+  const ui = createUI({ onPreset() {}, onTime() {}, onQuality() {}, onLang() {}, onShell() {} }, state, doc);
+  const shell = toolButtons(ui)[0];
+  assert.equal(shell.dataset.tool, 'shell');
+  assert.notEqual(shell.style.display, 'none', 'the button is still there');
+  assert.equal(shell.attrs['aria-disabled'], 'true');
+  assert.equal(shell.title, 'Finish editing to open the shell');
+  assert.equal(shell.textContent, 'Open the shell', 'the word is the same, only the hint and the dimming change');
+  assert.equal(ui.root.className, 'editing has-tools');
+  ui.update({ lang: 'pl' });
+  assert.equal(shell.title, 'Zakończ edycję, żeby otworzyć bryłę'); assert.equal(shell.textContent, 'Otwórz bryłę');
+  assert.ok(!shell.title.match(/[–—]/));
+  ui.update({ editing: false });
+  assert.equal(shell.attrs['aria-disabled'], 'false'); assert.match(shell.title, /spacja albo Esc/);
 });

@@ -1,7 +1,8 @@
 // Page parameters from the address hash: #preset&t=0.7&q=high&cam=close&az=90&pol=45&plan=flat-1&frames=3&lang=pl&ui=0&live=1&edit=1
 // edit=1 turns the layout editor on (off by default); the pieces stay merged except the one being dragged (merge=0 turns the merging off).
-// The control bar carries the extra buttons (edit mode, saving the picture, loading a plan); btn=0 hides that row.
-// shell=1 (off by default, a test) adds the button that opens the shell: the outer walls fall outward and lie flat, and the view is framed for both positions.
+// The control bar carries the extra buttons (the example plans, the open shell, edit mode, saving the picture, loading a plan); btn=0 hides that row.
+// The button that opens the shell (the outer walls fall outward and lie flat) is on by default and the view is framed for both positions; shell=0 takes
+// the button away and frames the closed model alone. While editing, the shell stays closed and its button is inactive.
 // A bare word is the preset name (so "#amber" works). Pure functions, no DOM: tested in Node.
 import { isPreset, getPreset, DEFAULT_PRESET } from '../look/presets.js';
 import { parseQualityParam } from '../look/quality.js';
@@ -40,7 +41,7 @@ export function parseParams(hash, env = {}) {
   const lang = kv.lang === 'pl' || kv.lang === 'en' ? kv.lang : (/^pl/i.test(env.language ?? '') ? 'pl' : 'en');
   const num = (v) => (v !== undefined && v !== '' && Number.isFinite(Number(v)) ? Number(v) : null);
   // az (degrees round the model, 0 = from the south, 90 = from the east) and pol (degrees from the vertical) set the view the page opens with
-  return { preset: presetName, t, q: parseQualityParam(kv.q), cam: kv.cam === 'close' ? 'close' : 'main', plan: parsePlanParam(kv.plan), frames, lang, ui: kv.ui !== '0', live: kv.live === '1', tmSet: kv.t !== undefined, seed, merge: kv.merge !== '0', edit: kv.edit === '1', btn: kv.btn !== '0', shell: kv.shell === '1', az: num(kv.az), pol: num(kv.pol) };
+  return { preset: presetName, t, q: parseQualityParam(kv.q), cam: kv.cam === 'close' ? 'close' : 'main', plan: parsePlanParam(kv.plan), frames, lang, ui: kv.ui !== '0', live: kv.live === '1', tmSet: kv.t !== undefined, seed, merge: kv.merge !== '0', edit: kv.edit === '1', btn: kv.btn !== '0', shell: kv.shell !== '0', az: num(kv.az), pol: num(kv.pol) };
 }
 
 // Hash string for a parameter object (inverse of parseParams for the fields the page changes).
@@ -52,6 +53,18 @@ export function buildHash(p) {
   if (p.seed && p.seed !== 1) parts.push(`seed=${p.seed}`);
   if (p.lang) parts.push(`lang=${p.lang}`);
   if (p.edit) parts.push('edit=1');
+  return parts.join('&');
+}
+
+// The address hash after another example plan was picked in the page: every other parameter stays, plan= is set to the plan (flat-1, the default, is left
+// out), so a reload or a shared address opens the same plan. An unknown name removes plan= as well.
+export function planHash(hash, name) {
+  const { bare, kv } = splitHash(hash);
+  const out = { ...kv };
+  delete out.plan;
+  if (name !== 'flat-1' && PLAN_NAMES.includes(name)) out.plan = name;
+  const parts = bare.map(encodeURIComponent);
+  for (const [k, v] of Object.entries(out)) parts.push(`${k}=${encodeURIComponent(v)}`);
   return parts.join('&');
 }
 

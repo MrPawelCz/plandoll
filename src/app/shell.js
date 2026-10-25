@@ -10,7 +10,13 @@ export function isFormTarget(target) {
   return tag === 'input' || tag === 'select' || tag === 'textarea' || target?.isContentEditable === true;
 }
 
-// What a key press does to the open shell (shell=1): Space opens a closed shell and closes an open one, Escape closes an open one; 'open', 'close' or null.
+// Whether the page builds the open shell: the button is on (shell=0 takes it away) and the editor is off. The editor needs the closed model (the page reloads
+// into edit mode with the walls up), so while editing the button is inactive and the view is framed for the closed model alone.
+export function shellOn(params) {
+  return !!params?.shell && !params?.edit;
+}
+
+// What a key press does to the open shell: Space opens a closed shell and closes an open one, Escape closes an open one; 'open', 'close' or null.
 // Keys with Ctrl, Cmd or Alt, keys that land in a form field, and Space on a button or a link (they use it themselves) do nothing. `wantOpen` is true while the
 // shell is open or opening.
 export function shellKey(e, wantOpen) {
@@ -36,9 +42,11 @@ export function planChoice(params, injected) {
   return params?.plan?.name === 'duplex-1' ? 'duplex-1' : 'flat-1';
 }
 
-// What the controls show at the start, from the parsed address parameters (the page adds the quality levels).
+// What the controls show at the start, from the parsed address parameters (the page adds the quality levels). plan: the example the page opens with (null for a
+// plan injected by a test tool or a generated one, which no example button stands for); shell: whether the open-shell button is there.
 export function startState(params) {
-  return { preset: params.preset, t: params.t, q: params.q, lang: params.lang, tools: params.btn, editing: params.edit };
+  return { preset: params.preset, t: params.t, q: params.q, lang: params.lang, tools: params.btn, editing: params.edit, shell: !!params.shell, shellOpen: false,
+    plan: params.plan?.kind === 'example' ? planChoice(params, null) : null };
 }
 
 // Which parts of the page are built. ui=0 leaves the picture alone (no controls, no edit bar, no sheet; the editing gestures still work), btn=0 hides only

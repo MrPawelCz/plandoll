@@ -1,7 +1,7 @@
 // The decisions of the page shell (shell.js): start options, the failure card, which parts are built, and the order in which a loaded plan is built.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { NO_WEBGL2, hasWebgl2, failureDetail, planChoice, startState, partsOf, buildPlanParts, isFormTarget } from '../../src/app/shell.js';
+import { NO_WEBGL2, hasWebgl2, failureDetail, planChoice, startState, partsOf, buildPlanParts, isFormTarget, shellOn } from '../../src/app/shell.js';
 import { parseParams } from '../../src/app/params.js';
 import { analyzePlan, modelOf } from '../../src/core/validate.js';
 import { buildModel, modelExtent } from '../../src/model/geometry.js';
@@ -42,7 +42,7 @@ test('planChoice: the injected plan only with plan=ext, duplex-1 by name, anythi
 
 test('startState: the preset, the time, the quality, the language, the buttons and the edit mode come from the address', () => {
   const s = startState(parseParams('#clear&t=0.4&q=low&lang=pl&edit=1', {}));
-  assert.deepEqual(s, { preset: 'clear', t: 0.4, q: 'low', lang: 'pl', tools: true, editing: true });
+  assert.deepEqual(s, { preset: 'clear', t: 0.4, q: 'low', lang: 'pl', tools: true, editing: true, shell: true, shellOpen: false, plan: 'flat-1' });
   const d = startState(parseParams('', { language: 'en-GB' }));
   assert.equal(d.tools, true); assert.equal(d.editing, false); assert.equal(d.lang, 'en'); assert.equal(d.q, 'auto');
   assert.equal(startState(parseParams('#btn=0', {})).tools, false);
@@ -57,6 +57,21 @@ test('partsOf: ui=0 builds no bars, btn=0 hides only the extra buttons, edit=1 a
   assert.deepEqual(of('#edit=1&ui=0'), { controls: false, tools: false, editBar: false, sheet: false, editing: true }, 'the editing gestures stay, the bars do not');
   assert.deepEqual(of('#edit=1&btn=0'), { controls: true, tools: false, editBar: true, sheet: true, editing: true });
   assert.deepEqual(of('#btn=1&ui=1'), of(''), 'btn=1 and ui=1 are the defaults');
+});
+
+test('startState: the example on show, and whether the open-shell button is there', () => {
+  const of = (hash) => startState(parseParams(hash, {}));
+  assert.equal(of('').plan, 'flat-1'); assert.equal(of('#plan=duplex-1').plan, 'duplex-1'); assert.equal(of('#plan=nope').plan, 'flat-1', 'an unknown name opens the default');
+  assert.equal(of('#plan=ext').plan, null, 'a plan injected by a test tool is no example'); assert.equal(of('#plan=gen:42').plan, null);
+  assert.equal(of('').shell, true); assert.equal(of('#shell=0').shell, false); assert.equal(of('#shell=0&edit=1').shell, false);
+  assert.equal(of('').shellOpen, false);
+});
+
+test('shellOn: the shell opens when its button is on and the editor is off', () => {
+  const of = (hash) => shellOn(parseParams(hash, {}));
+  assert.equal(of(''), true, 'on by default'); assert.equal(of('#shell=0'), false); assert.equal(of('#shell=1'), true);
+  assert.equal(of('#edit=1'), false, 'the editor needs the closed model'); assert.equal(of('#edit=1&shell=0'), false); assert.equal(of('#edit=0'), true);
+  assert.equal(shellOn(undefined), false); assert.equal(shellOn({}), false);
 });
 
 const real = () => ({ analyzePlan, modelOf, buildModel, modelExtent, makeScene: () => ({ dispose() {} }), autoFurnish, piecesImplemented });

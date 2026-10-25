@@ -1,6 +1,7 @@
 // Page shell: reads the address parameters, builds the plan scene, the stage (light, base, backdrop) and the post chain, draws.
 // Parameters: #preset&t=&q=&cam=&az=&pol=&plan=&frames=&lang=&ui=&live=&edit=&btn=&shell= (see params.js). No network, no storage, no external files.
-// With shell=1 a button opens the shell: the outer walls fall outward and lie flat (render/openshell.js), and the view is framed for the closed and the open model together.
+// A button opens the shell: the outer walls fall outward and lie flat (render/openshell.js), and the view is framed for the closed and the open model together;
+// shell=0 takes the button away, and while editing (edit=1) the shell stays closed. The example plans of the control bar are built in place like a loaded plan.
 // With edit=1 a piece can be selected, dragged over the floor, turned and deleted, with undo and redo (edit.js, pick.js, render/outline.js).
 // The model can be turned round (camera.js): the outer walls that face the camera are cut low (render/cutaway.js).
 import * as THREE from 'three';
@@ -10,12 +11,12 @@ import { PlanScene } from '../render/scene.js';
 import { createStage } from '../look/stage.js';
 import { createPost } from '../look/post.js';
 import { resolveQuality } from '../look/quality.js';
-import { parseParams, editHash } from './params.js';
+import { parseParams, editHash, planHash, parsePlanParam } from './params.js';
 import { frameRequest } from './capture.js';
 import { createLoop } from './loop.js';
 import { createUI, createEditBar, showErrorCard } from './ui.js';
 import { createEditSession, placeCheck } from './edit.js';
-import { NO_WEBGL2, hasWebgl2, failureDetail, planChoice, startState, partsOf, buildPlanParts, isFormTarget, shellKey } from './shell.js';
+import { NO_WEBGL2, hasWebgl2, failureDetail, planChoice, startState, partsOf, buildPlanParts, isFormTarget, shellKey, shellOn } from './shell.js';
 import { coverShare, isNarrow } from './stack.js';
 import { readPlanText } from './planfile.js';
 import { pickPiece, floorHit } from './pick.js';
@@ -76,13 +77,13 @@ try {
   for (const lv of plan.levels) lv.furniture = []; // the plan brings no furniture: the layout engine furnishes it
   const res = analyzePlan(plan); let model = buildModel(modelOf(res)); // model, ext, ps, stage, layout and focus are replaced when a plan is loaded
   let ext = modelExtent(model);
-  let frameExt = params.shell ? openExtent(model, ext) : ext; // the box the camera and the stage keep in view: with shell=1 the closed and the open model together
-  let framePts = params.shell ? openPoints(model, ext) : undefined; // with shell=1 the camera fits these points (the closed model and every wall lying flat), a tighter fit than the box
+  const useShell = shellOn(params); // the shell opens when its button is on (shell=0 takes it away) and the editor is off; the control bar shows the button either way (inactive while editing)
+  let frameExt = useShell ? openExtent(model, ext) : ext; // the box the camera and the stage keep in view: with the shell the closed and the open model together
+  let framePts = useShell ? openPoints(model, ext) : undefined; // with the shell the camera fits these points (the closed model and every wall lying flat), a tighter fit than the box
   const makeScene = (m) => { const s = new PlanScene(m, 'textured'); s.setLabels(false); s.setArcs(false); s.setCeilings(false); return s; };
   let ps = makeScene(model);
   scene.add(ps.group);
-  S.shell = params.shell; S.shellOpen = false; // the control bar shows the button
-  let shell = params.shell ? createOpenShell(ps, model) : null, shellTarget = 0, shellRaf = 0, shellLast = 0; // shell: the hinges of the outer walls (null without shell=1); shellTarget: 1 opening or open, 0 closing or closed
+  let shell = useShell ? createOpenShell(ps, model) : null, shellTarget = 0, shellRaf = 0, shellLast = 0; // shell: the hinges of the outer walls (null without the shell); shellTarget: 1 opening or open, 0 closing or closed
 
   // ---------- stage ----------
   let stage = createStage({ renderer, scene, bounds: frameExt, quality: level, preset: S.preset, t: S.t });
@@ -97,7 +98,7 @@ try {
   // Opened at another azimuth or tilt than the default view: the distance and the target are fitted to the model as seen from there (all storeys inside
   // the frame with a margin). The default view itself is left exactly as cameraFor gives it.
   const dh = stateFrom(pose.pos, pose.target), askAz = params.az ?? dh.azimuth, askPol = params.pol ?? dh.polar;
-  let wantFit = params.cam !== 'close' && (params.shell || Math.abs(wrapDegrees(askAz - dh.azimuth + 180) - 180) > 1 || Math.abs(askPol - dh.polar) > 1); // with shell=1 the view is always fitted to the closed and the open model
+  let wantFit = params.cam !== 'close' && (useShell || Math.abs(wrapDegrees(askAz - dh.azimuth + 180) - 180) > 1 || Math.abs(askPol - dh.polar) > 1); // with the shell the view is always fitted to the closed and the open model
   let cover = 0; // the share of the window height that the bars at the bottom cover (stack.js): the model is kept above it
   const fitPose = (p) => {
     const fit = fitView({ azimuth: askAz, polar: askPol }, frameExt, { fov: p.fov, aspect: W / H, bottom: cover, points: framePts });
@@ -153,7 +154,7 @@ try {
   // The bars at the bottom (controls, edit bar) as a share of the window height on a narrow window (a phone), where they span the window; zero on a wide one,
   // where they are a small box in the middle, and when the picture is not the size of the window (a captured size).
   // With shell=1 the folded walls reach the bottom of the picture, so a wide window keeps the model above the bars too.
-  const barsCover = () => (W === window.innerWidth && H === window.innerHeight && (params.shell || isNarrow(W)) ? coverShare(['#ps-ui', '#ps-edit'].map((s) => document.querySelector(s)?.getBoundingClientRect() ?? null), H) : 0);
+  const barsCover = () => (W === window.innerWidth && H === window.innerHeight && (useShell || isNarrow(W)) ? coverShare(['#ps-ui', '#ps-edit'].map((s) => document.querySelector(s)?.getBoundingClientRect() ?? null), H) : 0);
   function frameCamera() {
     cover = barsCover();
     pose = cameraFor(frameExt, W / H, params.cam, focus);
@@ -215,11 +216,11 @@ try {
     if (!built) return false;
     if (furn) { disposeComposed(furn.group, furn.merged?.group); furn = null; }
     scene.remove(ps.group); ps.dispose(); stage.dispose();
-    model = built.model; ext = built.ext; frameExt = params.shell ? openExtent(model, ext) : ext; framePts = params.shell ? openPoints(model, ext) : undefined; ps = built.scene; layout = built.layout; curLayout = layout; focus = focusRoom(model, layout);
+    model = built.model; ext = built.ext; frameExt = useShell ? openExtent(model, ext) : ext; framePts = useShell ? openPoints(model, ext) : undefined; ps = built.scene; layout = built.layout; curLayout = layout; focus = focusRoom(model, layout);
     scene.add(ps.group);
-    shell = params.shell ? createOpenShell(ps, model) : null; shellTarget = 0; S.shellOpen = false; ui?.update(S); // a new plan starts closed
+    shell = useShell ? createOpenShell(ps, model) : null; shellTarget = 0; S.shellOpen = false; ui?.update(S); // a new plan starts closed
     stage = createStage({ renderer, scene, bounds: frameExt, quality: level, preset: S.preset, t: S.t });
-    wantFit = !!params.shell && params.cam !== 'close'; near = nearSides(current.azimuth); recut();
+    wantFit = useShell && params.cam !== 'close'; near = nearSides(current.azimuth); recut();
     furnish(); // the pieces first: the camera below may re-cut the walls and the pieces
     frameCamera(); cam.reset(false); current = cam.state;
     applyAll(); stage.rig.setFillBoost(fillBoost(current.azimuth));
@@ -231,10 +232,20 @@ try {
       if (text == null) return;
       const r = readPlanText(text, S.lang);
       if (!r.ok) { sayLine(r.message, r.detail); return; }
-      sayLine(applyPlan(r.plan) ? T('Wczytano plan', 'Plan loaded') : T('Nie udało się zbudować modelu z tego planu', 'Could not build a model from this plan'));
+      const ok = applyPlan(r.plan);
+      if (ok) { S.plan = null; ui?.update(S); } // a plan from a file: no example button is pressed
+      sayLine(ok ? T('Wczytano plan', 'Plan loaded') : T('Nie udało się zbudować modelu z tego planu', 'Could not build a model from this plan'));
     });
   }
-  // ---------- open shell (shell=1): the clock runs towards its target and the walls follow it ----------
+  // The example plans of the control bar: built in place like a loaded plan, then the address follows (plan= in the hash), so a reload or a shared address opens the same plan.
+  const EXAMPLES = { 'flat-1': flat, 'duplex-1': duplex };
+  function pickExample(name) {
+    if (!EXAMPLES[name] || name === S.plan) return;
+    if (!applyPlan(EXAMPLES[name])) { sayLine(T('Nie udało się zbudować modelu z tego planu', 'Could not build a model from this plan')); return; }
+    S.plan = name; params.plan = parsePlanParam(name); ui?.update(S);
+    try { history.replaceState(null, '', `#${planHash(location.hash, name)}`); } catch { /* an address that cannot change keeps the old plan on reload */ }
+  }
+  // ---------- open shell: the clock runs towards its target and the walls follow it ----------
   // Every step puts the walls where the clock says, cuts them for the view and asks for a frame. The hung pieces and the merged furniture are settled
   // only when the shell leaves or reaches the closed state, and the shadow casters when it comes to rest, not on every step.
   function shellPose(p) {
@@ -257,7 +268,8 @@ try {
     shellTarget = open ? 1 : 0; S.shellOpen = !!open; ui?.update(S);
     if (!shellRaf) { shellLast = 0; shellRaf = requestAnimationFrame(shellTick); }
   }
-  const ui = parts.controls ? createUI({ onPreset: (n) => setPreset(n), onTime: setTime, onQuality: setQ, onLang: setLang, onReset: () => cam?.reset(true), onEdit: toggleEdit, onSaveImage: saveImage, onLoadPlan: loadPlan, onShell: () => shellGo(shellTarget !== 1) }, S) : null;
+  const ui = parts.controls ? createUI({ onPreset: (n) => setPreset(n), onTime: setTime, onQuality: setQ, onLang: setLang, onReset: () => cam?.reset(true), onEdit: toggleEdit, onSaveImage: saveImage, onLoadPlan: loadPlan, onPlan: pickExample,
+    onShell: () => { if (shell) shellGo(shellTarget !== 1); else sayLine(T('Zakończ edycję, żeby otworzyć bryłę', 'Finish editing to open the shell')); } }, S) : null;
   cam = createCameraController({ element: renderer.domElement, home: home0, initial: { azimuth: params.az, polar: params.pol }, target: pose.target, fov: pose.fov, onChange: onCamera, onGesture: () => ui?.hideHint() });
   applyAll();
   // ---------- edit mode (edit=1): select a piece, drag it over the floor, turn, delete, undo and redo ----------
@@ -485,14 +497,14 @@ try {
     if (e.key !== 'Escape') e.preventDefault(); // Space must not scroll the page
     shellGo(act === 'open');
   };
-  if (params.shell) addEventListener('keydown', onShellKey);
+  if (useShell) addEventListener('keydown', onShellKey);
   addEventListener('resize', () => { W = window.innerWidth; H = window.innerHeight; frameCamera(); coverSeen = cover; post.resize(W, H); redraw(); });
   window.__planInfo = () => ({ pieces: furn.pieces.size, levels: model.levels.length, rooms: model.levels.reduce((n, l) => n + (l.rooms?.length ?? 0), 0), extent: [ext.minX, ext.maxX, ext.minZ, ext.maxZ].map((v) => +v.toFixed(2)) }); // for test tools
   window.__setT = setTime; window.__setPreset = setPreset; window.__setQuality = setQ;
   window.__camera = { get azimuth() { return cam.state.azimuth; }, get polar() { return cam.state.polar; }, get distance() { return cam.state.distance; }, get near() { return sidesKey(near); }, get busy() { return cam.busy; }, set: (azimuth, polar) => cam.set({ azimuth, polar }), reset: () => cam.reset(false) };
   // For test tools and the film (shell=1 only): the clock (0 closed, 1 open), the target and the mode, open/close/toggle like the button, the pose of every wall,
   // the camera as three.js holds it, and seek(p) which puts the walls at clock p without any transition and resolves after the frame that shows it.
-  if (params.shell) {
+  if (useShell) {
     window.__shell = {
       get clock() { return shell.clock; }, get target() { return shellTarget; }, get mode() { return modeOf(shell.clock, shellTarget); }, get walls() { return shell.walls.length; },
       open: () => shellGo(true), close: () => shellGo(false), toggle: () => shellGo(shellTarget !== 1),

@@ -22,8 +22,9 @@ test('keys that belong to something else are left alone', () => {
   assert.equal(shellKey(null, true), null); assert.equal(shellKey({}, true), null); assert.equal(shellKey({ key: ' ' }, false), 'open', 'an event without a target is a key on the page');
 });
 
-test('main.js listens for the shell keys only with shell=1 and through shellKey', () => {
+test('main.js listens for the shell keys only while the shell is on (not while editing) and through shellKey', () => {
   const src = readFileSync(new URL('../../src/app/main.js', import.meta.url), 'utf8');
-  assert.match(src, /if \(params\.shell\) addEventListener\('keydown', onShellKey\)/);
+  assert.match(src, /if \(useShell\) addEventListener\('keydown', onShellKey\)/);
+  assert.match(src, /const useShell = shellOn\(params\)/);
   assert.match(src, /const act = shellKey\(e, shellTarget === 1\)/);
 });
