@@ -258,7 +258,7 @@ export function generatePlan(seed, family) {
   }
   return {
     family: fam,
-    plan: { version: 1, name: `${title} (synthetic, seed ${seed})`, units: 'm', meta: { source: 'synthetic', generator: `planstage gen-plans seed ${seed} family ${fam}`, notes: STYLE_NOTE }, levels },
+    plan: { version: 1, name: `${title} (synthetic, seed ${seed})`, units: 'm', meta: { source: 'synthetic', generator: `plandoll gen-plans seed ${seed} family ${fam}`, notes: STYLE_NOTE }, levels },
   };
 }
 

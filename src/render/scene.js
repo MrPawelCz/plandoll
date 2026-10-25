@@ -128,8 +128,8 @@ export class PlanScene {
     this.model = model;
     this.look = look;
     this.group = new THREE.Group();
-    this.group.name = 'planstage';
-    this.group.userData.planstage = { name: model.name || 'plan', version: 1, units: 'm' };
+    this.group.name = 'plandoll';
+    this.group.userData.plandoll = { name: model.name || 'plan', version: 1, units: 'm' };
     this.cuttables = [];
     this.cutH = null;
     this.ceilings = [];

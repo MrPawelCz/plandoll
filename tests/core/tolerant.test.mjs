@@ -21,7 +21,7 @@ test('an unknown property is a warning, is ignored, and the plan stays ok', () =
   assert.deepEqual(codes(r.warnings).filter((c) => c === 'W116'), ['W116', 'W116', 'W116']);
   const w = r.warnings.find((i) => i.code === 'W116' && i.path === 'levels[0].rooms[0]');
   assert.match(w.message, /unknown property "furniture"/);
-  assert.match(w.message, /planstage ignores it/);
+  assert.match(w.message, /plandoll ignores it/);
   assert.ok(w.fix.length > 0);
   assert.equal(r.partial, false);
   assert.ok(r.normalized, 'the whole plan is built');

@@ -1,4 +1,4 @@
-// planstage plan validator (docs/SPEC.md section 4).
+// plandoll plan validator (docs/SPEC.md section 4).
 // Isomorphic ES module: no Node-only APIs, no DOM, no network.
 //   validatePlan(planObjectOrJsonText, { strict? }) -> { ok, errors: Issue[], warnings: Issue[], normalized }
 //   Issue = { code, path, id?, message, fix }  (message and fix are written to be pasted back and fixed)
@@ -709,7 +709,7 @@ function analyze(input, strict) {
   if (hard.length > MAX_E002) {
     add('E002', '', undefined, `${truncated ? 'at least ' : ''}${hard.length - MAX_E002} more schema violations are not listed (only the first ${MAX_E002} are shown)`, 'Fix the listed problems first, then validate again.');
   }
-  unknown.forEach((v) => add('W116', formatPath(v.segs), entityIdAt(plan, v.segs), `${v.detail}; planstage ignores it`, v.fix));
+  unknown.forEach((v) => add('W116', formatPath(v.segs), entityIdAt(plan, v.segs), `${v.detail}; plandoll ignores it`, v.fix));
   ignored = unknown.map((v) => ({ path: formatPath(v.segs), key: clip(v.key) }));
   nonFinite.slice(0, 20).forEach((n) => {
     add('E010', formatPath(n.segs), entityIdAt(plan, n.segs), `${formatPath(n.segs)} is ${String(n.value)}, which is not a finite number`,
@@ -1101,7 +1101,7 @@ function semanticChecks(plan, model, add, errors) {
         const shown = (list) => list.map(([n, v]) => `${n} ${len(v)}`).join(', ');
         if (huge.length) {
           const cm = unit === 'm' && huge.every(([, v]) => v / 100 <= RANGES.furniture);
-          add('W112', pathOf(l, 'furniture', j), m.id, `${m.type} has ${shown(huge)}, more than the ${RANGES.furniture} m that a piece of furniture can have; planstage draws it at most ${RANGES.furniture} m wide, deep and high`,
+          add('W112', pathOf(l, 'furniture', j), m.id, `${m.type} has ${shown(huge)}, more than the ${RANGES.furniture} m that a piece of furniture can have; plandoll draws it at most ${RANGES.furniture} m wide, deep and high`,
             `Furniture sizes use the plan units ("${unit}").${cm ? ` If these numbers are centimetres, write metres instead (divide by 100: ${[...(m.size ? [m.size[0]] : []), ...(m.size ? [m.size[1]] : [])].map((v) => r3(v / 100)).join(' x ')}${m.height !== undefined ? `, height ${r3(m.height / 100)}` : ''}).` : ''} Otherwise make the piece smaller.`);
           return;
         }

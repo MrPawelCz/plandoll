@@ -2,7 +2,7 @@
 // (tools/shot.mjs, so only one Chrome runs at a time). Prints draw calls, triangles, textures, lights and frame time per row,
 // then checks the targets: at most 1800 draw calls on high, 700 on low and a page file of at most 1.3 MB.
 //   node tools/measure.mjs [--levels high,medium,low] [--plans flat-1,duplex-1,gen:404,gen:405] [--frames 2] [--size 1280x720]
-//                          [--html dist/planstage.html] [--wrap COMMAND] [--extra PARAMS]
+//                          [--html dist/plandoll.html] [--wrap COMMAND] [--extra PARAMS]
 // --extra adds page parameters to every run (for example merge=0 to measure without merged furniture meshes).
 // --wrap puts a command in front of the browser launch of every run.
 // "gen:SEED" is a generated plan (tools/gen-plans.mjs); it is written to a temporary directory and passed to shot.mjs as an external plan.
@@ -16,7 +16,7 @@ import { generatePlan } from './gen-plans.mjs';
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 export const TARGETS = Object.freeze({ highDrawCalls: 1800, lowDrawCalls: 700, pageBytes: 1.3e6 });
 
-const opt = { levels: 'high,medium,low', plans: 'flat-1,duplex-1,gen:404,gen:405', frames: '2', size: '1280x720', html: join(root, 'dist/planstage.html'), wrap: '', extra: '' };
+const opt = { levels: 'high,medium,low', plans: 'flat-1,duplex-1,gen:404,gen:405', frames: '2', size: '1280x720', html: join(root, 'dist/plandoll.html'), wrap: '', extra: '' };
 const argv = process.argv.slice(2);
 for (let i = 0; i < argv.length; i++) {
   const a = argv[i];
@@ -27,7 +27,7 @@ const levels = opt.levels.split(',').filter((l) => ['high', 'medium', 'low'].inc
 const plans = opt.plans.split(',').map((s) => s.trim()).filter(Boolean);
 if (!levels.length || !plans.length) { console.error('measure: nothing to measure'); process.exit(2); }
 
-const work = mkdtempSync(join(tmpdir(), 'planstage-measure-'));
+const work = mkdtempSync(join(tmpdir(), 'plandoll-measure-'));
 const shots = join(work, 'shots'); mkdirSync(shots);
 const rows = [];
 let failed = false;

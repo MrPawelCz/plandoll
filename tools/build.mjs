@@ -1,4 +1,4 @@
-// Bundles src/app/main.js with three.js into one self-contained dist/planstage.html (examples embedded as JSON).
+// Bundles src/app/main.js with three.js into one self-contained dist/plandoll.html (examples embedded as JSON).
 // esbuild is a dev dependency; nothing here runs in the product.
 //   node tools/build.mjs [--out DIR]        (DIR defaults to dist; the tests build into a temporary one)
 import { build } from 'esbuild';
@@ -11,7 +11,7 @@ const outIdx = process.argv.indexOf('--out');
 if (outIdx >= 0 && !process.argv[outIdx + 1]) { console.error('usage: node tools/build.mjs [--out DIR]'); process.exit(2); }
 const dist = outIdx >= 0 ? resolve(process.argv[outIdx + 1]) : join(root, 'dist');
 
-const TITLE = 'planstage';
+const TITLE = 'plandoll';
 
 const result = await build({
   entryPoints: [join(root, 'src/app/main.js')],
@@ -29,7 +29,7 @@ const neutralise = (s) => s.replace(/<\/(script)/gi, '<\\/$1').replace(/<!--/g, 
 const code = neutralise(result.outputFiles[0].text);
 
 // Licence notices travel inside the file: it is distributed on its own, without the repository.
-const NOTICE = `planstage: MIT licence, copyright (c) 2026 Paweł Czerwiński, https://github.com/MrPawelCz/planstage
+const NOTICE = `plandoll: MIT licence, copyright (c) 2026 Paweł Czerwiński, https://github.com/MrPawelCz/plandoll
 Notices for every part of this file: THIRD_PARTY_LICENSES.md in that repository.
 
 This file bundles three.js, distributed under the MIT licence:
@@ -67,6 +67,6 @@ ${NOTICE}
 </head><body><noscript>This page needs JavaScript. Ta strona potrzebuje JavaScriptu.</noscript><script>${code}</script></body></html>
 `;
 mkdirSync(dist, { recursive: true });
-const file = join(dist, 'planstage.html');
+const file = join(dist, 'plandoll.html');
 writeFileSync(file, html);
 console.log(`built ${file} (${statSync(file).size} bytes)`);

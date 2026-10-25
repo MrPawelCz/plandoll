@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const arg = (name, dflt) => { const i = process.argv.indexOf(`--${name}`); return i >= 0 ? process.argv[i + 1] : dflt; };
 const out = resolve(arg('out', 'shots'));
-const html = resolve(arg('html', join(root, 'dist/planstage.html')));
+const html = resolve(arg('html', join(root, 'dist/plandoll.html')));
 const steps = arg('steps', 'list,sel,size,room').split(',');
 const sizes = arg('sizes', '390x844,1100x700').split(',');
 

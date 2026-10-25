@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// planstage plan validator CLI (docs/SPEC.md section 4).
+// plandoll plan validator CLI (docs/SPEC.md section 4).
 //   node tools/validate.mjs plan.json [--json] [--strict]     ("-" reads the plan from stdin)
 // Exit codes: 0 ok (with --strict also no warnings and nothing repaired), 1 not ok, 2 usage error or unreadable file.
 // A pasted answer is read like the page reads it; each change made to read it is printed as a "note:" line (the "repairs" list with --json).

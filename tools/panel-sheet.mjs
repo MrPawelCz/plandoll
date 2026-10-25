@@ -8,6 +8,6 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const out = process.argv[2] ?? join(tmpdir(), 'planstage-panel.html');
+const out = process.argv[2] ?? join(tmpdir(), 'plandoll-panel.html');
 const res = spawnSync(process.execPath, [join(root, 'tools/build-sheet.mjs'), 'tools/panel-entry.js', out], { cwd: root, stdio: 'inherit' });
 process.exit(res.status ?? 1);

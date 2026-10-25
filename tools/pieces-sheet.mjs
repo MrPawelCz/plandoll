@@ -44,7 +44,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   const args = process.argv.slice(2);
   const take = (flag) => { const i = args.indexOf(flag); if (i < 0) return null; const v = args[i + 1]; args.splice(i, 2); return v; };
   const groupsDir = take('--groups'), size = take('--size') ?? '1600x900';
-  const out = args[0] ?? join(tmpdir(), 'planstage-sheet.html');
+  const out = args[0] ?? join(tmpdir(), 'plandoll-sheet.html');
   const res = spawnSync(process.execPath, [join(root, 'tools/build-sheet.mjs'), 'tools/sheet-entry.js', out], { cwd: root, stdio: 'inherit' });
   if (res.status || !groupsDir) process.exit(res.status ?? 1);
   const { piecesImplemented } = await import('../src/furniture/index.js');

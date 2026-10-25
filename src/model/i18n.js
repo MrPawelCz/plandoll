@@ -4,9 +4,9 @@ const SUPPORTED = ['en', 'pl'];
 const has = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
 
 // A copy of the page can name its own default language in a head tag:
-// <meta name="planstage-default-lang" content="pl">. ?lang= still wins; without the tag the browser language decides.
+// <meta name="plandoll-default-lang" content="pl">. ?lang= still wins; without the tag the browser language decides.
 function pageDefault(doc) {
-  const meta = doc && doc.querySelector ? doc.querySelector('meta[name="planstage-default-lang"]') : null;
+  const meta = doc && doc.querySelector ? doc.querySelector('meta[name="plandoll-default-lang"]') : null;
   const lang = meta && meta.getAttribute('content');
   return SUPPORTED.includes(lang) ? lang : null;
 }

@@ -1,5 +1,5 @@
 // Headless Chrome (software GL, so slow: 2 to 20 s per frame) screenshots of the built single file or of a published address.
-//   node tools/shot.mjs [--size 1600x900] [--html dist/planstage.html | --html https://host/path/] [--out shots] [--timeout 300] [--quality 86] [--eval JS] [--init JS] [--strict] name=hash[:frames] ...
+//   node tools/shot.mjs [--size 1600x900] [--html dist/plandoll.html | --html https://host/path/] [--out shots] [--timeout 300] [--quality 86] [--eval JS] [--init JS] [--strict] name=hash[:frames] ...
 // On a small machine run only one browser at a time.
 // --init JS runs that script in every new document before the page's own scripts (for example to hide an API). PS_CHROME_FLAGS adds
 // space separated flags to the Chrome command line.
@@ -29,7 +29,7 @@ if (!jobs.length) { console.error('usage: node tools/shot.mjs [--size WxH] [--ht
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const [W, H] = opt.size.split('x').map(Number);
 const live = /^https?:\/\//i.test(opt.html ?? '');
-const html = live ? opt.html : resolve(opt.html ?? join(root, 'dist/planstage.html'));
+const html = live ? opt.html : resolve(opt.html ?? join(root, 'dist/plandoll.html'));
 const own = live ? new URL(html).origin + '/' : null;
 const out = resolve(opt.out);
 mkdirSync(out, { recursive: true });
@@ -40,7 +40,7 @@ const GL_FLAGS = ANGLE === 'swiftshader' ? ['--enable-unsafe-swiftshader'] : ['-
 const EXTRA_FLAGS = (process.env.PS_CHROME_FLAGS || '').split(/\s+/).filter(Boolean);
 const CHROME = process.env.CHROME || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 const PORT = 9400 + Math.floor(Math.random() * 400);
-const profile = mkdtempSync(join(tmpdir(), 'planstage-chrome-'));
+const profile = mkdtempSync(join(tmpdir(), 'plandoll-chrome-'));
 const chrome = spawn('nice', ['-n', '19', CHROME, '--headless=new', `--remote-debugging-port=${PORT}`, `--user-data-dir=${profile}`,
   '--use-gl=angle', `--use-angle=${ANGLE}`, ...GL_FLAGS, '--no-first-run', '--no-default-browser-check', '--disable-extensions',
   '--hide-scrollbars', `--window-size=${W},${H}`, ...EXTRA_FLAGS, 'about:blank'], { stdio: 'ignore' });

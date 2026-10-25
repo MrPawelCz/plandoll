@@ -25,7 +25,7 @@ export function applyPalette(P) {
 }
 
 // ---------- wall wash: low-frequency colour cloud in world space plus a slightly darker foot ----------
-const WASH_KEY = 'planstage-wash-v1';
+const WASH_KEY = 'plandoll-wash-v1';
 export function washWalls() {
   const m = mat('wall', 'textured');
   if (m.userData.washed) return m;

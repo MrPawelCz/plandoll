@@ -47,7 +47,7 @@ function fire(node, type, props = {}) {
 }
 
 test('constants: the default file name and the size limit', () => {
-  assert.equal(LAYOUT_FILENAME, 'planstage-layout.json');
+  assert.equal(LAYOUT_FILENAME, 'plandoll-layout.json');
   assert.equal(MAX_FILE_BYTES, MAX_PLAN_CHARS); assert.equal(MAX_PLAN_CHARS, 2000000); assert.equal(REVOKE_DELAY_MS, 10000);
 });
 
@@ -62,7 +62,7 @@ test('saveTextFile: downloads through a hidden temporary link, then cleans up', 
   assert.ok(blob instanceof StubBlob); assert.equal(blob.type, 'application/json'); assert.deepEqual(blob.parts, ['{"a":1}']);
   assert.equal(doc.clicks.length, 1);
   const click = doc.clicks[0];
-  assert.equal(click.node.tag, 'a'); assert.equal(click.href, 'blob:stub/1'); assert.equal(click.download, 'planstage-layout.json');
+  assert.equal(click.node.tag, 'a'); assert.equal(click.href, 'blob:stub/1'); assert.equal(click.download, 'plandoll-layout.json');
   assert.equal(click.display, 'none'); assert.ok(click.attached, 'in the page while it is clicked');
   assert.ok(click.node.removed); assert.equal(doc.body.children.length, 0);
   assert.equal(win.urlLog[2][1], 'blob:stub/1');
@@ -370,13 +370,13 @@ test('saveBlobFile: offers a picture Blob through the same hidden link, and refu
   const doc = makeDoc(); const win = doc.defaultView;
   doc.clickHook = () => win.urlLog.push(['click']);
   const picture = { size: 1234, type: 'image/png' };
-  assert.equal(IMAGE_FILENAME, 'planstage-view.png');
+  assert.equal(IMAGE_FILENAME, 'plandoll-view.png');
   assert.equal(saveBlobFile(doc, IMAGE_FILENAME, picture), true);
   assert.deepEqual(win.urlLog.map((e) => e[0]), ['create', 'click']);
   win.timers[0].fn();
   assert.deepEqual(win.urlLog.map((e) => e[0]), ['create', 'click', 'revoke']);
   assert.equal(win.urlLog[0][1], picture, 'the Blob itself is handed over, not a copy');
-  assert.equal(doc.clicks[0].download, 'planstage-view.png'); assert.ok(doc.clicks[0].node.removed);
+  assert.equal(doc.clicks[0].download, 'plandoll-view.png'); assert.ok(doc.clicks[0].node.removed);
   const none = makeDoc();
   for (const bad of [null, undefined, 'x', { size: 0 }, {}]) assert.equal(saveBlobFile(none, IMAGE_FILENAME, bad), false);
   assert.equal(saveBlobFile(none, '', picture), false);

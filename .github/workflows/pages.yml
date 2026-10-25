@@ -24,7 +24,7 @@ jobs:
         run: |
           npm run build
           mkdir site
-          cp dist/planstage.html site/index.html
+          cp dist/plandoll.html site/index.html
           cp -r examples site/examples
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3

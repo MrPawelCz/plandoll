@@ -15,7 +15,7 @@ const TYPES = {
 const server = createServer(async (req, res) => {
   try {
     let rel = decodeURIComponent(new URL(req.url, 'http://localhost').pathname);
-    if (rel === '/') rel = '/planstage.html';
+    if (rel === '/') rel = '/plandoll.html';
     const file = resolve(join(dir, rel));
     if (file !== dir && !file.startsWith(dir + sep)) { res.writeHead(403).end('forbidden'); return; }
     const info = await stat(file);
@@ -28,5 +28,5 @@ const server = createServer(async (req, res) => {
 });
 
 server.listen(port, '127.0.0.1', () => {
-  console.log(`planstage: http://127.0.0.1:${port}/planstage.html  (serving ${dir}, Ctrl+C to stop)`);
+  console.log(`plandoll: http://127.0.0.1:${port}/plandoll.html  (serving ${dir}, Ctrl+C to stop)`);
 });

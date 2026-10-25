@@ -3,8 +3,8 @@
 
 import { MAX_PLAN_CHARS } from '../core/limits.js';
 
-export const LAYOUT_FILENAME = 'planstage-layout.json';
-export const IMAGE_FILENAME = 'planstage-view.png';
+export const LAYOUT_FILENAME = 'plandoll-layout.json';
+export const IMAGE_FILENAME = 'plandoll-view.png';
 // One limit everywhere (core/limits.js): the longest pasted text, chosen file or plan, in characters.
 export const MAX_FILE_BYTES = MAX_PLAN_CHARS;
 // How long the address of a download stays valid after the click (the browser may start saving a moment later).

@@ -1,6 +1,6 @@
-# planstage
+# plandoll
 
-**[Open the demo](https://mrpawelcz.github.io/planstage/)**
+**[Open the demo](https://mrpawelcz.github.io/plandoll/)**
 
 Turn a floor plan into a furnished, lit miniature of the flat, in your browser.
 
@@ -10,11 +10,11 @@ Turn a floor plan into a furnished, lit miniature of the flat, in your browser.
 
 ## What works today
 
-- **One HTML file.** `dist/planstage.html` is a single file of about 1 MB and runs from a file or any static host: no server, no account, no tracking, no network requests, nothing stored in the browser. It needs a browser with WebGL 2; without it the page says so.
+- **One HTML file.** `dist/plandoll.html` is a single file of about 1 MB and runs from a file or any static host: no server, no account, no tracking, no network requests, nothing stored in the browser. It needs a browser with WebGL 2; without it the page says so.
 - **Automatic furnishing.** A layout engine reads the plan, recognises each room by its name (English or Polish) or by its shape, and places furniture and decor by simple rules: a sofa opposite a television, beds with night tables, kitchen units along a wall, bathroom fittings, lamps, curtains at windows, pictures, rugs and plants. The result is plain data (a list of pieces with position, rotation, size and colours) and it is deterministic: the same plan gives the same flat.
 - **52 piece types built in code.** Sofas, armchairs, beds, wardrobes, tables and chairs, kitchen units and appliances, a sink, a toilet, a washbasin, a shower, a bath, bookcases, lamps, curtains, mirrors, pictures, rugs, plants and more. No model files are loaded. Every piece has named colour slots and most have a size range, so the editor can recolour and resize them.
 - **A view from every side.** Drag with one finger or the mouse to turn the miniature around its centre, pinch or use the wheel to zoom, and double tap, double click, press `0` or use the Reset view button to go back to the starting view. The walls that face you lower so the rooms stay in sight, on both levels of a duplex, while the other walls stay high. The arrow keys turn the view by 15 degrees (up and down tilt it by 10), `+` and `-` zoom, `1`, `2` and `3` pick a mood, and Shift with left or right moves the time of day. An idle page draws no frames. While the Open the shell button is on (the default), and on a phone (a window up to 760 px wide) in any case, the starting view keeps the whole model above the bars at the bottom, so the lower storey of a duplex is not hidden behind them.
-- **A first editor (experimental, off by default).** Open the page with `edit=1` in the address, for example `dist/planstage.html#edit=1`. Tap a piece to select it (a copper outline shows it) and drag it over the floor with a finger or the mouse (it snaps to walls, to a 5 cm grid and to steps of 15 degrees), turn it by 90 degrees, delete it, undo and redo (up to 200 steps) or go back to the automatic layout. The outline turns red when a piece overlaps another one or leaves its room and yellow for lesser problems such as blocking a door. The Add button lists the pieces by group; the panel of the selected piece has a size field for every dimension that may change and colour swatches for every part; tap the floor of a room, in a place without a piece, to colour its walls and floor. The edit bar has six buttons: Rotate piece, Delete, Undo, Redo, Reset layout (back to the automatic layout, which also clears the room colours; Undo brings them back) and File. The File menu duplicates the selected piece (Duplicate piece), saves the layout to a file (`planstage-layout.json`), loads one from a file or from pasted text, saves the picture and loads a plan. A short hint ("Tap a piece to select it, drag to move it") shows when editing starts and goes away at the first selection. On a computer: `R` turns, `Delete` removes, `Ctrl` or `Cmd` with `Z` undoes, with `Shift` and `Z` (or `Ctrl` and `Y`) redoes, `Escape` clears the selection. The logic behind it is in `src/editor` and tested. The pieces that nobody moves stay merged into a few meshes; the one you drag is drawn on its own.
+- **A first editor (experimental, off by default).** Open the page with `edit=1` in the address, for example `dist/plandoll.html#edit=1`. Tap a piece to select it (a copper outline shows it) and drag it over the floor with a finger or the mouse (it snaps to walls, to a 5 cm grid and to steps of 15 degrees), turn it by 90 degrees, delete it, undo and redo (up to 200 steps) or go back to the automatic layout. The outline turns red when a piece overlaps another one or leaves its room and yellow for lesser problems such as blocking a door. The Add button lists the pieces by group; the panel of the selected piece has a size field for every dimension that may change and colour swatches for every part; tap the floor of a room, in a place without a piece, to colour its walls and floor. The edit bar has six buttons: Rotate piece, Delete, Undo, Redo, Reset layout (back to the automatic layout, which also clears the room colours; Undo brings them back) and File. The File menu duplicates the selected piece (Duplicate piece), saves the layout to a file (`plandoll-layout.json`), loads one from a file or from pasted text, saves the picture and loads a plan. A short hint ("Tap a piece to select it, drag to move it") shows when editing starts and goes away at the first selection. On a computer: `R` turns, `Delete` removes, `Ctrl` or `Cmd` with `Z` undoes, with `Shift` and `Z` (or `Ctrl` and `Y`) redoes, `Escape` clears the selection. The logic behind it is in `src/editor` and tested. The pieces that nobody moves stay merged into a few meshes; the one you drag is drawn on its own.
 - **Buttons and your own plan.** The control bar has a row of buttons (under the mood and time controls, on a row of its own in a window of any width): the example plans, Flat and Duplex (the plan on show is pressed; the plan is built in place and `plan=` in the address follows, so a reload or a shared address opens the same plan); Open the shell (see below); Edit (reloads the page in edit mode and, in the editor, becomes Done), Save image (a PNG of the current view, without the controls) and Load plan. Load plan opens a box where you paste the text of a plan or fill it from a `.json` file (2 MB at most); the plan is checked, the old scene is released and the new model, its automatic layout and the view are built in place, without reloading the page. A plan that does not pass the check leaves the page as it was and a short line says what is wrong first and how many more problems there are. Nothing is stored in the browser. Add `btn=0` to the address to hide the row of buttons.
 - **Open the shell.** The Open the shell button lets the outer walls fall outward round the plan, like the sides of a paper model, with their windows, doors, curtains and pictures; the walls start one after another and settle with a little overshoot in about three seconds, and the camera stays where it is. Tap the button again, press Space or Escape and they fold back up. Because the view has to hold the closed house and the open one together, the closed house sits a little smaller in the picture than it would without the button (about six tenths of its old size on a computer, seven tenths on a phone); `shell=0` in the address takes the button away and frames the closed house alone. While you edit the shell stays closed: the editor works on the closed model, the button is dimmed and says to finish editing first, and the Edit button reloads the page with the walls up.
 - **Light.** A time-of-day slider and three named moods: Amber (Bursztyn), Clear (Jasno) and Lamplit (Lampy). Soft sun shadows, ambient occlusion, bloom and a vignette, in three quality levels (high, medium, low) that are picked automatically unless you ask for one. On a phone the choice of quality is hidden while you edit, so change it before you tap Edit (the page keeps it).
@@ -22,7 +22,7 @@ Turn a floor plan into a furnished, lit miniature of the flat, in your browser.
 
 ## Page parameters
 
-The address hash sets the view, for example `dist/planstage.html#lamplit&plan=duplex-1&q=low`.
+The address hash sets the view, for example `dist/plandoll.html#lamplit&plan=duplex-1&q=low`.
 
 | parameter | values |
 | --- | --- |
@@ -46,12 +46,12 @@ The address hash sets the view, for example `dist/planstage.html#lamplit&plan=du
 
 ```
 npm ci
-npm run build   # writes dist/planstage.html
+npm run build   # writes dist/plandoll.html
 npm test
 npm start       # serves dist on http://127.0.0.1:8080
 ```
 
-Node 20 or newer. The test that starts Chrome and clicks through the page runs on request only (`PLANSTAGE_BROWSER_TESTS=1 npm test`, Chrome and Node 22 or newer); the click-through tool is `tools/interact.mjs`.
+Node 20 or newer. The test that starts Chrome and clicks through the page runs on request only (`PLANDOLL_BROWSER_TESTS=1 npm test`, Chrome and Node 22 or newer); the click-through tool is `tools/interact.mjs`.
 
 The built page carries a content security policy that lets the browser itself refuse network requests and foreign scripts.
 

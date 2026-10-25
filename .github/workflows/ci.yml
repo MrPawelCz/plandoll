@@ -17,4 +17,4 @@ jobs:
       - run: npm test
       - run: npm run build
       - name: The built page stays small
-        run: test "$(wc -c < dist/planstage.html)" -le 1150000
+        run: test "$(wc -c < dist/plandoll.html)" -le 1150000

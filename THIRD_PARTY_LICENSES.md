@@ -1,7 +1,7 @@
 # Third-party licenses
 
-planstage itself is MIT licensed (see `LICENSE`). The product has no runtime dependencies. The built page
-(`dist/planstage.html`) contains a bundled copy of three.js, so its licence notice is reproduced here.
+plandoll itself is MIT licensed (see `LICENSE`). The product has no runtime dependencies. The built page
+(`dist/plandoll.html`) contains a bundled copy of three.js, so its licence notice is reproduced here.
 
 ## Code adapted from planwalk (MIT, same author)
 
@@ -10,14 +10,14 @@ same MIT licence: `src/core/` (plan validator and helpers), `schema/plan.v1.sche
 `src/render/` (scene, materials, textures, uv, soft, framing), `src/furniture/legacy.js` (the first furniture catalogue),
 `tools/validate.mjs`, `tools/test.mjs`, `tools/serve.mjs`, `tools/gen-plans.mjs`, `examples/` (two synthetic example plans),
 `tests/core/`, `tests/render/`, `tests/fixtures/`, `tests/helpers/chrome.mjs`, and `docs/` (PROMPT.md, PROMPT.pl.md, SPEC.md,
-reading-plans.md, plan-format.md). The files were copied and adjusted for the new directory layout. `docs/SPEC.md` was shortened and rewritten for planstage: it now covers only the plan format, its geometry, the validator and the plan generator. planwalk keeps its own history and releases;
+reading-plans.md, plan-format.md). The files were copied and adjusted for the new directory layout. `docs/SPEC.md` was shortened and rewritten for plandoll: it now covers only the plan format, its geometry, the validator and the plan generator. planwalk keeps its own history and releases;
 there is no runtime dependency between the two.
 
 ## Dependencies
 
 | Package | Version | Licence | Where it ends up |
 | --- | --- | --- | --- |
-| three | 0.186.1 | MIT | development dependency, bundled into `dist/planstage.html` (including the add-ons RoomEnvironment, EffectComposer, RenderPass, GTAOPass, UnrealBloomPass, ShaderPass, OutputPass and the geometry merge helper) |
+| three | 0.186.1 | MIT | development dependency, bundled into `dist/plandoll.html` (including the add-ons RoomEnvironment, EffectComposer, RenderPass, GTAOPass, UnrealBloomPass, ShaderPass, OutputPass and the geometry merge helper) |
 | esbuild | 0.28.2 | MIT | development dependency, used only by `tools/build.mjs`, not shipped |
 | @esbuild/* platform binaries | 0.28.2 | MIT | optional development dependencies of esbuild, not shipped |
 

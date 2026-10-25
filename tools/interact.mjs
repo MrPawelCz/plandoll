@@ -1,7 +1,7 @@
 // Click-through check of the built page or a published address, the way a visitor uses it: headless Chrome (software GL, so slow),
 // by default with a phone screen and touch input. It waits for the first frames, then taps a mood button, drags the time-of-day
 // slider and changes the quality, and after each step checks that the PICTURE changed, not only the controls.
-//   node tools/interact.mjs [--html dist/planstage.html | --html https://host/path/] [--size 390x844] [--scale 3] [--desktop]
+//   node tools/interact.mjs [--html dist/plandoll.html | --html https://host/path/] [--size 390x844] [--scale 3] [--desktop]
 //                           [--hash "frames=2"] [--out DIR] [--timeout 240] [--settle 12] [--edit] [--quick] [--btn]
 // --desktop uses mouse input and a plain window. --hash is the address hash; empty (the default) is the page exactly as a visitor
 // opens it. --settle is how many seconds to wait for a redraw when the page does not report its frame count (older builds).
@@ -30,7 +30,7 @@ for (let i = 0; i < argv.length; i++) {
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const [W, H] = opt.size.split('x').map(Number);
 const live = /^https?:\/\//i.test(opt.html ?? '');
-const target = live ? opt.html : pathToFileURL(resolve(opt.html ?? join(root, 'dist/planstage.html'))).href;
+const target = live ? opt.html : pathToFileURL(resolve(opt.html ?? join(root, 'dist/plandoll.html'))).href;
 const own = live ? new URL(opt.html).origin + '/' : null;
 const out = opt.out ? resolve(opt.out) : null;
 if (out) mkdirSync(out, { recursive: true });
@@ -40,7 +40,7 @@ const ANGLE = process.env.PS_ANGLE || 'swiftshader';
 const GL_FLAGS = ANGLE === 'swiftshader' ? ['--enable-unsafe-swiftshader'] : ['--ignore-gpu-blocklist', '--enable-gpu-rasterization'];
 const CHROME = process.env.CHROME || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 const PORT = 9400 + Math.floor(Math.random() * 400);
-const profile = mkdtempSync(join(tmpdir(), 'planstage-chrome-'));
+const profile = mkdtempSync(join(tmpdir(), 'plandoll-chrome-'));
 const chrome = spawn('nice', ['-n', '19', CHROME, '--headless=new', `--remote-debugging-port=${PORT}`, `--user-data-dir=${profile}`,
   '--use-gl=angle', `--use-angle=${ANGLE}`, ...GL_FLAGS, '--no-first-run', '--no-default-browser-check', '--disable-extensions',
   '--hide-scrollbars', `--window-size=${W},${H}`, 'about:blank'], { stdio: 'ignore' });
