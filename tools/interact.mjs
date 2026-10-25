@@ -8,6 +8,10 @@
 // --edit opens the page with edit=1 and adds the steps of the layout editor (select, drag, turn, undo, redo, delete, automatic layout);
 // without it the page is tested as a visitor sees it and the check is that there is no edit bar.
 // --btn opens the page with btn=1 and tests the extra buttons: the example plans, the open shell, saving the picture (a PNG), the frame hook, the Edit button (with the shell open) and leaving the editor again.
+// --btn also drives the camera on the flat and on the duplex (cameraBlock): on a phone two fingers that move, a pinch about a point, three fingers, a long drag to the limit, one finger turning
+// while moved, the double tap and the touch hint; with the mouse the right and middle button, Shift with the left button, the wheel at the pointer, the nearest zoom and the double click; and the
+// card board (closed, half open, open, closed again, a loaded plan). --edit adds gestures that start on a piece: two or three fingers, the right button and Shift move the picture and no piece.
+// Each camera step reads the ground point under the fingers from the page (window.__camera.groundAt) and checks that it did not drift, besides the picture changing.
 // Exits 1 when a step fails, the page reports an error, writes to storage or asks for anything outside its own address.
 // On a small machine run only one browser at a time (tools/chrome-lock.sh).
 import { spawn } from 'node:child_process';
