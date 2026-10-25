@@ -14,12 +14,15 @@ import { createLoop } from './loop.js';
 import { createUI, createEditBar, showErrorCard } from './ui.js';
 import { createEditSession } from './edit.js';
 import { pickPiece, floorHit } from './pick.js';
-import { createOutline, outlineKind } from '../render/outline.js';
+import { createOutline, createRoomOutline, outlineKind } from '../render/outline.js';
+import { createPanel } from './panel.js';
+import { saveTextFile, readTextFile, askForText, LAYOUT_FILENAME } from './files.js';
+import { roomAt } from '../editor/index.js';
 import { autoFurnish } from '../layout/index.js';
 import { piecesImplemented } from '../furniture/index.js';
 import { composeLayout, cutawayPieces, emittersOf, focusRoom, mergeByMaterial, setLampGlow, disposeComposed } from '../render/compose.js';
 import { applyWallCut } from '../render/cutaway.js';
-import { createCameraController, stateFrom, positionOf, nearSides, sameSides, sidesKey, viewOf } from './camera.js';
+import { createCameraController, stateFrom, positionOf, nearSides, sameSides, sidesKey, viewOf, fitView, wrapDegrees } from './camera.js';
 import flat from '../../examples/flat-1.plan.json';
 import duplex from '../../examples/duplex-1.plan.json';
 
@@ -78,6 +81,15 @@ try {
   let W = window.innerWidth, H = window.innerHeight;
   const camera = new THREE.PerspectiveCamera(27, W / H, 0.5, 160);
   let pose = cameraFor(ext, W / H, params.cam, focus), cam = null;
+  // Opened at another azimuth or tilt than the default view: the distance and the target are fitted to the model as seen from there (all storeys inside
+  // the frame with a margin). The default view itself is left exactly as cameraFor gives it.
+  const dh = stateFrom(pose.pos, pose.target), askAz = params.az ?? dh.azimuth, askPol = params.pol ?? dh.polar;
+  const wantFit = params.cam !== 'close' && (Math.abs(wrapDegrees(askAz - dh.azimuth + 180) - 180) > 1 || Math.abs(askPol - dh.polar) > 1);
+  const fitPose = (p) => {
+    const fit = fitView({ azimuth: askAz, polar: askPol }, ext, { fov: p.fov, aspect: W / H });
+    return { ...p, target: fit.target, pos: positionOf({ azimuth: askAz, polar: askPol, distance: fit.distance }, fit.target) };
+  };
+  if (wantFit) pose = fitPose(pose);
   const home0 = stateFrom(pose.pos, pose.target);
   let current = { ...home0, azimuth: params.az ?? home0.azimuth, polar: params.pol ?? home0.polar }; // the view the controller reports
   let near = nearSides(current.azimuth);
@@ -106,7 +118,8 @@ try {
 
   function frameCamera() {
     pose = cameraFor(ext, W / H, params.cam, focus);
-    if (cam) { cam.rehome(stateFrom(pose.pos, pose.target)); current = cam.state; }
+    if (wantFit) pose = fitPose(pose);
+    if (cam) { cam.setTarget(pose.target); cam.rehome(stateFrom(pose.pos, pose.target)); current = cam.state; }
     camera.fov = pose.fov; camera.aspect = W / H;
     camera.position.set(...positionOf(current, pose.target)); camera.lookAt(...pose.target); camera.updateProjectionMatrix(); stage.fitBackdrop(W / H);
   }
@@ -122,7 +135,7 @@ try {
   function setPreset(name, keepT) { const p = stage.setPreset(name); S.preset = p.id; if (!keepT) S.t = p.t; applyAll(); ui?.update(S); redraw(); }
   function setTime(t) { S.t = Math.min(1, Math.max(0, t)); applyAll(); ui?.update(S); redraw(); }
   function setQ(q) { S.q = q; level = resolveQuality(q, env); S.level = level; stage.setQuality(level); furnish(); post.setQuality(level); applyAll(); ui?.update(S); redraw(); }
-  function setLang(l) { S.lang = l; ui?.update(S); editBar?.update({ lang: l }); }
+  function setLang(l) { S.lang = l; ui?.update(S); editBar?.update({ lang: l }); panel?.setLang(l); }
   // the camera reports every change of the view; a change in the set of near edges re-cuts the walls and the pieces (not every frame of a turn)
   function onCamera(s) {
     current = s;
@@ -131,7 +144,7 @@ try {
     if (!sameSides(n, near)) { near = n; applyWallCut(ps, ext, near); settle(); }
     redraw();
   }
-  let editBar = null;
+  let editBar = null, panel = null;
   const ui = params.ui ? createUI({ onPreset: (n) => setPreset(n), onTime: setTime, onQuality: setQ, onLang: setLang, onReset: () => cam?.reset(true) }, S) : null;
   cam = createCameraController({ element: renderer.domElement, home: home0, initial: { azimuth: params.az, polar: params.pol }, target: pose.target, fov: pose.fov, onChange: onCamera, onGesture: () => ui?.hideHint() });
   applyAll();
@@ -141,7 +154,39 @@ try {
     const floorOf = new Map(model.levels.map((lv) => [lv.id, Number(lv.elevation) || 0]));
     const levelBase = (id) => floorOf.get(id) ?? 0;
     const outline = createOutline(); scene.add(outline.group);
+    const roomOutline = createRoomOutline(); scene.add(roomOutline.group);
     const dom = renderer.domElement;
+    const polygonOf = (r) => model.levels.find((l) => l.id === r.level)?.rooms?.find((x) => x.id === r.id)?.polygon ?? null;
+    // the room colours of the layout go to the scene; a plan without any colour is left exactly as it was drawn before
+    let colorsKey = '{}';
+    function applyRoomColors() {
+      if (typeof ps.setRoomColors !== 'function') return;
+      const colors = {};
+      for (const lc of curLayout.levels) if (lc.rooms && Object.keys(lc.rooms).length) colors[lc.id] = lc.rooms;
+      const key = JSON.stringify(colors);
+      if (key === colorsKey) return;
+      colorsKey = key; ps.setRoomColors(colors, 'textured'); redraw();
+    }
+    // the plan point and level under the centre of the view: where a new piece is put
+    const viewPoint = () => {
+      let bottom = H; // the picture above the bars (and above the sheet of the panel when it is open) is what the person looks at
+      for (const sel of ['#ps-edit', '.psp-sheet']) { const r = document.querySelector(sel)?.getBoundingClientRect(); if (r && r.width > 0 && r.height > 0 && r.top > H * 0.3) bottom = Math.min(bottom, r.top); }
+      const ray = cam.pointerToRay({ clientX: W / 2, clientY: bottom / 2 });
+      for (const lv of [...model.levels].sort((p, q) => levelBase(q.id) - levelBase(p.id))) {
+        const fh = floorHit(ray, levelBase(lv.id));
+        if (fh && roomAt(model, lv.id, fh[0], fh[2])) return { level: lv.id, x: fh[0], y: fh[2] };
+      }
+      return null;
+    };
+    // the room under a pointer on the floor (the highest level first), or null
+    const roomHitAt = (e) => {
+      const ray = cam.pointerToRay(e);
+      for (const lv of [...model.levels].sort((p, q) => levelBase(q.id) - levelBase(p.id))) {
+        const fh = floorHit(ray, levelBase(lv.id)), id = fh ? roomAt(model, lv.id, fh[0], fh[2]) : null;
+        if (id) return { level: lv.id, id };
+      }
+      return null;
+    };
     // the pieces move to where the layout says (no rebuilding): a drag, a turn, an undo of a move
     function syncGroups() {
       for (const lc of curLayout.levels) for (const p of lc.pieces) {
@@ -151,8 +196,9 @@ try {
       furn.group.updateMatrixWorld(true);
     }
     function refreshEdit() {
-      const sel = session.selected();
+      const sel = session.selected(), room = sel ? null : session.selectedRoom();
       if (sel) outline.set(sel, levelBase(session.levelOf(sel.id)), outlineKind(session.problems())); else outline.hide();
+      if (room && polygonOf(room)) roomOutline.set(polygonOf(room), levelBase(room.level)); else roomOutline.hide();
       editBar?.update({ selected: !!sel, canUndo: session.canUndo(), canRedo: session.canRedo() });
     }
     function onEdit(e) {
@@ -161,38 +207,69 @@ try {
         const next = sigsOf(curLayout);
         if (next.size === sigs.size && [...next].every(([id, sg]) => sigs.get(id) === sg)) { syncGroups(); settle(); } // only places changed
         else { furnish(); setLampGlow(furn.group, stage.state.lampK); } // pieces added, removed, resized or recoloured
+        applyRoomColors();
       } else if (e.type === 'drag') syncGroups();
       else if (e.type === 'dragend') { syncGroups(); settle(); }
       refreshEdit(); redraw();
     }
-    session = createEditSession({ layout, model, allowedTypes: piecesImplemented(), onChange: onEdit });
-    if (params.ui) editBar = createEditBar({ onTurn: () => session.turn(90), onRemove: () => session.remove(), onUndo: () => session.undo(), onRedo: () => session.redo(), onAuto: () => session.reset() }, { lang: S.lang }, document, ui);
+    session = createEditSession({ layout, model, allowedTypes: piecesImplemented(), onChange: onEdit, viewPoint });
+    // layout files and the "More" menu: one short line tells how a load went
+    const T = (pl, en) => (S.lang === 'pl' ? pl : en);
+    const plItems = (n) => (n === 1 ? 'pozycję' : n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 12 || n % 100 > 14) ? 'pozycje' : 'pozycji');
+    const say = (text) => editBar?.say(text);
+    function loaded(res) {
+      if (!res.ok) { const why = String(res.errors?.[0] ?? '').slice(0, 90); say(T('Nie wczytano układu', 'Could not load the layout') + (why ? `: ${why}` : '')); return; }
+      const n = res.warnings?.length ?? 0;
+      say(n ? T(`Wczytano, pominięto ${n} ${plItems(n)}`, `Loaded, skipped ${n} ${n === 1 ? 'item' : 'items'}`) : T('Wczytano układ', 'Layout loaded'));
+    }
+    const fileHandlers = {
+      onDuplicate: () => { const r = session.duplicate(); if (!r.ok) say(T('Nie można powielić', 'Cannot duplicate')); },
+      onSave: () => say(saveTextFile(document, LAYOUT_FILENAME, session.exportText()) ? T('Zapisano układ do pliku', 'Layout saved to a file') : T('Nie udało się zapisać pliku', 'Could not save the file')),
+      onLoad: () => { readTextFile(document).then((r) => { if (r.ok) loaded(session.importText(r.text)); else if (r.error !== 'cancelled') say(T('Nie udało się odczytać pliku', 'Could not read the file')); }); },
+      onPaste: () => { askForText(document, S.lang).then((t) => { if (t != null) loaded(session.importText(t)); }); },
+    };
+    if (params.ui) editBar = createEditBar({ onTurn: () => session.turn(90), onRemove: () => session.remove(), onUndo: () => session.undo(), onRedo: () => session.redo(), onAuto: () => session.reset(), ...fileHandlers }, { lang: S.lang }, document, ui);
+    if (params.ui) panel = createPanel({ doc: document, host: document.body, lang: S.lang, session });
     refreshEdit();
 
     // One finger or the mouse on a piece selects it and drags it; elsewhere the camera turns as before; a quick tap on nothing clears the selection.
-    let gest = null;
-    const hitAt = (e) => pickPiece(session.state.layout, cam.pointerToRay(e), { levelBase, skip: (id) => !furn.pieces.get(id)?.visible });
+    let gest = null, adopting = false;
+    const PAD = { mouse: 0.02, touch: 0.06, pen: 0.04 }; // metres of margin round every piece when picking: a fingertip is wider than a mouse pointer
+    const hitAt = (e) => pickPiece(session.state.layout, cam.pointerToRay(e), { levelBase, pad: PAD[e.pointerType] ?? PAD.mouse, skip: (id) => !furn.pieces.get(id)?.visible });
+    const showPanel = (on) => { if (panel) panel.element.hidden = !on; };
     dom.addEventListener('pointerdown', (e) => {
+      if (adopting) return;
       if (e.pointerType === 'mouse' && e.button !== 0) return;
-      if (gest) { // a second finger: the camera takes over and the piece goes back
-        if (gest.dragging) session.cancelDrag();
-        if (gest.id) cam.enabled = true;
-        gest = null; return;
+      if (gest) { // a second finger: the piece goes back and the camera takes over with both fingers
+        const first = gest; gest = null;
+        if (first.dragging) session.cancelDrag();
+        if (first.id) {
+          cam.enabled = true; showPanel(true);
+          adopting = true; // the camera learns about the first finger too, so that the pinch starts at once
+          try { dom.dispatchEvent(new PointerEvent('pointerdown', { pointerId: first.pointerId, pointerType: e.pointerType, clientX: first.lastX, clientY: first.lastY, button: 0, buttons: 1, isPrimary: true, bubbles: true, cancelable: true })); } catch {}
+          adopting = false;
+        }
+        return;
       }
-      const hit = hitAt(e), base = { pointerId: e.pointerId, x0: e.clientX, y0: e.clientY, t0: performance.now(), moved: 0, id: null, dragging: false };
-      if (!hit) { gest = base; return; }
+      const hit = hitAt(e), base = { pointerId: e.pointerId, x0: e.clientX, y0: e.clientY, lastX: e.clientX, lastY: e.clientY, t0: performance.now(), moved: 0, id: null, dragging: false };
+      if (!hit) { gest = { ...base, room: roomHitAt(e) }; return; }
       const piece = session.pieceById(hit.id), fh = floorHit(cam.pointerToRay(e), levelBase(hit.level) + piece.elev);
-      gest = { ...base, id: hit.id, base: levelBase(hit.level) + piece.elev, off: fh ? [piece.x - fh[0], piece.y - fh[2]] : [0, 0] };
+      gest = { ...base, id: hit.id, level: hit.level, base: levelBase(hit.level) + piece.elev, off: fh ? [piece.x - fh[0], piece.y - fh[2]] : [0, 0] };
       cam.enabled = false; session.select(hit.id);
       try { dom.setPointerCapture(e.pointerId); } catch {}
     }, true);
     dom.addEventListener('pointermove', (e) => {
       const g = gest; if (!g || !g.id || g.pointerId !== e.pointerId) return;
+      g.lastX = e.clientX; g.lastY = e.clientY;
       g.moved = Math.max(g.moved, Math.hypot(e.clientX - g.x0, e.clientY - g.y0));
       if (g.moved < 6) return; // a tap is not a drag
-      if (!g.dragging) { g.dragging = session.beginDrag(g.id); if (!g.dragging) return; }
-      const fh = floorHit(cam.pointerToRay(e), g.base);
-      if (fh) session.dragTo(fh[0] + g.off[0], fh[2] + g.off[1]);
+      if (!g.dragging) { g.dragging = session.beginDrag(g.id); if (!g.dragging) return; showPanel(false); }
+      const ray = cam.pointerToRay(e), fh = floorHit(ray, g.base);
+      if (!fh) return;
+      session.dragTo(fh[0] + g.off[0], fh[2] + g.off[1]);
+      // a prop that leaves a table (or lands on one) changes height: the plane that the finger points at follows it, so it stays under the finger
+      const nb = levelBase(g.level) + (session.pieceById(g.id)?.elev ?? 0);
+      if (Math.abs(nb - g.base) > 1e-6) { g.base = nb; const f2 = floorHit(ray, nb); if (f2) session.dragTo(f2[0] + g.off[0], f2[2] + g.off[1]); }
     }, true);
     const finish = (e, cancelled) => {
       const g = gest; if (!g || g.pointerId !== e.pointerId) return;
@@ -201,7 +278,10 @@ try {
         cam.enabled = true;
         try { dom.releasePointerCapture(e.pointerId); } catch {}
         if (g.dragging) { if (cancelled) session.cancelDrag(); else session.endDrag(); }
-      } else if (!cancelled && Math.hypot(e.clientX - g.x0, e.clientY - g.y0) < 6 && performance.now() - g.t0 < 350) session.select(null);
+        showPanel(true);
+      } else if (!cancelled && Math.hypot(e.clientX - g.x0, e.clientY - g.y0) < 6 && performance.now() - g.t0 < 350) {
+        if (g.room) session.selectRoom(g.room.level, g.room.id); else session.select(null); // a tap on a floor picks the room, a tap beside the plan clears
+      }
     };
     dom.addEventListener('pointerup', (e) => finish(e, false), true);
     dom.addEventListener('pointercancel', (e) => finish(e, true), true);
@@ -221,8 +301,26 @@ try {
     window.__edit = {
       session,
       count: () => session.state.layout.levels.reduce((n, lv) => n + lv.pieces.length, 0),
-      hit: (x, y) => hitAt({ clientX: x, clientY: y })?.id ?? null, // the piece under a client point, or null
+      hit: (x, y, type = 'touch') => hitAt({ clientX: x, clientY: y, pointerType: type })?.id ?? null, // the piece under a client point (with the margin of a fingertip unless type is 'mouse'), or null
       selectedId: () => session.state.selection,
+      selectedRoomId: () => session.selectedRoom()?.id ?? null,
+      roomHit: (x, y) => roomHitAt({ clientX: x, clientY: y }), // the room under a client point: { level, id } or null
+      // a client point on the floor of a room where no piece stands and the room is what a tap would pick (tests tap there): { x, y } or null
+      freeFloor(levelId, roomId) {
+        const poly = model.levels.find((l) => l.id === levelId)?.rooms?.find((r) => r.id === roomId)?.polygon; if (!poly) return null;
+        const xs = poly.map((p) => p[0]), ys = poly.map((p) => p[1]), cx = (Math.min(...xs) + Math.max(...xs)) / 2, cy = (Math.min(...ys) + Math.max(...ys)) / 2, r = dom.getBoundingClientRect();
+        const cand = []; for (let x = Math.min(...xs); x <= Math.max(...xs); x += 0.3) for (let y = Math.min(...ys); y <= Math.max(...ys); y += 0.3) cand.push([x, y]);
+        cand.sort((a, b) => Math.hypot(a[0] - cx, a[1] - cy) - Math.hypot(b[0] - cx, b[1] - cy));
+        camera.updateMatrixWorld(true);
+        for (const [x, y] of cand.slice(0, 600)) {
+          v3.set(x, levelBase(levelId) + 0.01, y).project(camera);
+          const px = r.left + (v3.x * 0.5 + 0.5) * r.width, py = r.top + (-v3.y * 0.5 + 0.5) * r.height;
+          if (px < r.left + 8 || px > r.right - 8 || py < r.top + 70 || py > r.bottom - 220) continue; // keep clear of the bars
+          const rh = roomHitAt({ clientX: px, clientY: py });
+          if (rh && rh.level === levelId && rh.id === roomId && !hitAt({ clientX: px, clientY: py, pointerType: 'touch' })) return { x: px, y: py };
+        }
+        return null;
+      },
       screenOf(id) {
         const f = session.pieceById(id); if (!f) return null;
         camera.updateMatrixWorld(true);

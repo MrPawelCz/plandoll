@@ -1,7 +1,7 @@
 // The orbit camera: pure state functions and the pointer controller, against fake elements and a fake clock (no browser).
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { makeState, orbit, zoom, positionOf, stateFrom, nearSides, sameSides, sidesKey, viewOf, blend, rayFor, wrapDegrees, createCameraController,
+import { makeState, orbit, zoom, positionOf, stateFrom, nearSides, sameSides, sidesKey, viewOf, blend, rayFor, wrapDegrees, createCameraController, fitView,
   POLAR_MIN, POLAR_MAX, ZOOM_MIN, ZOOM_MAX, HYSTERESIS } from '../../src/app/camera.js';
 
 const target = [5, 0, 4];
@@ -192,4 +192,117 @@ test('controller: pointerToRay gives a finite unit ray through the touched point
   r.cam.rehome({ azimuth: 35, polar: 50, distance: 20 });
   assert.equal(r.cam.state.azimuth, 120); assert.ok(Math.abs(r.cam.state.distance - 20 * 1.5) < 1e-9, 'the zoom keeps its ratio to the new default');
   assert.equal(r.cam.home.distance, 20);
+});
+
+// ---- fitView and the controller's target / start distance ----
+const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+// Where a world point lands on the picture of the camera that rayFor describes: x, y in -1..1 (up is positive) and the depth.
+// The axes are recovered from rayFor itself, so this checks the conventions of the file, not the maths of fitView.
+function project(state, tgt, fov, aspect, p) {
+  const c = rayFor(state, tgt, fov, aspect, 0, 0), rx = rayFor(state, tgt, fov, aspect, 1, 0), ry = rayFor(state, tgt, fov, aspect, 0, 1);
+  const sx = rx.direction.map((v, i) => v / dot(rx.direction, c.direction) - c.direction[i]); // right axis scaled by tan(fov / 2) * aspect
+  const sy = ry.direction.map((v, i) => v / dot(ry.direction, c.direction) - c.direction[i]); // up axis scaled by tan(fov / 2)
+  const w = p.map((v, i) => v - c.origin[i]), depth = dot(w, c.direction);
+  return { x: dot(w, sx) / (depth * dot(sx, sx)), y: dot(w, sy) / (depth * dot(sy, sy)), depth };
+}
+const cornersOf = (b) => { const out = []; for (const x of [b.minX, b.maxX]) for (const y of [b.minY, b.maxY]) for (const z of [b.minZ, b.maxZ]) out.push([x, y, z]); return out; };
+const twoStorey = { minX: 0, maxX: 12, minY: 0, maxY: 5.6, minZ: 0, maxZ: 9 }, oneStorey = { ...twoStorey, maxY: 2.8 };
+const phone = 390 / 844;
+
+test('fitView: all 8 corners of the box fit at every azimuth and aspect, and the tightest one touches the limit', () => {
+  for (const bounds of [twoStorey, oneStorey]) for (const aspect of [1.78, phone]) for (const azimuth of [0, 90, 180, 270]) {
+    const margin = 0.08, fit = fitView({ azimuth, polar: 50 }, bounds, { aspect, margin });
+    assert.ok(Number.isFinite(fit.distance) && fit.target.length === 3 && fit.target.every(Number.isFinite));
+    const state = { azimuth, polar: 50, distance: fit.distance };
+    let tight = 0, lo = [Infinity, Infinity], hi = [-Infinity, -Infinity];
+    for (const c of cornersOf(bounds)) {
+      const q = project(state, fit.target, 27, aspect, c);
+      assert.ok(q.depth > 0, 'in front of the camera');
+      assert.ok(Math.abs(q.x) <= 1 - margin + 1e-6 && Math.abs(q.y) <= 1 - margin + 1e-6, `corner ${c} at ${q.x.toFixed(3)}, ${q.y.toFixed(3)} (az ${azimuth}, aspect ${aspect.toFixed(2)})`);
+      tight = Math.max(tight, Math.abs(q.x), Math.abs(q.y));
+      lo = [Math.min(lo[0], q.x), Math.min(lo[1], q.y)]; hi = [Math.max(hi[0], q.x), Math.max(hi[1], q.y)];
+    }
+    assert.ok(tight >= (1 - margin) * 0.97, `the tightest corner is at ${tight.toFixed(4)} of ${1 - margin}`);
+    for (let a = 0; a < 2; a++) assert.ok(Math.abs(lo[a] + hi[a]) / 2 < 0.06, `the box is centred on axis ${a} (az ${azimuth}, aspect ${aspect.toFixed(2)})`);
+  }
+  // another field of view, margin and tilt
+  const fit = fitView({ azimuth: 135, polar: 30 }, twoStorey, { fov: 40, aspect: 1, margin: 0.15 });
+  for (const c of cornersOf(twoStorey)) {
+    const q = project({ azimuth: 135, polar: 30, distance: fit.distance }, fit.target, 40, 1, c);
+    assert.ok(Math.abs(q.x) <= 0.85 + 1e-6 && Math.abs(q.y) <= 0.85 + 1e-6);
+  }
+});
+
+test('fitView: the distance depends on the azimuth for a box that is not square, and behaves in the obvious directions', () => {
+  for (const aspect of [1.78, phone]) {
+    const d = [0, 90, 180, 270].map((azimuth) => fitView({ azimuth, polar: 50 }, twoStorey, { aspect }).distance);
+    assert.ok(Math.abs(d[0] - d[1]) / d[0] > 0.05, `0 and 90 degrees differ (${d[0].toFixed(2)} and ${d[1].toFixed(2)}) at aspect ${aspect.toFixed(2)}`);
+    assert.ok(Math.abs(d[0] - d[2]) < 0.05 * d[0] && Math.abs(d[1] - d[3]) < 0.05 * d[1], 'opposite sides need about the same distance');
+  }
+  const wide = fitView({ azimuth: 90, polar: 50 }, twoStorey, { aspect: 1.78 }), tall = fitView({ azimuth: 90, polar: 50 }, twoStorey, { aspect: phone });
+  assert.ok(tall.distance > wide.distance, 'a narrow picture needs the camera further away');
+  assert.ok(fitView({ azimuth: 90, polar: 50 }, oneStorey).distance < fitView({ azimuth: 90, polar: 50 }, twoStorey).distance, 'a lower box needs less room');
+  assert.ok(fitView({ azimuth: 90, polar: 50 }, twoStorey, { margin: 0.2 }).distance > fitView({ azimuth: 90, polar: 50 }, twoStorey, { margin: 0.02 }).distance);
+  let prev = Infinity;
+  for (let n = 0; n <= 8; n++) { const dist = fitView({ azimuth: 270, polar: 50 }, twoStorey, { iterations: n }).distance; assert.ok(dist <= prev + 1e-12, `${n} passes`); prev = dist; }
+  assert.deepEqual(fitView({ azimuth: 200, polar: 40 }, twoStorey), fitView({ azimuth: 200, polar: 40 }, twoStorey), 'deterministic');
+  assert.deepEqual(fitView({ azimuth: 10, polar: 0 }, twoStorey), fitView({ azimuth: 10, polar: POLAR_MIN }, twoStorey), 'the tilt stays inside its limits');
+  assert.deepEqual(fitView({ azimuth: 10, polar: 90 }, twoStorey), fitView({ azimuth: 10, polar: POLAR_MAX }, twoStorey));
+  assert.deepEqual(fitView({ azimuth: 370, polar: 50 }, twoStorey), fitView({ azimuth: 10, polar: 50 }, twoStorey), 'the azimuth wraps');
+});
+
+test('fitView: bad input still gives finite numbers, and the distance stays within 0.5 to 500 m', () => {
+  const ok = (fit) => Number.isFinite(fit.distance) && fit.distance >= 0.5 && fit.distance <= 500 && fit.target.length === 3 && fit.target.every(Number.isFinite);
+  const bad = [undefined, null, {}, [], 'x', 5, { ...twoStorey, minX: NaN }, { ...twoStorey, maxZ: Infinity }, { ...twoStorey, minY: undefined }, { ...twoStorey, minX: 20 }, { minX: 0, maxX: 1 }];
+  for (const bounds of bad) for (const state of [{ azimuth: 30, polar: 50 }, { azimuth: NaN, polar: NaN }, undefined, null]) assert.ok(ok(fitView(state, bounds)), JSON.stringify(bounds));
+  for (const options of [null, {}, { fov: NaN, aspect: NaN, margin: NaN, iterations: NaN }, { fov: -5, aspect: -1, margin: 7, iterations: 1e9 }, { aspect: 0 }, { fov: Infinity }])
+    assert.ok(ok(fitView({ azimuth: 90, polar: 50 }, twoStorey, options)), JSON.stringify(options));
+  assert.deepEqual(fitView({ azimuth: 90, polar: 50 }, twoStorey, { aspect: NaN }), fitView({ azimuth: 90, polar: 50 }, twoStorey, { aspect: 1.78 }), 'a bad aspect falls back to the default');
+  assert.deepEqual(fitView({ distance: 14 }, undefined), { distance: 14, target: [0, 0, 0] }, 'without usable bounds the state distance is kept');
+  assert.deepEqual(fitView({}, { ...twoStorey, minX: NaN }).target, [0, 2.8, 4.5], 'the usable axes still give a centre');
+  const tiny = fitView({ azimuth: 0, polar: 50 }, { minX: 1, maxX: 1, minY: 1, maxY: 1, minZ: 1, maxZ: 1 });
+  assert.equal(tiny.distance, 0.5); assert.deepEqual(tiny.target, [1, 1, 1]);
+  const huge = fitView({ azimuth: 0, polar: 50 }, { minX: 0, maxX: 1e6, minY: 0, maxY: 1e6, minZ: 0, maxZ: 1e6 });
+  assert.equal(huge.distance, 500); assert.ok(huge.target.every(Number.isFinite));
+});
+
+test('controller: setTarget moves the camera with its target, rejects bad input, and the fitted view lands every corner on its pixel', () => {
+  const r = rig(), before = r.cam.pointerToRay({ clientX: 200, clientY: 400 });
+  assert.deepEqual(r.cam.target, target);
+  assert.equal(r.cam.setTarget([8, 1, 2]), true);
+  const after = r.cam.pointerToRay({ clientX: 200, clientY: 400 }), shift = [3, 1, -2];
+  for (let i = 0; i < 3; i++) assert.ok(Math.abs(after.origin[i] - before.origin[i] - shift[i]) < 1e-9, 'the camera moves by the same amount as the target');
+  const toTarget = [8, 1, 2].map((v, i) => v - after.origin[i]), l = Math.hypot(...toTarget);
+  for (let i = 0; i < 3; i++) assert.ok(Math.abs(after.direction[i] - toTarget[i] / l) < 1e-9, 'the middle of the canvas now looks at the new target');
+  assert.deepEqual(r.cam.position(), positionOf(r.cam.state, [8, 1, 2]));
+  for (const badTarget of [[NaN, 0, 0], [1, 2], [1, 2, 3, 4], [1, Infinity, 3], ['1', 2, 3], null, undefined, 5]) {
+    assert.equal(r.cam.setTarget(badTarget), false, String(badTarget));
+    assert.deepEqual(r.cam.target, [8, 1, 2], 'a rejected target changes nothing');
+    assert.deepEqual(r.cam.pointerToRay({ clientX: 200, clientY: 400 }).origin, after.origin);
+  }
+  // a controller started on a fitted view: the pixel of every corner has a ray that passes through that corner
+  const aspect = 400 / 800, fit = fitView({ azimuth: 270, polar: 50 }, twoStorey, { aspect });
+  const f = rig({ home: { azimuth: 270, polar: 50, distance: fit.distance }, initial: { azimuth: 270, polar: 50 }, target });
+  assert.equal(f.cam.setTarget(fit.target), true);
+  assert.ok(Math.abs(f.cam.state.distance - fit.distance) < 1e-9 && f.cam.state.azimuth === 270);
+  for (const c of cornersOf(twoStorey)) {
+    const q = project(f.cam.state, f.cam.target, 27, aspect, c), ray = f.cam.pointerToRay({ clientX: ((q.x + 1) / 2) * 400, clientY: ((1 - q.y) / 2) * 800 });
+    const w = c.map((v, i) => v - ray.origin[i]), along = dot(w, ray.direction), miss = Math.hypot(...w.map((v, i) => v - along * ray.direction[i]));
+    assert.ok(along > 0 && miss < 1e-6, `the ray through the pixel of ${c} misses it by ${miss}`);
+    assert.ok(Math.abs(q.x) <= 0.92 + 1e-6 && Math.abs(q.y) <= 0.92 + 1e-6);
+  }
+});
+
+test('controller: initial.distance is clamped to the zoom limits and defaults to the home distance', () => {
+  assert.equal(rig().cam.state.distance, 10);
+  assert.equal(rig({ initial: {} }).cam.state.distance, 10);
+  assert.equal(rig({ initial: { distance: 13 } }).cam.state.distance, 13);
+  assert.ok(Math.abs(rig({ initial: { distance: 1000 } }).cam.state.distance - 10 * ZOOM_MAX) < 1e-9, 'not further than the far zoom limit');
+  assert.ok(Math.abs(rig({ initial: { distance: 0.1 } }).cam.state.distance - 10 * ZOOM_MIN) < 1e-9, 'not nearer than the near zoom limit');
+  for (const bad of [NaN, Infinity, 'x', null]) assert.equal(rig({ initial: { distance: bad } }).cam.state.distance, 10, String(bad));
+  const r = rig({ initial: { azimuth: 200, polar: 30, distance: 14 } });
+  assert.equal(r.cam.state.azimuth, 200); assert.equal(r.cam.state.polar, 30); assert.equal(r.cam.state.distance, 14);
+  assert.equal(r.cam.home.distance, 10, 'the home view is not touched');
+  r.cam.set({ distance: 12 }); assert.equal(r.cam.state.distance, 12); assert.equal(r.cam.state.azimuth, 200);
+  r.cam.reset(false); assert.equal(r.cam.state.distance, 10); assert.equal(r.cam.state.azimuth, 35);
 });

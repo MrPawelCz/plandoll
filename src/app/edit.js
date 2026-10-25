@@ -4,18 +4,22 @@
 //   onChange({ type }) is called after every change of the state: 'structure' (pieces added, removed, resized, recoloured, turned,
 //   undone, loaded: the page re-composes what changed), 'drag' (a piece is being dragged: only move its group), 'dragend' (the drag
 //   is over: refresh lights and shadows), 'select' (only the selection changed). subscribe(fn) gets fn({ type: 'change' | 'select' }).
+//   Rooms: selectRoom(levelId, roomId | null) / selectedRoom() -> { level, id, name, colors: { wall?, floor? } } | null, recolorRoom(part, color | null);
+//   a piece and a room are never selected together. duplicate() copies the selected piece. snapEdges() / setSnapEdges(on) switch the
+//   snapping of a dragged piece to the sides of its neighbours (off by default).
 import { specOf } from '../furniture/specs.js';
 import {
   createState, findPiece, selectPiece, addPiece, movePiece, turnPiece, deletePiece, resizePiece, recolorPiece, resetToAuto, loadLayout,
-  undo, redo, canUndo, canRedo, placeAt, placementProblems, roomAt, serializeLayout, parseLayout,
+  undo, redo, canUndo, canRedo, placeAt, placementProblems, roomAt, serializeLayout, parseLayout, duplicatePiece, recolorRoom, roomColorsOf,
 } from '../editor/index.js';
 
 const fin = (v) => typeof v === 'number' && Number.isFinite(v);
 const CLEAN = (problems) => !problems.some((p) => ['overlap', 'outside-room', 'door-zone', 'stair', 'floating-prop'].includes(p.kind));
 const MAX_CANDIDATES = 600, STEP = 0.4;
 
-export function createEditSession({ layout, model, onChange = () => {}, allowedTypes } = {}) {
-  let state = createState(layout), drag = null, dragSeq = 0;
+// viewPoint() -> { level, x, y } | null is the place the view is centred on: the default for add().
+export function createEditSession({ layout, model, onChange = () => {}, allowedTypes, viewPoint = null } = {}) {
+  let state = createState(layout), drag = null, dragSeq = 0, roomSel = null, edges = false;
   const subs = new Set();
   function emit(type) {
     try { onChange({ type }); } catch { /* the page must not break the session */ }
@@ -27,6 +31,7 @@ export function createEditSession({ layout, model, onChange = () => {}, allowedT
   function apply(res, type = 'structure') {
     if (!res.ok) return { ok: false, reason: res.reason };
     state = res.state;
+    if (state.selection) roomSel = null;
     emit(type);
     return { ok: true, id: res.id, problems: res.problems };
   }
@@ -66,15 +71,43 @@ export function createEditSession({ layout, model, onChange = () => {}, allowedT
       return f ? placementProblems(model, state.layout, f.level.id, f.piece) : [];
     },
     select(id) {
-      if ((id ?? null) === state.selection) return true;
+      const hadRoom = !!roomSel; roomSel = null; // a piece and a room are never selected together
+      if ((id ?? null) === state.selection) { if (hadRoom) emit('select'); return true; }
       const res = selectPiece(state, id ?? null);
       if (!res.ok) return false;
       state = res.state; emit('select'); return true;
     },
+    // A room of the plan (levelId, roomId), or null for none. Clears the selected piece.
+    selectRoom(levelId, roomId = null) {
+      if (roomId === null || roomId === undefined) { if (!roomSel) return true; roomSel = null; emit('select'); return true; }
+      const room = model?.levels?.find?.((l) => l.id === levelId)?.rooms?.find?.((r) => r.id === roomId);
+      if (!room) return false;
+      if (state.selection) { const r = selectPiece(state, null); if (r.ok) state = r.state; }
+      roomSel = { level: levelId, id: roomId }; emit('select'); return true;
+    },
+    selectedRoom() {
+      if (!roomSel) return null;
+      const room = model?.levels?.find?.((l) => l.id === roomSel.level)?.rooms?.find?.((r) => r.id === roomSel.id);
+      if (!room) { roomSel = null; return null; }
+      return { level: roomSel.level, id: roomSel.id, name: room.name || room.id, colors: roomColorsOf(state.layout, roomSel.level, roomSel.id) };
+    },
+    // part 'wall' | 'floor', color '#rrggbb' | 'lib:<key>' | null (back to the default look); a run of changes of one part is one undo step.
+    recolorRoom(part, color) {
+      if (!roomSel) return { ok: false, reason: 'no-room-selected' };
+      return apply(recolorRoom(state, roomSel.level, roomSel.id, part, color ?? null, { model, coalesceKey: `room:${roomSel.id}:${part}` }));
+    },
+    duplicate() {
+      if (!state.selection) return { ok: false, reason: 'nothing-selected' };
+      return apply(duplicatePiece(state, state.selection, { model }));
+    },
+    snapEdges: () => edges,
+    setSnapEdges(on) { edges = !!on; },
     // A new piece in the best free place of a room, selected. `at` is { level?, x?, y? }: the level and the plan point the view is centred on.
     add(type, at = {}) {
       const spec = specOf(type);
       if (!spec) return { ok: false, reason: 'unknown-type' };
+      let view = null; try { view = viewPoint?.() ?? null; } catch { view = null; }
+      at = { ...(view ?? {}), ...at };
       const levelId = at.level ?? selectedFound()?.level.id ?? state.layout.levels.find((l) => l.pieces.length)?.id ?? state.layout.levels[0]?.id;
       if (!levelId) return { ok: false, reason: 'unknown-level' };
       const spot = freePlace(levelId, spec, fin(at.x) && fin(at.y) ? { x: at.x, y: at.y } : null);
@@ -116,12 +149,13 @@ export function createEditSession({ layout, model, onChange = () => {}, allowedT
     beginDrag(id) {
       if (drag || !found(id)) return false;
       drag = { start: state, id, key: `drag:${id}:${++dragSeq}` };
+      roomSel = null;
       if (state.selection !== id) { const r = selectPiece(state, id); if (r.ok) { state = r.state; emit('select'); } }
       return true;
     },
     dragTo(x, y) {
       if (!drag) return { ok: false, reason: 'not-dragging' };
-      const res = movePiece(state, drag.id, x, y, { model, coalesceKey: drag.key });
+      const res = movePiece(state, drag.id, x, y, edges ? { model, coalesceKey: drag.key, snap: { edges: true } } : { model, coalesceKey: drag.key });
       if (!res.ok) return { ok: false, reason: res.reason };
       state = res.state; emit('drag');
       return { ok: true, problems: res.problems };

@@ -1,7 +1,7 @@
 // The selection outline: which colour it takes for which problems, and that it follows the piece (position, angle, size).
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createOutline, outlineKind, OUTLINE_COLORS } from '../../src/render/outline.js';
+import { createOutline, createRoomOutline, outlineKind, OUTLINE_COLORS } from '../../src/render/outline.js';
 
 test('colour kind: red for hard problems, yellow for the rest, light when there are none', () => {
   assert.equal(outlineKind([]), 'ok');
@@ -54,4 +54,34 @@ test('the outline is drawn on top: no depth test, high render order, no shadows'
     assert.ok(m.renderOrder >= 1000);
     assert.equal(m.castShadow, false);
   });
+});
+
+test('every bar of a piece outline has a darker, wider bar under it, and the box edges follow the size', () => {
+  const o = createOutline();
+  o.set({ x: 2, y: 3, rot: 0, elev: 0, size: [2, 1, 0.8] }, 0, 'ok');
+  const bars = o.group.children.filter((m) => m.geometry.type === 'BoxGeometry');
+  assert.equal(bars.length, 24); // twelve edges, each with its dark under-bar
+  const light = bars.filter((m) => m.material.color.getHexString() !== '3b2410'), dark = bars.filter((m) => m.material.color.getHexString() === '3b2410');
+  assert.equal(light.length, 12); assert.equal(dark.length, 12);
+  assert.ok(Math.max(...dark.map((m) => Math.min(m.scale.x, m.scale.y, m.scale.z))) > Math.max(...light.map((m) => Math.min(m.scale.x, m.scale.y, m.scale.z))));
+  const longest = (axis) => Math.max(...light.map((m) => m.scale[axis]));
+  assert.ok(longest('x') > 2 && longest('y') > 0.8 && longest('z') > 1);
+  assert.ok(light.every((m) => Math.min(m.scale.x, m.scale.y, m.scale.z) >= 0.02)); // thick enough to read on a phone
+});
+
+test('the room outline follows a polygon (also a concave one), hides for bad input and never throws', () => {
+  const o = createRoomOutline();
+  assert.equal(o.visible, false);
+  o.set([[0, 0], [4, 0], [4, 3], [0, 3]], 0);
+  assert.equal(o.visible, true);
+  const count = (i) => o.group.children[i].geometry.getAttribute('position')?.count ?? 0;
+  assert.equal(count(0), 6); // the fill: two triangles
+  assert.equal(count(1), 24); assert.equal(count(2), 24); // the dark and the light rim: a quad per edge
+  o.set([[0, 0], [4, 0], [4, 4], [2, 1], [0, 4]], 2.8); // concave
+  assert.equal(o.visible, true); assert.ok(count(0) >= 9);
+  o.set([[0, 0], [1, 1]], 0); assert.equal(o.visible, false);
+  o.set([[0, 0], [NaN, 1], [1, 2]], 0); assert.equal(o.visible, false);
+  o.set(null, 0); assert.equal(o.visible, false);
+  o.set([[0, 0], [4, 0], [4, 3]], Infinity); assert.equal(o.visible, false);
+  o.hide(); o.dispose();
 });

@@ -82,15 +82,73 @@ export function rayFor(state, target, fovDegrees, aspect, x, y) {
 }
 
 // ---------------------------------------------------------------------------------------------------------------------------
+// Fit. The distance and target that bring a whole box into the picture for a given turn and tilt, so that every azimuth shows the
+// model whole (a wide plan seen end-on needs another distance than the same plan seen from the side).
+const FIT_MIN = 0.5, FIT_MAX = 500; // metres
+const BOX_KEYS = ['minX', 'maxX', 'minY', 'maxY', 'minZ', 'maxZ'];
+const dot3 = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+
+// bounds: { minX, maxX, minY, maxY, minZ, maxZ } in metres, all storeys; the 8 corners of the box are fitted. state: only azimuth and
+// polar are used. options: fov (vertical, degrees), aspect (width / height of the picture), margin (share of the half picture kept
+// free on every side), iterations (centring passes). Returns { distance, target } with the distance within 0.5..500 m. Bad input gives
+// the centre of whatever bounds are usable (else the origin) and the state's own distance: never NaN.
+export function fitView(state, bounds, options) {
+  const o = options ?? {}, b = bounds ?? {};
+  const th = Math.tan((clamp(fin(o.fov, 27), 1, 150) * RAD) / 2), asp = clamp(Number.isFinite(o.aspect) && o.aspect > 0 ? o.aspect : 1.78, 0.1, 10);
+  const k = 1 - clamp(fin(o.margin, 0.08), 0, 0.5), passes = clamp(Math.round(fin(o.iterations, 4)), 0, 12);
+  const mid = (lo, hi) => (Number.isFinite(lo) && Number.isFinite(hi) ? (lo + hi) / 2 : 0);
+  const centre = [mid(b.minX, b.maxX), mid(b.minY, b.maxY), mid(b.minZ, b.maxZ)];
+  const fallback = { distance: clamp(fin(state?.distance, 10), FIT_MIN, FIT_MAX), target: centre };
+  if (!BOX_KEYS.every((key) => Number.isFinite(b[key])) || b.minX > b.maxX || b.minY > b.maxY || b.minZ > b.maxZ) return fallback;
+
+  // The camera axes exactly as rayFor builds them: forward f (towards the target), right r, up u.
+  const az = wrapDegrees(state?.azimuth) * RAD, po = clamp(fin(state?.polar, 50), POLAR_MIN, POLAR_MAX) * RAD;
+  const sa = Math.sin(az), ca = Math.cos(az), sp = Math.sin(po), cp = Math.cos(po);
+  const f = [-sp * sa, -cp, -sp * ca], r = [ca, 0, -sa], u = [-cp * sa, sp, -cp * ca];
+  const corners = [];
+  for (const x of [b.minX, b.maxX]) for (const y of [b.minY, b.maxY]) for (const z of [b.minZ, b.maxZ]) corners.push([x, y, z]);
+
+  // For a target t: the smallest distance D at which every corner is inside the frame. A corner at v = c - t has the camera-space
+  // offsets (v.r, v.u) and the depth D + v.f, and it fits while |v.r| <= k * depth * th * asp and |v.u| <= k * depth * th. Also where
+  // the extent of the projected corners sits on the picture (mx, my, as tangents), for centring.
+  const solve = (t) => {
+    const local = corners.map((c) => { const v = [c[0] - t[0], c[1] - t[1], c[2] - t[2]]; return [dot3(v, r), dot3(v, u), dot3(v, f)]; });
+    const need = Math.max(0, ...local.map(([x, y, z]) => Math.max(Math.abs(x) / (k * th * asp), Math.abs(y) / (k * th)) - z));
+    const distance = clamp(need, FIT_MIN, FIT_MAX);
+    if (!Number.isFinite(distance)) return null;
+    if (local.some((p) => distance + p[2] < 1e-6)) return { distance, mx: 0, my: 0 }; // limited to 500 m, a corner is behind the camera: nothing to centre
+    const xs = local.map((p) => p[0] / (distance + p[2])), ys = local.map((p) => p[1] / (distance + p[2]));
+    return { distance, mx: (Math.min(...xs) + Math.max(...xs)) / 2, my: (Math.min(...ys) + Math.max(...ys)) / 2 };
+  };
+
+  // Start at the centre of the box; after each solve move the target across the picture by the offset of the extent's middle (at the
+  // depth of the box centre) and solve again. Every pass is a valid fit, so the smallest distance seen is returned.
+  let t = centre.slice(), best = null;
+  for (let i = 0; i <= passes; i++) {
+    const s = solve(t);
+    if (!s) break;
+    if (!best || s.distance < best.distance) best = { distance: s.distance, target: t };
+    if (i === passes) break;
+    const depth = s.distance + dot3([centre[0] - t[0], centre[1] - t[1], centre[2] - t[2]], f);
+    if (!(depth > 1e-6)) break;
+    t = [0, 1, 2].map((a) => t[a] + r[a] * s.mx * depth + u[a] * s.my * depth);
+    if (!t.every(Number.isFinite)) break;
+  }
+  return best ? best : fallback;
+}
+
+// ---------------------------------------------------------------------------------------------------------------------------
 // Controller. One finger or the mouse turns, two fingers and the wheel zoom, a double tap or double click goes back to the home
 // view (400 ms), arrow keys turn by 15 degrees. A frame is asked for (onChange) only while something moves; at rest nothing is
 // queued. No storage, no network.
-//   options: { element, home, target, fov, onChange(state, source), onGesture(), request, now, keys }
+//   options: { element, home, target, fov, initial: { azimuth, polar, distance }, onChange(state, source), onGesture(), request, now, keys }
 export function createCameraController(options) {
-  const { element, target, fov = 27, onChange = () => {}, onGesture = () => {}, request = (f) => requestAnimationFrame(f), now = () => performance.now() } = options;
+  const { element, fov = 27, onChange = () => {}, onGesture = () => {}, request = (f) => requestAnimationFrame(f), now = () => performance.now() } = options;
+  let target = options.target; // the point the camera looks at; setTarget moves it
   let home = makeState(options.home);
   const start = options.initial ?? {};
-  let state = { ...home, azimuth: wrapDegrees(fin(start.azimuth, home.azimuth)), polar: clamp(fin(start.polar, home.polar), POLAR_MIN, POLAR_MAX) };
+  let state = { ...home, azimuth: wrapDegrees(fin(start.azimuth, home.azimuth)), polar: clamp(fin(start.polar, home.polar), POLAR_MIN, POLAR_MAX),
+    distance: clamp(fin(start.distance, home.distance), home.base * ZOOM_MIN, home.base * ZOOM_MAX) }; // the start distance obeys the zoom limits
   let enabled = true, queued = false, anim = null, spin = null, tap = null, gesture = null;
   const pointers = new Map();
   const perPixel = () => 200 / Math.max(240, Math.min(element.clientWidth || 800, element.clientHeight || 800)); // degrees of turn per pixel dragged
@@ -124,6 +182,13 @@ export function createCameraController(options) {
     stopMotion();
     state = { ...state, azimuth: wrapDegrees(fin(next.azimuth, state.azimuth)), polar: clamp(fin(next.polar, state.polar), POLAR_MIN, POLAR_MAX), distance: clamp(fin(next.distance, state.distance), state.base * ZOOM_MIN, state.base * ZOOM_MAX) };
     emit(source);
+  }
+
+  // Look at another point (a refitted view): three finite numbers, else nothing changes and false comes back. It does not ask for a
+  // frame: the caller redraws.
+  function setTarget(next) {
+    if (!next || next.length !== 3 || ![0, 1, 2].every((i) => Number.isFinite(next[i]))) return false;
+    target = [next[0], next[1], next[2]]; return true;
   }
 
   // A new default distance (the window changed shape): the turn stays, the zoom keeps its ratio to the default.
@@ -205,8 +270,9 @@ export function createCameraController(options) {
     get enabled() { return enabled; },
     set enabled(v) { enabled = !!v; if (!enabled) { stopMotion(); pointers.clear(); gesture = null; } },
     get busy() { return queued || !!anim || !!spin; },
+    get target() { return [...target]; },
     position: () => positionOf(state, target),
-    reset, set, rehome,
+    reset, set, rehome, setTarget,
     // The ray under a pointer event, for picking: { origin, direction } in world space.
     pointerToRay(event) {
       const r = element.getBoundingClientRect(), w = r.width || 1, h = r.height || 1;

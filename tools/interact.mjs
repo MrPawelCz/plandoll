@@ -16,13 +16,14 @@ import { dirname, join, resolve } from 'node:path';
 import { pathToFileURL, fileURLToPath } from 'node:url';
 
 const argv = process.argv.slice(2);
-const opt = { html: null, size: '390x844', scale: '3', hash: '', out: null, timeout: 240, settle: 12, desktop: false, edit: false };
+const opt = { html: null, size: '390x844', scale: '3', hash: '', out: null, timeout: 240, settle: 12, desktop: false, edit: false, quick: false };
 for (let i = 0; i < argv.length; i++) {
   const a = argv[i];
   if (a === '--desktop') opt.desktop = true;
   else if (a === '--edit') opt.edit = true;
+  else if (a === '--quick') opt.quick = true;
   else if (a.startsWith('--') && a.slice(2) in opt && i + 1 < argv.length) opt[a.slice(2)] = argv[++i];
-  else { console.error(`usage: node tools/interact.mjs [--html FILE|URL] [--size WxH] [--scale N] [--desktop] [--edit] [--hash H] [--out DIR] [--timeout S] [--settle S] (got ${a})`); process.exit(2); }
+  else { console.error(`usage: node tools/interact.mjs [--html FILE|URL] [--size WxH] [--scale N] [--desktop] [--edit] [--quick] [--hash H] [--out DIR] [--timeout S] [--settle S] (got ${a})`); process.exit(2); }
 }
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const [W, H] = opt.size.split('x').map(Number);
@@ -139,7 +140,10 @@ try {
     record('no edit bar without edit=1', JSON.parse(none).bar === false && JSON.parse(none).panel === false && JSON.parse(none).api === 'undefined', JSON.parse(none));
   }
   let pic = await picture('0-start');
+  const turnAz = () => ev('window.__camera ? window.__camera.azimuth : -1');
 
+  // --quick skips the steps of a visitor (2 to 10: moods, slider, quality, language, turning the model, resets) and goes to the editor steps
+  if (!opt.quick) {
   // 2. tap a mood button
   const clock0 = await ev('document.querySelector("#ps-ui .clock").textContent');
   const f0 = await frames();
@@ -239,6 +243,8 @@ try {
   const a4 = await turnAz(), pic7 = await picture('8-reset-button');
   record('reset button', Math.abs(wrap(a3 - a0)) > 45 && Math.abs(wrap(a4 - a0)) < 2 && pic7 !== picTurned && r7.ok !== false, { azimuth: `${a3.toFixed(0)} -> ${a4.toFixed(0)}`, pictureChanged: pic7 !== picTurned });
 
+  }
+
   // 10b. the layout editor (--edit): select a piece, drag it, turn, undo, redo, delete, automatic layout
   if (opt.edit) {
     const pieceInfo = (pid) => ev(`(() => { const p = window.__edit.session.pieceById(${JSON.stringify(pid)}); return p ? { x: p.x, y: p.y, rot: p.rot } : null; })()`);
@@ -248,9 +254,10 @@ try {
     const click = async (what) => { const r = await rectOf(`#ps-edit button[data-edit="${what}"]`); await tap(r.x + r.w / 2, r.y + r.h / 2); };
     const key = async (k, code, vk, modifiers = 0, text) => { for (const type of ['keyDown', 'keyUp']) await send('Input.dispatchKeyEvent', { type, key: k, code, windowsVirtualKeyCode: vk, modifiers, ...(type === 'keyDown' && text ? { text } : {}) }); };
     const startLayout = await layoutJson();
-    const bars = JSON.parse(await ev(`JSON.stringify((() => { const r = (e) => { const b = e.getBoundingClientRect(); return { x: b.left, y: b.top, w: b.width, h: b.height }; }; const bar = document.querySelector('#ps-edit'); const ctl = document.querySelector('#ps-ui'); if (!bar) return null; return { bar: r(bar), ui: r(ctl), buttons: [...bar.querySelectorAll('button')].map((b) => ({ name: b.dataset.edit, ...r(b), disabled: b.disabled, label: b.getAttribute('aria-label') })), panel: !!document.querySelector('#ps-edit-panel') }; })())`));
-    const barOk = !!bars && bars.panel && bars.buttons.length === 5 && bars.buttons.every((b) => b.w >= 43.5 && b.h >= 43.5 && b.x >= -1 && b.x + b.w <= W + 1 && b.label) && bars.bar.y + bars.bar.h <= bars.ui.y + 1 && bars.bar.h < 80;
-    record('edit bar', barOk, { bar: bars?.bar, buttons: bars?.buttons.map((b) => `${b.name} ${Math.round(b.w)}x${Math.round(b.h)}${b.disabled ? ' off' : ''}`) });
+    const bars = JSON.parse(await ev(`JSON.stringify((() => { const r = (e) => { const b = e.getBoundingClientRect(); return { x: b.left, y: b.top, w: b.width, h: b.height }; }; const bar = document.querySelector('#ps-edit'); const ctl = document.querySelector('#ps-ui'); if (!bar) return null; return { bar: r(bar), ui: r(ctl), buttons: [...bar.querySelectorAll(':scope > button')].map((b) => ({ name: b.dataset.edit, ...r(b), disabled: b.disabled, label: b.getAttribute('aria-label') })), panel: !!document.querySelector('#ps-edit-panel') }; })())`));
+    const stackH = await ev(`parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--ps-stack-h')) || 0`);
+    const barOk = !!bars && bars.panel && bars.buttons.length === 6 && bars.buttons.every((b) => b.w >= 43.5 && b.h >= 43.5 && b.x >= -1 && b.x + b.w <= W + 1 && b.label) && bars.bar.y + bars.bar.h <= bars.ui.y + 1 && bars.bar.h < 80 && stackH > 100 && stackH < H;
+    record('edit bar', barOk, { bar: bars?.bar, stackHeightVar: stackH, buttons: bars?.buttons.map((b) => `${b.name} ${Math.round(b.w)}x${Math.round(b.h)}${b.disabled ? ' off' : ''}`) });
     const area = Math.floor(bars ? Math.min(bars.bar.y, bars.ui.y) : 400) - 6;
     const cands = await ev(`(() => { const out = []; for (const lv of window.__edit.session.state.layout.levels) for (const p of lv.pieces) if (!p.on && p.elev === 0 && p.size[2] > 0.3) out.push({ id: p.id, type: p.type, area: p.size[0] * p.size[1] }); return out.sort((a, b) => b.area - a.area).slice(0, 12); })()`);
     const inside = (pt) => pt && pt.x > 8 && pt.x < W - 8 && pt.y > 8 && pt.y < area;
@@ -341,6 +348,123 @@ try {
       await key('Escape', 'Escape', 27); await sleep(200);
       record('edit: keys R, Ctrl+Z, Ctrl+Shift+Z, Delete, Escape', k1.rot !== k0.rot && k2.rot === k0.rot && k3.rot === k1.rot && m1 < m0 && m2 === m0 && (await selected()) === null, { rot: `${k0.rot} ${k1.rot} ${k2.rot} ${k3.rot}`, count: `${m0} ${m1} ${m2}` });
     }
+
+    // 10c. the panel, the More menu (duplicate, save, load by paste) and the choice of a room. Every step that changes the layout is undone.
+    try { await send('Browser.setDownloadBehavior', { behavior: 'deny' }); } catch {}
+    const tapSel = async (sel) => { const r = await rectOf(sel); if (!r || r.w < 1 || r.h < 1) return false; await tap(r.x + r.w / 2, r.y + r.h / 2); return true; };
+    const sig = () => ev(`(() => window.__edit.session.state.layout.levels.map((l) => l.id + ':' + l.pieces.map((p) => [p.id, p.type, p.x, p.y, p.rot, p.elev, p.size.join(','), JSON.stringify(p.colors ?? {})].join('|')).join(';') + JSON.stringify(l.rooms ?? {})).join('/'))()`);
+    const selId = () => ev('window.__edit.selectedId()');
+    const selJson = () => ev('JSON.stringify(window.__edit.session.selected())');
+    const undoApi = () => ev('window.__edit.session.undo().ok'), redoApi = () => ev('window.__edit.session.redo().ok');
+    await ev('window.__edit.session.select(null)'); await sleep(200);
+    const sig0 = await sig(), n00 = await count();
+    let f2 = await frames();
+
+    // the panel: the Add button opens the list; a tap on a piece in the list adds it at the centre of the picture
+    const tog = await rectOf('.psp-toggle');
+    await tapSel('.psp-toggle'); await sleep(500);
+    const sheet = await rectOf('.psp-sheet'), barRect = await rectOf('#ps-edit');
+    const coversBar = !!(sheet && barRect && sheet.w > 0 && sheet.y < barRect.y + barRect.h && sheet.y + sheet.h > barRect.y);
+    await picture('15-panel-open');
+    record('panel: the Add button opens the list', !!tog && tog.w >= 43.5 && tog.h >= 43.5 && !!sheet && sheet.w > 100 && sheet.h > 60, { toggle: tog, sheet, sheetCoversEditBar: coversBar });
+    const itemId = await ev(`(() => { const all = [...document.querySelectorAll('.psp-item')].filter((x) => x.offsetParent !== null); const b = all.find((x) => /sofa|arm|chair/.test(x.dataset.id)) ?? all[0]; return b ? b.dataset.id : null; })()`);
+    await ev(`document.querySelector('.psp-item[data-id="${itemId}"]')?.scrollIntoView({ block: 'center' })`); await sleep(250);
+    const picPre = await picture('15b-before-add');
+    f2 = await frames();
+    await tapSel(`.psp-item[data-id="${itemId}"]`); await sleep(600); await redrawn(f2);
+    const nAdd = await count(), idAdd = await selId(), picAdd = await picture('16-panel-added');
+    record('panel: a tap on a piece in the list adds it, selected', nAdd === n00 + 1 && !!idAdd && picAdd !== picPre, { type: itemId, count: `${n00} -> ${nAdd}`, selected: idAdd, pictureChanged: picAdd !== picPre });
+
+    // a colour swatch of the new piece, then undo and redo
+    const sw = await ev(`(() => { const b = [...document.querySelectorAll('.psp-sw')].find((x) => x.getAttribute('aria-pressed') !== 'true'); return b ? { slot: b.dataset.slot, color: b.dataset.color } : null; })()`);
+    const colorsOf = async () => JSON.parse((await selJson()) ?? 'null')?.colors ?? {};
+    const col0 = await colorsOf();
+    let colOk = false, picCol = picAdd;
+    if (sw) {
+      const q = `.psp-sw[data-slot="${sw.slot}"][data-color="${sw.color}"]`;
+      await ev(`document.querySelector(${JSON.stringify(q)})?.scrollIntoView({ block: 'center' })`); await sleep(250);
+      f2 = await frames(); await tapSel(q); await sleep(600); await redrawn(f2);
+      const col1 = await colorsOf(); picCol = await picture('17-panel-colour');
+      await undoApi(); await sleep(250); const col2 = await colorsOf();
+      await redoApi(); await sleep(250); const col3 = await colorsOf();
+      colOk = String(col1[sw.slot] ?? '').toLowerCase() === String(sw.color).toLowerCase() && JSON.stringify(col2) === JSON.stringify(col0) && JSON.stringify(col3) === JSON.stringify(col1);
+    }
+    record('panel: a colour swatch recolours the slot (undo and redo)', colOk && picCol !== picAdd, { swatch: sw, pictureChanged: picCol !== picAdd });
+
+    // a size field, then undo and redo
+    const field = await ev(`(() => { const i = document.querySelector('.psp-num'); return i ? { axis: i.dataset.axis, min: Number(i.min), max: Number(i.max), value: Number(i.value) } : null; })()`);
+    let sizeOk = false, sizeNote = {};
+    if (field) {
+      const idx = { w: 0, d: 1, h: 2 }[field.axis], span = field.max - field.min, want = Math.round(field.value + (field.max - field.value >= field.value - field.min ? 1 : -1) * Math.max(2, span / 4));
+      const sizeOf = async () => JSON.parse(await selJson()).size[idx];
+      const s0 = await sizeOf();
+      await ev(`(() => { const i = document.querySelector('.psp-num[data-axis="${field.axis}"]'); i.scrollIntoView({ block: 'center' }); i.value = '${want}'; i.dispatchEvent(new Event('change', { bubbles: true })); })()`); await sleep(500);
+      const s1 = await sizeOf(); await undoApi(); await sleep(250); const s2 = await sizeOf(); await redoApi(); await sleep(250); const s3 = await sizeOf();
+      sizeOk = Math.abs(s1 * 100 - want) < 1.01 && s1 * 100 >= field.min - 0.01 && s1 * 100 <= field.max + 0.01 && Math.abs(s2 - s0) < 1e-9 && Math.abs(s3 - s1) < 1e-9;
+      sizeNote = { axis: field.axis, range: `${field.min}..${field.max} cm`, typed: want, kept: +(s1 * 100).toFixed(1), undo: +(s2 * 100).toFixed(1), redo: +(s3 * 100).toFixed(1) };
+    }
+    record('panel: a size field changes the size within its range (undo and redo)', sizeOk, sizeNote);
+    await tapSel('.psp-toggle'); await sleep(400); // closes the panel again
+    await undoApi(); await undoApi(); await undoApi(); await sleep(300); // size, colour, add
+    record('panel: undo takes back the whole session of changes', (await sig()) === sig0 && (await count()) === n00, { count: await count() });
+
+    // More: a copy of the selected piece
+    await ev(`window.__edit.session.select(${JSON.stringify(id)})`); await sleep(250);
+    const nDup0 = await count(); f2 = await frames();
+    await tapSel('#ps-edit button[data-edit="more"]'); await sleep(350);
+    const menuInfo = await ev(`JSON.stringify({ hidden: document.querySelector('#ps-edit-menu').hidden, items: [...document.querySelectorAll('#ps-edit-menu button')].map((b) => { const r = b.getBoundingClientRect(); return b.dataset.editItem + ' ' + Math.round(r.width) + 'x' + Math.round(r.height); }) })`);
+    await picture('18-more-menu');
+    await tapSel('#ps-edit-menu button[data-edit-item="duplicate"]'); await sleep(600); await redrawn(f2);
+    const nDup1 = await count(), dupSel = await selId();
+    record('More: Duplicate adds a copy and selects it', JSON.parse(menuInfo).hidden === false && nDup1 === nDup0 + 1 && !!dupSel && dupSel !== id, { menu: JSON.parse(menuInfo).items, count: `${nDup0} -> ${nDup1}`, selected: dupSel });
+    await undoApi(); await sleep(250);
+
+    // More: Save hands the layout over as a file, the text parses back to the same layout
+    await ev(`(() => { window.__saved = []; const orig = URL.createObjectURL.bind(URL); URL.createObjectURL = (b) => { window.__saved.push(b); return orig(b); }; })()`);
+    await ev(`window.__edit.session.select(${JSON.stringify(id)})`); await ev('window.__edit.session.duplicate()'); await sleep(300); // a layout that differs from the automatic one
+    const sigSaved = await sig();
+    await tapSel('#ps-edit button[data-edit="more"]'); await sleep(350);
+    await tapSel('#ps-edit-menu button[data-edit-item="save"]'); await sleep(800);
+    const saved = await ev(`(async () => { const b = window.__saved[0]; return b ? await b.text() : null; })()`);
+    const msgSaved = await ev(`document.querySelector('#ps-edit-msg')?.textContent ?? ''`);
+    const roundTrip = typeof saved === 'string' ? await ev(`(() => { const s = window.__edit.session, text = ${JSON.stringify(saved)}; let parsed = true; try { JSON.parse(text); } catch { parsed = false; } return JSON.stringify({ parsed, same: text === s.exportText() }); })()`) : '{}';
+    record('More: Save gives a file whose text starts with { and parses back to the layout', typeof saved === 'string' && saved.startsWith('{') && JSON.parse(roundTrip).parsed && JSON.parse(roundTrip).same, { startsWith: String(saved).slice(0, 1), bytes: String(saved).length, message: msgSaved, ...JSON.parse(roundTrip) });
+
+    // More: Paste loads the saved text back after the layout went back to the automatic one
+    await click('auto'); await sleep(500);
+    const sigAuto = await sig();
+    f2 = await frames();
+    await tapSel('#ps-edit button[data-edit="more"]'); await sleep(350);
+    await tapSel('#ps-edit-menu button[data-edit-item="paste"]'); await sleep(600);
+    const dlg = await rectOf('#ps-files-overlay .ps-files-dialog');
+    await picture('19-paste-dialog');
+    await ev(`(() => { const a = document.querySelector('#ps-files-text'); a.value = ${JSON.stringify(saved)}; a.dispatchEvent(new Event('input', { bubbles: true })); })()`);
+    await tapSel('#ps-files-overlay button.ps-files-load'); await sleep(800); await redrawn(f2);
+    const sigLoaded = await sig(), msgLoaded = await ev(`document.querySelector('#ps-edit-msg')?.textContent ?? ''`);
+    record('More: Paste layout brings the saved layout back', !!dlg && sigLoaded === sigSaved && sigAuto !== sigSaved && !!msgLoaded, { dialog: dlg ? `${Math.round(dlg.w)}x${Math.round(dlg.h)}` : null, message: msgLoaded, equalsSaved: sigLoaded === sigSaved });
+    await undoApi(); await sleep(300);
+    record('More: undo after loading goes back to the layout before', (await sig()) === sigAuto, {});
+    await undoApi(); await sleep(200); // the duplicate made before saving is not part of the automatic layout; the next undo is harmless when nothing is left
+
+    // a room: a tap on the floor of a room where no piece stands picks the room (outline), no piece stays selected
+    await ev('window.__edit.session.select(null)'); await sleep(250);
+    const spots = JSON.parse(await ev(`JSON.stringify((() => { const out = [], seen = new Set(); for (const lv of window.__edit.session.state.layout.levels) for (const p of lv.pieces) { const k = lv.id + '/' + p.room; if (seen.has(k)) continue; seen.add(k); const pt = window.__edit.freeFloor(lv.id, p.room); if (pt) out.push({ level: lv.id, room: p.room, x: pt.x, y: pt.y }); } return out; })())`));
+    if (spots.length) {
+      const spot = spots[0];
+      const picNo = await picture('20-before-room'); f2 = await frames();
+      await tap(spot.x, spot.y); await sleep(600); await redrawn(f2);
+      const picRoom = await picture('21-room-selected');
+      const roomId = await ev('window.__edit.selectedRoomId()'), pieceId = await selId(), roomInfo = await ev('JSON.stringify(window.__edit.session.selectedRoom())');
+      record('room: a tap on the floor picks the room, no piece is selected', roomId === spot.room && pieceId === null && picRoom !== picNo, { room: spot.room, level: spot.level, name: JSON.parse(roomInfo)?.name, pictureChanged: picRoom !== picNo });
+      const rc = await ev(`JSON.stringify(window.__edit.session.recolorRoom('floor', '#8a5a3c'))`);
+      const colorsNow = JSON.parse(await ev('JSON.stringify(window.__edit.session.selectedRoom()?.colors)'));
+      await undoApi(); await sleep(250);
+      const colorsUndone = JSON.parse(await ev('JSON.stringify(window.__edit.session.selectedRoom()?.colors ?? null)'));
+      record('room: recolouring the floor is one undo step', JSON.parse(rc).ok === true && colorsNow?.floor === '#8a5a3c' && !colorsUndone?.floor, { result: JSON.parse(rc), colors: colorsNow, afterUndo: colorsUndone });
+      // a tap beside the plan clears the selection (the corner of the picture is outside the model)
+      await tap(14, 14); await sleep(400);
+      record('room: a tap outside the plan clears the selection', (await ev('window.__edit.selectedRoomId()')) === null, { selectedRoom: await ev('window.__edit.selectedRoomId()') });
+    } else record('room: a tap on the floor picks the room, no piece is selected', false, { error: 'no free floor point found in any room' });
   }
 
   // 11. at rest the page draws nothing: no frames, nothing queued

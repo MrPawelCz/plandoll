@@ -13,9 +13,11 @@ const STR = {
 // Texts of the edit bar (shown with edit=1): the visible word, and the longer label for screen readers and tooltips.
 export const EDIT_STR = {
   en: { turn: 'Turn', turnLabel: 'Turn the selected piece by 90 degrees', remove: 'Delete', removeLabel: 'Delete the selected piece', undo: 'Undo', undoLabel: 'Undo the last change', redo: 'Redo', redoLabel: 'Redo the change you undid',
-    auto: 'Auto layout', autoLabel: 'Go back to the automatic layout', group: 'Edit the layout' },
+    auto: 'Auto', autoLabel: 'Go back to the automatic layout', more: 'More', moreLabel: 'More: duplicate, save and load the layout', group: 'Edit the layout',
+    duplicate: 'Duplicate', save: 'Save layout', load: 'Load from file', paste: 'Paste layout', menu: 'More actions' },
   pl: { turn: 'Obróć', turnLabel: 'Obróć zaznaczoną sztukę o 90 stopni', remove: 'Usuń', removeLabel: 'Usuń zaznaczoną sztukę', undo: 'Cofnij', undoLabel: 'Cofnij ostatnią zmianę', redo: 'Ponów', redoLabel: 'Ponów cofniętą zmianę',
-    auto: 'Auto układ', autoLabel: 'Wróć do układu automatycznego', group: 'Edycja układu' },
+    auto: 'Auto', autoLabel: 'Wróć do układu automatycznego', more: 'Więcej', moreLabel: 'Więcej: powiel, zapisz i wczytaj układ', group: 'Edycja układu',
+    duplicate: 'Powiel', save: 'Zapisz układ', load: 'Wczytaj z pliku', paste: 'Wklej układ', menu: 'Więcej działań' },
 };
 export const ERROR_TEXT = {
   en: { title: 'This page needs WebGL 2', body: 'Your browser or device did not give us a WebGL 2 context. Try a current Chrome, Edge, Firefox or Safari and make sure hardware acceleration is on.' },
@@ -53,6 +55,12 @@ const CSS = `
 #ps-edit button:hover:not([disabled]){background:rgba(200,121,58,.14)}
 #ps-edit button[disabled]{opacity:.36;cursor:default}
 #ps-edit button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+@media (max-width:430px){#ps-edit{gap:4px;padding:6px}#ps-edit button{padding:0 7px}}
+#ps-edit-menu{position:absolute;right:0;bottom:calc(100% + 8px);min-width:180px;display:grid;gap:4px;padding:6px;border-radius:16px;background:var(--paper);border:1px solid var(--line);box-shadow:0 8px 24px rgba(40,28,12,.26);-webkit-backdrop-filter:blur(12px);backdrop-filter:blur(12px)}
+#ps-edit-menu[hidden]{display:none}
+#ps-edit-menu button{justify-content:flex-start;padding:0 14px}
+#ps-edit-msg{position:absolute;left:50%;bottom:calc(100% + 8px);transform:translateX(-50%);max-width:calc(100vw - 24px);padding:5px 12px;border-radius:12px;background:var(--paper);border:1px solid var(--line);box-shadow:0 6px 18px rgba(40,28,12,.22);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;pointer-events:none}
+#ps-edit-msg:empty{display:none}
 #ps-edit-panel{position:fixed;right:10px;top:10px;max-width:calc(100vw - 20px);max-height:calc(100vh - 140px);overflow:auto}
 #ps-edit-panel:empty{display:none}
 #ps-card{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:#efe6d4;padding:24px;box-sizing:border-box}
@@ -139,9 +147,12 @@ export function createUI(handlers, state, doc = document) {
   return { root, update, hideHint: () => { if (hint) { hint.remove(); hint = null; } }, setVisible: (v) => { root.style.display = v ? '' : 'none'; if (hint) hint.style.display = v ? '' : 'none'; }, dispose: () => { root.remove(); hint?.remove(); } };
 }
 
-// The edit bar (edit=1): Turn, Delete, Undo, Redo and Auto layout, one row above the controls, every button at least 44 px; plus the empty
-// container #ps-edit-panel that other parts of the page fill. handlers: { onTurn(), onRemove(), onUndo(), onRedo(), onAuto() }.
-// update({ lang, selected, canUndo, canRedo }) sets the language and which buttons are enabled; `anchor` is the control bar that the edit bar sits above.
+// The edit bar (edit=1): Turn, Delete, Undo, Redo, Auto layout and More, one row above the controls, every button at least 44 px; More opens a
+// small menu above the bar (Duplicate, Save layout, Load from file, Paste layout) that closes on a tap outside or Escape; plus the empty
+// container #ps-edit-panel that other parts of the page fill. handlers: { onTurn(), onRemove(), onUndo(), onRedo(), onAuto(), onDuplicate(),
+// onSave(), onLoad(), onPaste() }. update({ lang, selected, canUndo, canRedo }) sets the language and which buttons are enabled; `anchor` is the
+// control bar that the edit bar sits above. say(text) shows one short line above the bar for a few seconds. The height of everything stacked at
+// the bottom (this bar, the mood caption, the controls) is published as the CSS variable --ps-stack-h on the root element.
 export function createEditBar(handlers, state = {}, doc = document, anchor = null) {
   injectStyles(doc);
   const root = doc.createElement('div'); root.id = 'ps-edit'; root.setAttribute('role', 'toolbar');
@@ -152,23 +163,60 @@ export function createEditBar(handlers, state = {}, doc = document, anchor = nul
     b.addEventListener('click', () => { if (!b.disabled) handlers[handler]?.(); });
     root.append(b); buttons[key] = b;
   }
+  const more = doc.createElement('button'); more.type = 'button'; more.dataset.edit = 'more'; more.setAttribute('aria-haspopup', 'true'); more.setAttribute('aria-expanded', 'false');
+  buttons.more = more; root.append(more);
+  const menu = doc.createElement('div'); menu.id = 'ps-edit-menu'; menu.setAttribute('role', 'menu'); menu.hidden = true;
+  const items = {};
+  const itemDefs = [['duplicate', 'onDuplicate'], ['save', 'onSave'], ['load', 'onLoad'], ['paste', 'onPaste']];
+  const setOpen = (v) => { menu.hidden = !v; more.setAttribute('aria-expanded', String(!!v)); };
+  for (const [key, handler] of itemDefs) {
+    const b = doc.createElement('button'); b.type = 'button'; b.dataset.editItem = key; b.setAttribute('role', 'menuitem');
+    b.addEventListener('click', () => { if (b.disabled) return; setOpen(false); handlers[handler]?.(); });
+    menu.append(b); items[key] = b;
+  }
+  more.addEventListener('click', () => setOpen(menu.hidden));
+  const msg = doc.createElement('div'); msg.id = 'ps-edit-msg'; msg.setAttribute('role', 'status');
+  root.append(menu, msg);
   const panel = doc.createElement('div'); panel.id = 'ps-edit-panel';
   doc.body.append(root, panel);
+  let msgTimer = null;
+  const timers = doc.defaultView ?? (typeof window !== 'undefined' ? window : globalThis);
+  function say(text, ms = 6000) {
+    msg.textContent = String(text ?? '');
+    if (msgTimer !== null) timers.clearTimeout?.(msgTimer);
+    msgTimer = text ? (timers.setTimeout?.(() => { msg.textContent = ''; msgTimer = null; }, ms) ?? null) : null;
+  }
+  // a tap outside the bar closes the menu; Escape closes it before anything else reacts to the key
+  const onOutside = (e) => { if (!menu.hidden && !root.contains?.(e.target)) setOpen(false); };
+  const onKey = (e) => { if (!menu.hidden && e.key === 'Escape') { setOpen(false); e.stopPropagation?.(); e.preventDefault?.(); } };
+  doc.addEventListener?.('pointerdown', onOutside, true); doc.addEventListener?.('keydown', onKey, true);
   function place() { // sits one line above the control bar (and the line of its mood caption), wherever the bar has grown to
     const h = anchor?.root?.offsetHeight || anchor?.offsetHeight || 0;
     root.style.bottom = `${(h ? h + 18 : 78) + 8 + 30}px`;
+    const top = root.getBoundingClientRect?.().top, vh = (typeof window !== 'undefined' && window.innerHeight) || 0;
+    if (Number.isFinite(top) && vh > 0 && top > 0) doc.documentElement?.style?.setProperty?.('--ps-stack-h', `${Math.round(vh - top)}px`);
   }
   function update(s = {}) {
     Object.assign(state, s);
     const L = EDIT_STR[state.lang] ?? EDIT_STR.en;
-    root.setAttribute('aria-label', L.group);
+    root.setAttribute('aria-label', L.group); menu.setAttribute('aria-label', L.menu);
     for (const [key] of defs) { buttons[key].textContent = L[key]; buttons[key].title = L[`${key}Label`]; buttons[key].setAttribute('aria-label', L[`${key}Label`]); }
-    buttons.turn.disabled = !state.selected; buttons.remove.disabled = !state.selected;
+    more.textContent = L.more; more.title = L.moreLabel; more.setAttribute('aria-label', L.moreLabel);
+    for (const [key] of itemDefs) items[key].textContent = L[key];
+    buttons.turn.disabled = !state.selected; buttons.remove.disabled = !state.selected; items.duplicate.disabled = !state.selected;
     buttons.undo.disabled = !state.canUndo; buttons.redo.disabled = !state.canRedo; buttons.auto.disabled = false;
     place();
   }
   const onResize = () => place();
   if (typeof window !== 'undefined') window.addEventListener('resize', onResize);
   update(state);
-  return { root, panel, buttons, update, place, dispose: () => { window.removeEventListener('resize', onResize); root.remove(); panel.remove(); } };
+  return {
+    root, panel, menu, items, buttons, update, place, say, setMenuOpen: setOpen,
+    dispose: () => {
+      if (typeof window !== 'undefined') window.removeEventListener('resize', onResize);
+      doc.removeEventListener?.('pointerdown', onOutside, true); doc.removeEventListener?.('keydown', onKey, true);
+      if (msgTimer !== null) timers.clearTimeout?.(msgTimer);
+      root.remove(); panel.remove();
+    },
+  };
 }
