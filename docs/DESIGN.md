@@ -92,7 +92,7 @@ An editor changes the Layout document (section 3, format unchanged, version 1) a
 
 - `catalog(lang)` (`src/furniture/catalog.js`): the list of pieces to choose from, `{ id, group, groupLabel, tier, label, size, range, slots: [{ name, label }], rooms, mode, elevation, onTop }`, ordered by group (the order of `GROUPS`), tier and id; `lang` is `'en'` or `'pl'`. `catalogGroups(lang)` gives the same as `[{ group, label, items }]`. Tier 3 entries (sideboard, vase, small wardrobe, sofa bed, wall shelf, bathroom cabinet and the other extras) are never placed by `autoFurnish`, which uses tiers 1 and 2; they are there for the person who edits.
 - `defaultSizeOf(type)`, `clampSize(type, size)` (millimetres, held inside the range, a value that is not a finite number is replaced by the default of that axis), `isResizable(type)`, `resizableAxes(type)`, `slotLabel(type, slot, lang)`.
-- `paletteOf(type, slot)` (`src/furniture/palettes.js`): `{ id, label, colors: [{ hex, name: { en, pl } }] }` with 8 to 12 colours, chosen from the material the builder uses for the slot (wood, fabric, painted, metal, ceramic and gloss, greens, glass and screens, picture tint). `defaultColorOf(type, slot)`: the `#rrggbb` the builder gives the slot; it is read from a piece built by the code, in the flat colour of the clay look (the textured look dresses a few materials richer), and for a slot with vertex colours it is the average.
+- `paletteOf(type, slot)` (`src/furniture/palettes.js`): `{ id, label, colors: [{ hex, name: { en, pl } }] }` with 8 to 12 colours, chosen from the material the builder uses for the slot (wood, fabric, painted, metal, ceramic and gloss, greens, glass and screens, picture tint). `defaultColorOf(type, slot, look = 'textured')`: the `#rrggbb` the slot has in that look. It is read from a piece built by the code (the flat colour of the clay look); for the textured look the colour of the material from `LOOK_COLOR` (`src/render/materials.js`) takes its place where the table has one (taupe sofa, walnut furniture, terracotta pots, green leaves); for a slot with vertex colours the result is the average. Only `'clay'` gives the flat colour.
 
 **Rebuilding.** `rebuildPiece(group, { size, colors, quality, look })` (`src/furniture/index.js`) returns a new group for the same piece with the changes applied:
 
@@ -101,6 +101,29 @@ An editor changes the Layout document (section 3, format unchanged, version 1) a
 - `userData.emitters` come from the new build (local positions). A list of lights in world space made from the old group has to be made again from the new one (`emittersOf` in `src/render/compose.js`).
 - The geometries of the old group are disposed; materials are shared and stay. Children that a caller added to the old group are not carried over. Rebuild a piece when its size or colours change, not on every pointer move: a drag of the position only moves the group.
 - Tinted materials are cached by colour; the cache is bounded (about 1500 entries, the oldest half is dropped when it overflows), so a free colour picker does not grow memory without limit.
+
+**Rooms.** `ROOM_PALETTES` (`src/furniture/palettes.js`) holds `wall` and `floor` lists of 8 to 12 entries `{ value, swatch, name: { en, pl } }`: `value` is what a layout stores for the room (`#rrggbb`, or `lib:<key>` of the material library) and `swatch` is the colour to draw in a picker. `roomPalette(kind, lang)` gives one list with the names in one language, or `null` for an unknown kind. The lists only offer colours; applying a colour to a room is the job of the scene.
+
+### Panel (src/app/panel.js)
+
+`createPanel({ doc, host, lang, session })` returns `{ element, refresh(), setLang(lang), dispose() }`. It adds one element (`#ps-panel`) to `host` (the body when missing) and, once, a `<style id="ps-panel-style">`; all its class names start with `psp-`. It keeps nothing in the browser, makes no requests and does not move, turn or delete a piece (that is the edit bar of the page), nor does it read or write files.
+
+It has two parts. **Add**: a button that opens a list; the groups of `catalogGroups(lang)` are collapsible sections (the first one starts open), every entry is a button at least 44 px high with the name, a tag for the extras (tier 3) and the rooms the piece suits (the first three, then a count). **Selected piece**, shown while `selected()` is not `null`: the name of the type, the problems of the piece as short lines, one number field in centimetres for every axis that has a range (`resizableAxes`, `min` and `max` from the range, step 1), and for every slot a bar of swatches: a "Default" swatch that shows `defaultColorOf(type, slot)` followed by the colours of `paletteOf(type, slot)`. A swatch is a button with `aria-pressed`, its name in `title` and `aria-label`.
+
+On a screen 760 px wide or narrower the sheet is fixed to the bottom edge, at most 55 percent of the screen high, and scrolls; the button stays at the top right. Wider screens get a column at the top right. Escape closes the list.
+
+What the panel needs from the session (`src/app/edit.js`; the tests use a stand-in with the same methods):
+
+| call | use |
+| --- | --- |
+| `selected()` | the selected layout piece `{ id, type, size?, colors? }` or `null`; the second part is rebuilt when `id` or `type` changes, otherwise only values are synced |
+| `problems()` | a list of `{ kind }`; `overlap`, `outside-room`, `floating-prop` are drawn red, `door-zone`, `stair`, `tall-before-window`, `unknown-type`, `bad-number` yellow, other kinds are not listed |
+| `add(type)` | called when an entry is touched; `{ ok: false, reason }` keeps the list open and shows a sentence for `no-room`, `limit-level`, `limit-total` (any other reason gets a general one) |
+| `resize({ w, d, h })` | metres, all three axes, held in the range by `clampSize`; called on `change` of a field and only when the value differs from the one in use |
+| `recolor(slot, color)` | a `#rrggbb` of the palette, or `null` for the default |
+| `subscribe(fn)` | any event refreshes the panel; the function it returns is called by `dispose()` |
+
+`refresh()` rebuilds only what changed. A field that has the focus keeps what is typed, and the number of nodes does not grow with the number of refreshes. `setLang(lang)` switches every text (`'pl'` or `'en'`). `tools/panel-sheet.mjs` builds a review page of the panel with the real catalogue and a stand-in session (see the header of `tools/panel-entry.js` for the hash options).
 
 ## 5. Layout engine (src/layout)
 

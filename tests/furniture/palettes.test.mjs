@@ -32,7 +32,7 @@ test('every slot of every type has a palette and a default colour', () => {
   for (const spec of SPECS) {
     for (const slot of spec.slots) {
       slots++;
-      const p = paletteOf(spec.id, slot), d = defaultColorOf(spec.id, slot);
+      const p = paletteOf(spec.id, slot), d = defaultColorOf(spec.id, slot, 'clay');
       assert.ok(p && PALETTES[p.id], `${spec.id}/${slot}: no palette`);
       assert.deepEqual(p, PALETTES[p.id], `${spec.id}/${slot}: not the palette it names`);
       assert.ok(p.colors.length >= 8, `${spec.id}/${slot}: short palette`);
@@ -52,11 +52,11 @@ test('the default colour is the colour of the biggest mesh of the slot in a fres
       assert.ok(ms.length >= 1, `${spec.id}/${slot}: no mesh`);
       const big = ms.reduce((a, b) => (area(b) > area(a) ? b : a));
       if (big.geometry.attributes.color) continue; // vertex colours (books, leaves): the default is the average, see the next test
-      assert.equal(defaultColorOf(spec.id, slot), `#${big.material.color.getHexString()}`, `${spec.id}/${slot}`);
+      assert.equal(defaultColorOf(spec.id, slot, 'clay'), `#${big.material.color.getHexString()}`, `${spec.id}/${slot}`);
     }
   }
-  assert.equal(defaultColorOf('toilet', 'ceramic'), '#ece7de', 'a known builder colour comes through');
-  assert.equal(defaultColorOf('sofa2', 'upholstery'), '#d8d2c8');
+  assert.equal(defaultColorOf('toilet', 'ceramic', 'clay'), '#ece7de', 'a known builder colour comes through');
+  assert.equal(defaultColorOf('sofa2', 'upholstery', 'clay'), '#d8d2c8');
 });
 
 test('a slot with vertex colours gets the average of its material and its vertex colours', () => {
@@ -65,8 +65,8 @@ test('a slot with vertex colours gets the average of its material and its vertex
   const col = books.geometry.attributes.color, n = col.count, sum = [0, 0, 0];
   for (let i = 0; i < n; i++) { sum[0] += col.getX(i); sum[1] += col.getY(i); sum[2] += col.getZ(i); }
   const want = new THREE.Color(books.material.color.r * sum[0] / n, books.material.color.g * sum[1] / n, books.material.color.b * sum[2] / n);
-  assert.equal(defaultColorOf('bookshelf', 'books'), `#${want.getHexString()}`);
-  assert.notEqual(defaultColorOf('bookshelf', 'books'), '#ffffff');
+  assert.equal(defaultColorOf('bookshelf', 'books', 'clay'), `#${want.getHexString()}`);
+  assert.notEqual(defaultColorOf('bookshelf', 'books', 'clay'), '#ffffff');
 });
 
 test('the palette follows the material of the slot, and every palette is used', () => {

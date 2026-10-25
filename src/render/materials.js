@@ -85,7 +85,7 @@ const TEXTURED = {
 };
 // The textured look dresses some materials richer than clay (clay keeps its calm pastel palette): the colour a material has in
 // the textured look. For a texture it is the tint (never brighter than the texture average), a plain material gets it as is.
-const LOOK_COLOR = {
+export const LOOK_COLOR = {
   'f:leaf1': '#5f9150', 'f:leaf2': '#4f8043', 'f:leaf3': '#78a65e', // leaves: green instead of pastel
   'f:wood': '#9c7048', // walnut furniture against the light oak floor
   'f:fabric': '#857d72', 'f:cushion': '#9b9387', // taupe sofa

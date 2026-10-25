@@ -2,13 +2,17 @@
 //
 //   PALETTES               the named palettes: { id, label: { en, pl }, colors: [{ hex, name: { en, pl } }] }, 8 to 12 colours each
 //   paletteOf(type, slot)  the palette that suits the slot (a copy), or null for an unknown type or slot
-//   defaultColorOf(type, slot)  '#rrggbb', the colour the builder gives the slot when `colors` does not mention it, or null
+//   defaultColorOf(type, slot, look = 'textured')
+//                          '#rrggbb', the colour the slot has when `colors` does not mention it in the given look, or null
+//   ROOM_PALETTES          { wall: [...], floor: [...] }, 8 to 12 entries each: { value, swatch, name: { en, pl } }
+//   roomPalette(kind, lang)  the entries of one list with the name in one language (a copy), or null for an unknown kind
 //
 // Which palette a slot gets follows the material the builder uses for it (wood, fabric, metal ...), so a new piece needs no entry
-// here. The default colour is read from a piece built by the code in ./pieces (flat colour of the clay look; the textured look
-// dresses a few materials richer), never typed in a second time.
+// here. The default colour is read from a piece built by the code in ./pieces and, for the textured look, from the table of colours
+// that look gives to a few materials (LOOK_COLOR in src/render/materials.js); it is never typed in a second time.
 import { specOf } from './specs.js';
 import { buildPiece } from './index.js';
+import { LOOK_COLOR } from '../render/materials.js';
 
 function palette(id, en, pl, list) {
   return { id, label: { en, pl }, colors: list.map(([hex, nameEn, namePl]) => ({ hex, name: { en: nameEn, pl: namePl } })) };
@@ -85,14 +89,16 @@ function probe(type) {
     if (!o.isMesh) return;
     const slot = o.userData.slot, a = area(o.geometry.boundingBox) * (o.userData.look ? 1 : 1000);
     if (out[slot] && out[slot].area >= a) return;
-    const c = o.material.color.clone(), col = o.geometry.attributes.color;
+    const base = o.material.color.clone(), c = base.clone(), col = o.geometry.attributes.color;
+    let vc = null;
     if (col) { // vertex colours multiply the material colour: the average of both is the colour the slot has on the whole
       let r = 0, gg = 0, b = 0;
       for (let i = 0; i < col.count; i++) { r += col.getX(i); gg += col.getY(i); b += col.getZ(i); }
       const n = Math.max(1, col.count);
-      c.setRGB(c.r * (r / n), c.g * (gg / n), c.b * (b / n));
+      vc = [r / n, gg / n, b / n];
+      c.setRGB(c.r * vc[0], c.g * vc[1], c.b * vc[2]);
     }
-    out[slot] = { area: a, key: o.userData.look?.mat ?? null, hex: `#${c.getHexString()}` };
+    out[slot] = { area: a, key: o.userData.look?.mat ?? null, base, vc, hex: `#${c.getHexString()}` };
   });
   g.traverse((o) => { if (o.isMesh) o.geometry.dispose(); });
   probes.set(type, out);
@@ -108,7 +114,40 @@ export function paletteOf(type, slot) {
   return copy(PALETTES[KEY_PALETTE[key] ?? SLOT_PALETTE[slot] ?? 'painted']);
 }
 
-export function defaultColorOf(type, slot) {
+// The clay look keeps the flat colour of the builder; any other look uses the colour the textured look gives the material (when the
+// table has one), multiplied with the average vertex colour of the slot like the flat colour is.
+export function defaultColorOf(type, slot, look = 'textured') {
   if (!hasSlot(type, slot)) return null;
-  return probe(type)?.[slot]?.hex ?? null;
+  const p = probe(type)?.[slot];
+  if (!p) return null;
+  const own = look === 'clay' ? undefined : LOOK_COLOR[p.key];
+  if (!own) return p.hex;
+  const c = p.base.clone().set(own);
+  if (p.vc) c.setRGB(c.r * p.vc[0], c.g * p.vc[1], c.b * p.vc[2]);
+  return `#${c.getHexString()}`;
+}
+
+// Walls and floors of a room. `value` is what a layout stores ('#rrggbb', or a key of the material library as 'lib:<key>'),
+// `swatch` is the colour to draw in a picker. The scene applies a value to the room; nothing here touches three.js.
+function swatches(list) {
+  return list.map(([value, en, pl, swatch]) => ({ value, swatch: swatch ?? value, name: { en, pl } }));
+}
+export const ROOM_PALETTES = {
+  wall: swatches([
+    ['#f4f0e8', 'Chalk white', 'Kredowa biel'], ['#ece4d4', 'Warm linen', 'Ciepły len'], ['#e3d3b8', 'Dune', 'Wydma'], ['#dcc2ad', 'Clay blush', 'Glinkowy róż'],
+    ['#cf9f82', 'Baked clay', 'Wypalona glina'], ['#c3cfc0', 'Sage mist', 'Szałwiowa mgiełka'], ['#a9bdb3', 'Eucalyptus', 'Eukaliptus'], ['#b9c9d6', 'Morning blue', 'Poranny błękit'],
+    ['#d7d4ce', 'Pebble', 'Otoczak'], ['#7f8b72', 'Olive grove', 'Gaj oliwny'], ['#5b6670', 'Slate', 'Łupek'], ['#3f464d', 'Night slate', 'Nocny łupek'],
+  ]),
+  floor: swatches([
+    ['#dcc59f', 'Pale oak', 'Dąb jasny'], ['#c7a67a', 'Natural oak', 'Dąb naturalny'], ['#a9825a', 'Warm oak', 'Dąb ciepły'], ['#8a6446', 'Walnut', 'Orzech'],
+    ['#5e4636', 'Smoked oak', 'Dąb wędzony'], ['#d9d3c7', 'Pale stone', 'Jasny kamień'], ['#a2a29e', 'Concrete', 'Beton'], ['#ebe7de', 'White tile', 'Biała płytka'],
+    ['#76878a', 'Slate tile', 'Płytka łupkowa'], ['#bba892', 'Oat carpet', 'Wykładzina owsiana'], ['#8b8f93', 'Grey carpet', 'Wykładzina szara'],
+  ]),
+};
+
+export function roomPalette(kind, lang = 'en') {
+  const list = Object.hasOwn(ROOM_PALETTES, kind) ? ROOM_PALETTES[kind] : null;
+  if (!list) return null;
+  const L = typeof lang === 'string' && lang.toLowerCase().startsWith('pl') ? 'pl' : 'en';
+  return list.map((e) => ({ value: e.value, swatch: e.swatch, name: e.name[L] }));
 }
