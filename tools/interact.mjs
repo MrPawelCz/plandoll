@@ -962,7 +962,8 @@ try {
           record('edit with the shell open: after the shell closes the moved piece stays where it was left, the layout is unchanged and the outline is on the piece', closed2 && Math.hypot(p1.x - p0.x, p1.y - p0.y) > 0.1 && p2.x === p1.x && p2.y === p1.y && (await layoutJson()) === layoutEdited && gapClosed !== null && gapClosed <= 4 && picEdited !== picClosed0, { moved: `${Math.hypot(p1.x - p0.x, p1.y - p0.y).toFixed(2)} m`, outlineGapPx: gapClosed, pictureChanged: picEdited !== picClosed0 });
           await click('undo'); await sleep(400);
           await ev('window.__edit.session.select(null)'); await sleep(500);
-          record('edit with the shell open: undoing the move brings the first layout and the first picture back exactly', (await layoutJson()) === layout0 && (await scenePicture('62-undone-closed')) === picClosed0, {});
+          const layoutBack = (await layoutJson()) === layout0, pictureBack = (await scenePicture('62-undone-closed')) === picClosed0;
+          record('edit with the shell open: undoing the move brings the first layout and the first picture back exactly', layoutBack && pictureBack, { layoutSame: layoutBack, pictureSameAsBefore: pictureBack });
         } else record('edit with the shell open: after the shell closes the moved piece stays where it was left, the layout is unchanged and the outline is on the piece', false, { error: 'the floor piece could not be tapped again' });
       }
     }
