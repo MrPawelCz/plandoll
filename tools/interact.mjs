@@ -823,7 +823,10 @@ try {
         let fq = await frames(), picBefore = await scenePicture(`52-${kind}-before`);
         await tap(c.pt.x, c.pt.y); await sleep(400); await redrawn(fq);
         const picSel = await scenePicture(`53-${kind}-selected`), gapSel = await gapOf(id);
-        record(N('a tap selects it and the outline is within 4 px of the piece as drawn'), (await selected()) === id && gapSel !== null && gapSel <= 4 && picSel !== picBefore, { piece: `${id} ${c.type}`, outlineGapPx: gapSel, pictureChanged: picSel !== picBefore });
+        // A tap only selects. The selection opens the sheet of the panel over the picture, perhaps under the finger (on a phone the details of the sheet stay unfolded from the pass before), and
+        // the browser sends the click of a touch tap to whatever is under the finger when it lifts: a colour swatch there would recolour the piece. The layout must be what it was.
+        const layoutSel = await layoutJson();
+        record(N('a tap selects it, changes nothing, and the outline is within 4 px of the piece as drawn'), (await selected()) === id && layoutSel === layoutStart && gapSel !== null && gapSel <= 4 && picSel !== picBefore, { piece: `${id} ${c.type}`, layoutSame: layoutSel === layoutStart, outlineGapPx: gapSel, pictureChanged: picSel !== picBefore });
         if ((await selected()) !== id) return;
         await foldSheet(); // a phone: the sheet must not cover the piece when the finger goes down on it again
 

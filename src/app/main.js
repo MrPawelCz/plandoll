@@ -17,7 +17,7 @@ import { frameRequest } from './capture.js';
 import { createLoop } from './loop.js';
 import { createUI, createEditBar, showErrorCard } from './ui.js';
 import { createEditSession, placeCheck } from './edit.js';
-import { NO_WEBGL2, hasWebgl2, failureDetail, planChoice, startState, partsOf, buildPlanParts, isFormTarget, shellKey, shellOn } from './shell.js';
+import { NO_WEBGL2, hasWebgl2, failureDetail, planChoice, startState, partsOf, buildPlanParts, isFormTarget, shellKey, shellOn, strayClick } from './shell.js';
 import { coverShare, isNarrow } from './stack.js';
 import { readPlanText } from './planfile.js';
 import { pickPiece, floorHit, slidePoint } from './pick.js';
@@ -463,6 +463,15 @@ try {
     };
     dom.addEventListener('pointerup', (e) => finish(e, false), true);
     dom.addEventListener('pointercancel', (e) => finish(e, true), true);
+    // The click of a touch tap goes to whatever is under the finger when it lifts. A tap on a piece (or on a floor) selects at once and the sheet of the panel opens over
+    // that part of the picture, so the click can land on a colour swatch, a size field or the header of a sheet that was not under the finger when it went down. A click that
+    // follows the lift of a pointer that went down on the picture, close to where it lifted, and is not for the picture itself, is dropped (strayClick in shell.js).
+    let lift = null;
+    dom.addEventListener('pointerup', (e) => { lift = { x: e.clientX, y: e.clientY, t: performance.now(), type: e.pointerType }; }, true);
+    addEventListener('click', (e) => {
+      if (!strayClick(lift, { x: e.clientX, y: e.clientY, onPicture: e.target === dom }, performance.now())) return;
+      lift = null; e.stopPropagation(); e.preventDefault();
+    }, true);
     // keys (not while a form field has the focus): Delete or Backspace removes, R turns, Ctrl or Cmd + Z undoes, with Shift (or Ctrl + Y) redoes, Escape clears the selection.
     // This listener comes before the shell's (onShellKey below): an Escape that cleared a selection is marked as taken, so the open shell stays open until the next one.
     addEventListener('keydown', (e) => {
