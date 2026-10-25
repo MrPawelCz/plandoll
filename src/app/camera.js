@@ -90,7 +90,7 @@ const dot3 = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 
 // bounds: { minX, maxX, minY, maxY, minZ, maxZ } in metres, all storeys; the 8 corners of the box are fitted. state: only azimuth and
 // polar are used. options: fov (vertical, degrees), aspect (width / height of the picture), margin (share of the half picture kept
-// free on every side), iterations (centring passes), bottom (share of the picture height, from the bottom edge, that bars cover, 0 to
+// free on every side), points (optional list of [x, y, z] that is fitted instead of the eight corners of `bounds`), iterations (centring passes), bottom (share of the picture height, from the bottom edge, that bars cover, 0 to
 // BOTTOM_MAX: the box is then fitted into the part above them). Returns { distance, target } with the distance within 0.5..500 m. Bad
 // input gives the centre of whatever bounds are usable (else the origin) and the state's own distance: never NaN.
 export const BOTTOM_MAX = 0.4;
@@ -111,7 +111,9 @@ export function fitView(state, bounds, options) {
   const sa = Math.sin(az), ca = Math.cos(az), sp = Math.sin(po), cp = Math.cos(po);
   const f = [-sp * sa, -cp, -sp * ca], r = [ca, 0, -sa], u = [-cp * sa, sp, -cp * ca];
   const corners = [];
-  for (const x of [b.minX, b.maxX]) for (const y of [b.minY, b.maxY]) for (const z of [b.minZ, b.maxZ]) corners.push([x, y, z]);
+  const own = Array.isArray(o.points) ? o.points.filter((p) => Array.isArray(p) && p.length === 3 && p.every(Number.isFinite)) : [];
+  if (own.length) corners.push(...own); // a list of points fitted instead of the eight corners (the open shell: the closed model and every wall lying flat)
+  else for (const x of [b.minX, b.maxX]) for (const y of [b.minY, b.maxY]) for (const z of [b.minZ, b.maxZ]) corners.push([x, y, z]);
 
   // For a target t: the smallest distance D at which every corner is inside the frame. A corner at v = c - t has the camera-space
   // offsets (v.r, v.u) and the depth D + v.f, and it fits while |v.r| <= k * depth * th * asp and |v.u| <= k * depth * th. Also where

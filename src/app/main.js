@@ -29,7 +29,7 @@ import { composeLayout, cutawayPieces, emittersOf, focusRoom, mergeByMaterial, s
 import { applyWallCut } from '../render/cutaway.js';
 import { createOpenShell } from '../render/openshell.js';
 import { stepClock, modeOf } from '../render/openmotion.js';
-import { openExtent, flatFootprint } from '../model/foldwalls.js';
+import { openExtent, openPoints, flatFootprint } from '../model/foldwalls.js';
 import { createCameraController, stateFrom, positionOf, nearSides, sameSides, sidesKey, viewOf, fitView, wrapDegrees, fillBoost, lowestOnPicture } from './camera.js';
 import flat from '../../examples/flat-1.plan.json';
 import duplex from '../../examples/duplex-1.plan.json';
@@ -77,6 +77,7 @@ try {
   const res = analyzePlan(plan); let model = buildModel(modelOf(res)); // model, ext, ps, stage, layout and focus are replaced when a plan is loaded
   let ext = modelExtent(model);
   let frameExt = params.shell ? openExtent(model, ext) : ext; // the box the camera and the stage keep in view: with shell=1 the closed and the open model together
+  let framePts = params.shell ? openPoints(model, ext) : undefined; // with shell=1 the camera fits these points (the closed model and every wall lying flat), a tighter fit than the box
   const makeScene = (m) => { const s = new PlanScene(m, 'textured'); s.setLabels(false); s.setArcs(false); s.setCeilings(false); return s; };
   let ps = makeScene(model);
   scene.add(ps.group);
@@ -99,7 +100,7 @@ try {
   let wantFit = params.cam !== 'close' && (params.shell || Math.abs(wrapDegrees(askAz - dh.azimuth + 180) - 180) > 1 || Math.abs(askPol - dh.polar) > 1); // with shell=1 the view is always fitted to the closed and the open model
   let cover = 0; // the share of the window height that the bars at the bottom cover (stack.js): the model is kept above it
   const fitPose = (p) => {
-    const fit = fitView({ azimuth: askAz, polar: askPol }, frameExt, { fov: p.fov, aspect: W / H, bottom: cover });
+    const fit = fitView({ azimuth: askAz, polar: askPol }, frameExt, { fov: p.fov, aspect: W / H, bottom: cover, points: framePts });
     return { ...p, target: fit.target, pos: positionOf({ azimuth: askAz, polar: askPol, distance: fit.distance }, fit.target) };
   };
   // The default view stays exactly as cameraFor gives it while the whole box shows above the bars; when its lowest corner would sit behind them (a tall
@@ -151,7 +152,8 @@ try {
 
   // The bars at the bottom (controls, edit bar) as a share of the window height on a narrow window (a phone), where they span the window; zero on a wide one,
   // where they are a small box in the middle, and when the picture is not the size of the window (a captured size).
-  const barsCover = () => (W === window.innerWidth && H === window.innerHeight && isNarrow(W) ? coverShare(['#ps-ui', '#ps-edit'].map((s) => document.querySelector(s)?.getBoundingClientRect() ?? null), H) : 0);
+  // With shell=1 the folded walls reach the bottom of the picture, so a wide window keeps the model above the bars too.
+  const barsCover = () => (W === window.innerWidth && H === window.innerHeight && (params.shell || isNarrow(W)) ? coverShare(['#ps-ui', '#ps-edit'].map((s) => document.querySelector(s)?.getBoundingClientRect() ?? null), H) : 0);
   function frameCamera() {
     cover = barsCover();
     pose = cameraFor(frameExt, W / H, params.cam, focus);
@@ -213,7 +215,7 @@ try {
     if (!built) return false;
     if (furn) { disposeComposed(furn.group, furn.merged?.group); furn = null; }
     scene.remove(ps.group); ps.dispose(); stage.dispose();
-    model = built.model; ext = built.ext; frameExt = params.shell ? openExtent(model, ext) : ext; ps = built.scene; layout = built.layout; curLayout = layout; focus = focusRoom(model, layout);
+    model = built.model; ext = built.ext; frameExt = params.shell ? openExtent(model, ext) : ext; framePts = params.shell ? openPoints(model, ext) : undefined; ps = built.scene; layout = built.layout; curLayout = layout; focus = focusRoom(model, layout);
     scene.add(ps.group);
     shell = params.shell ? createOpenShell(ps, model) : null; shellTarget = 0; S.shellOpen = false; ui?.update(S); // a new plan starts closed
     stage = createStage({ renderer, scene, bounds: frameExt, quality: level, preset: S.preset, t: S.t });

@@ -68,6 +68,18 @@ export function openExtent(model, ext, walls = foldWalls(model)) {
   return e;
 }
 
+// The points the camera keeps in the picture with the shell: the eight corners of the closed model and the corners of every wall lying flat (at the height of its
+// foot line and of its inner face). Fitting these is tighter than fitting the box round them, which also holds the empty air above the flat walls.
+export function openPoints(model, ext, walls = foldWalls(model)) {
+  const pts = [];
+  for (const x of [ext.minX, ext.maxX]) for (const y of [ext.minY, ext.maxY]) for (const z of [ext.minZ, ext.maxZ]) pts.push([x, y, z]);
+  for (const f of walls) {
+    const base = (Number(model.levels[f.level]?.elevation) || 0) + f.y;
+    for (const [x, z] of flatFootprint(f)) { pts.push([x, base, z]); pts.push([x, base + f.thickness, z]); }
+  }
+  return pts;
+}
+
 // The matrix (4 x 4, column-major, as THREE.Matrix4.fromArray reads it) that turns a wall by `deg` degrees about its foot line towards the
 // outside, in level space. 0 gives the identity; 90 lays the wall flat with its inner face up.
 export function hingeMatrix(f, deg) {
