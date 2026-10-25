@@ -33,11 +33,14 @@ const own = live ? new URL(opt.html).origin + '/' : null;
 const out = opt.out ? resolve(opt.out) : null;
 if (out) mkdirSync(out, { recursive: true });
 
+// Software GL by default (swiftshader); PS_ANGLE=metal draws on the GPU where the machine has one.
+const ANGLE = process.env.PS_ANGLE || 'swiftshader';
+const GL_FLAGS = ANGLE === 'swiftshader' ? ['--enable-unsafe-swiftshader'] : ['--ignore-gpu-blocklist', '--enable-gpu-rasterization'];
 const CHROME = process.env.CHROME || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 const PORT = 9400 + Math.floor(Math.random() * 400);
 const profile = mkdtempSync(join(tmpdir(), 'planstage-chrome-'));
 const chrome = spawn('nice', ['-n', '19', CHROME, '--headless=new', `--remote-debugging-port=${PORT}`, `--user-data-dir=${profile}`,
-  '--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--no-first-run', '--no-default-browser-check', '--disable-extensions',
+  '--use-gl=angle', `--use-angle=${ANGLE}`, ...GL_FLAGS, '--no-first-run', '--no-default-browser-check', '--disable-extensions',
   '--hide-scrollbars', `--window-size=${W},${H}`, 'about:blank'], { stdio: 'ignore' });
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 let ws, id = 0;
