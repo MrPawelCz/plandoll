@@ -156,13 +156,15 @@ test('mergeByMaterial keeps every triangle and the same outline with far fewer m
   cutawayPieces(c.pieces, modelExtent(model));
   const stats = (roots) => {
     let tris = 0, meshes = 0; const box = new THREE.Box3();
-    for (const root of roots) { root.updateMatrixWorld(true); root.traverse((o) => { if (!o.isMesh) return; meshes++; const g = o.geometry; tris += (g.index ? g.index.count : g.attributes.position.count) / 3; box.union(new THREE.Box3().setFromObject(o)); }); }
+    for (const root of roots) { root.updateMatrixWorld(true); root.traverse((o) => { if (!o.isMesh || o.name === 'contact-shadows') return; meshes++; const g = o.geometry; tris += (g.index ? g.index.count : g.attributes.position.count) / 3; box.union(new THREE.Box3().setFromObject(o)); }); }
     return { tris, meshes, box };
   };
   const before = stats([...c.pieces.values()].filter((g) => g.visible)), merged = mergeByMaterial(c), after = stats([merged.group]);
   assert.equal(after.tris, before.tris, 'no triangle lost');
   assert.ok(after.meshes < before.meshes / 2, `${after.meshes} merged meshes from ${before.meshes}`);
-  assert.equal(merged.meshes, after.meshes);
+  const contact = merged.group.getObjectByName('contact-shadows');
+  assert.ok(contact, 'the standing pieces share one soft footprint mesh');
+  assert.equal(merged.meshes, after.meshes + 1, 'the footprints are one extra draw call');
   for (const k of ['x', 'y', 'z']) { assert.ok(Math.abs(after.box.min[k] - before.box.min[k]) < 1e-5 && Math.abs(after.box.max[k] - before.box.max[k]) < 1e-5, `outline ${k}`); }
   assert.equal(c.pieces.size, countOf(layout), 'the per-piece map is untouched');
 });

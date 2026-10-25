@@ -5,7 +5,7 @@ import { mat, floorMat, floorName, texScale, paintMat, LOOKS } from './materials
 import { MATERIAL_KEYS } from './library.js';
 import { buildFurniture, SCENE_MESHES } from '../furniture/legacy.js';
 import { levelOffsets } from '../model/geometry.js';
-import { boxGeometry, setBoxUV } from './uv.js';
+import { boxGeometry, setBoxUV, setPaneUV } from './uv.js';
 import { roomArea, formatArea } from '../model/areas.js';
 
 const UNIT_BOX = new THREE.BoxGeometry(1, 1, 1);
@@ -155,7 +155,8 @@ export class PlanScene {
     m.scale.set(b.sx, 1, b.sz);
     // Texture frame: metres along the box's own axes, so a texture runs on along a wall and over the steps of a stair.
     const ca = Math.cos(b.angle), sa = Math.sin(b.angle);
-    m.pw = { mat: b.mat, box: true, uv: { u: b.cx * ca + b.cy * sa, w: -b.cx * sa + b.cy * ca, sx: b.sx, sz: b.sz, k: texScale(b.mat), swap: TURNED.has(b.mat) } }; // not in userData: that goes into the GLB
+    if (b.mat === 'glass') { m.pw = { mat: b.mat, box: true, pane: true }; setPaneUV(m.geometry); } // a pane shows one picture, not a metric texture
+    else m.pw = { mat: b.mat, box: true, uv: { u: b.cx * ca + b.cy * sa, w: -b.cx * sa + b.cy * ca, sx: b.sx, sz: b.sz, k: texScale(b.mat), swap: TURNED.has(b.mat) } }; // not in userData: that goes into the GLB
     const y0 = b.y0 <= 1e-6 ? b.y0 - drop : b.y0;
     place(m, y0, b.y1);
     m.castShadow = b.mat !== 'glass';
@@ -174,7 +175,22 @@ export class PlanScene {
       parent.add(cap);
       entry.cap = cap;
     }
+    if (b.mat === 'leaf' && b.sx > 0.4 && b.y1 - b.y0 > 1.5) this._handle(parent, b, y0);
     return m;
+  }
+
+  // A door handle: one small steel bar through the leaf near its free end, at hand height. It is cut together with the walls.
+  _handle(parent, b, y0) {
+    const h0 = y0 + 0.84, h1 = h0 + 0.035, dx = b.sx / 2 - 0.08;
+    const m = new THREE.Mesh(boxGeometry(), mat('f:steel'));
+    m.name = `${b.name}/handle`;
+    m.position.set(b.cx + Math.cos(b.angle) * dx, 0, b.cy + Math.sin(b.angle) * dx);
+    m.rotation.y = -b.angle;
+    m.scale.set(0.12, 1, b.sz + 0.07);
+    m.pw = { mat: 'f:steel', box: true };
+    place(m, h0, h1);
+    parent.add(m);
+    this.cuttables.push({ mesh: m, y0: h0, y1: h1 });
   }
 
   _level(lv) {

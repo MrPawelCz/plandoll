@@ -21,6 +21,16 @@ export function boxGeometry() {
   return g;
 }
 
+// uv for a window pane: the whole picture on each large face (u along the pane, v up), whatever the size of the pane.
+export function setPaneUV(g) {
+  const uv = g.getAttribute('uv');
+  for (let i = 0; i < POSITION.count; i++) {
+    const side = NORMAL.getZ(i) < 0 ? -1 : 1; // seen from the back the picture is not mirrored
+    uv.setXY(i, 0.5 + side * POSITION.getX(i), 0.5 + POSITION.getY(i));
+  }
+  uv.needsUpdate = true;
+}
+
 // swap turns the pattern a quarter turn (a grain that ran along the box now runs across it).
 export function setBoxUV(g, cx, cy, cz, sx, sy, sz, k, swap = false) {
   const uv = g.getAttribute('uv');

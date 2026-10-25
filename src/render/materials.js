@@ -103,7 +103,7 @@ const SURFACE = {
   'floor-carpet': { rough: 1, normal: 0.7 },
   'floor-stone': { rough: 0.72, normal: 0.8 },
   'floor-concrete': { rough: 0.7, normal: 0.6 },
-  'wall-plaster': { rough: 0.95, normal: 0.25 },
+  'wall-plaster': { rough: 0.9, normal: 0.45 },
   'wood-furniture': { rough: 0.6, normal: 0.6 },
   fabric: { rough: 1, normal: 0.8 },
   rug: { rough: 1, normal: 0.7 },

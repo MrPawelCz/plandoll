@@ -6,7 +6,8 @@ import { sunPosition } from './timeofday.js';
 import { getLevel } from './quality.js';
 
 export const MAX_POINT_LIGHTS = 6;
-export const LAMP_BASE_INTENSITY = 6.5; // candela-ish for an emitter with power 1 (a table lamp); a floor lamp is about 2
+export const LAMP_RANGE = 5.5; // metres: a lamp lights a pool of this radius and no more (smooth cut-off, inverse square inside)
+export const LAMP_BASE_INTENSITY = 4.6; // candela-ish for an emitter with power 1 (a table lamp); a floor lamp is about 2
 
 const toVec = (p) => (Array.isArray(p) ? new THREE.Vector3(p[0], p[1], p[2]) : new THREE.Vector3(p.x, p.y, p.z));
 
@@ -50,7 +51,7 @@ export function createRig({ group, renderer = null, quality = 'medium', target =
   }
 
   const pool = [];
-  for (let i = 0; i < MAX_POINT_LIGHTS; i++) { const l = new THREE.PointLight('#ffb064', 0, 0, 2); l.visible = false; group.add(l); pool.push({ light: l, power: 1 }); }
+  for (let i = 0; i < MAX_POINT_LIGHTS; i++) { const l = new THREE.PointLight('#ffb064', 0, LAMP_RANGE, 2); l.visible = false; group.add(l); pool.push({ light: l, power: 1 }); }
   let emitters = [];
   let level = getLevel(quality);
   let lampK = 0;

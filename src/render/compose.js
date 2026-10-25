@@ -6,6 +6,7 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { buildPiece, applyLook } from '../furniture/index.js';
 import { hashStr } from '../furniture/kit.js';
 import { specOf } from '../furniture/specs.js';
+import { contactMesh } from './contact.js';
 
 // Wall heights of the cutaway view: the outer walls that face the camera are low, the other outer walls stay tall, partitions in
 // between are half height. `near` says which edges of the plan face the camera ({ north, south, west, east } as booleans, see
@@ -115,7 +116,7 @@ export function focusRoom(model, layout) {
 
 // Lamp shades glow as the evening comes on: the emissive intensity of every shade material is scaled from its own base value.
 export function setLampGlow(root, k) {
-  const seen = new Set(), f = 0.35 + 2.6 * Math.min(1, Math.max(0, Number(k) || 0));
+  const seen = new Set(), f = 0.35 + 1.5 * Math.min(1, Math.max(0, Number(k) || 0));
   root.traverse((o) => {
     if (!o.isMesh || o.userData.slot !== 'shade') return;
     const m = o.material;
@@ -156,6 +157,8 @@ export function mergeByMaterial(composed, skip = null) {
     const m = new THREE.Mesh(merged, b.material); m.castShadow = b.cast; m.receiveShadow = b.receive; m.name = `merged:${b.material.name || meshes}`;
     out.add(m); meshes++;
   }
+  const contact = contactMesh(composed.pieces, skip); // one soft footprint patch per piece standing on the floor
+  if (contact) { out.add(contact); meshes++; }
   return { group: out, meshes };
 }
 

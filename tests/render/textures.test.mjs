@@ -33,7 +33,7 @@ const MAX_WINDOW_STD = {
   'floor-carpet': 9,
   'floor-stone': 11, // grout lines
   'floor-concrete': 6,
-  'wall-plaster': 3,
+  'wall-plaster': 5,
   'wood-furniture': 8,
   fabric: 14, // the weave itself
   rug: 14, // diamond edges between the two tones

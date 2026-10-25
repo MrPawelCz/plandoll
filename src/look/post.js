@@ -9,6 +9,9 @@ import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { getLevel, effectivePixelRatio } from './quality.js';
 
+// Only the brightest spots bloom: a lit lamp shade or a window, not a sunlit floor. A higher value keeps lamps readable.
+export const BLOOM_THRESHOLD = 1.9;
+
 export const FinalShader = {
   uniforms: { tDiffuse: { value: null }, vig: { value: 0.3 }, tilt: { value: 1 }, taps: { value: 12 }, grain: { value: 1 }, res: { value: new THREE.Vector2(1, 1) } },
   vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
@@ -49,8 +52,8 @@ export function createPost({ renderer, scene, camera, width, height, quality = '
     level = getLevel(name);
     pr = effectivePixelRatio(level.id, devicePixelRatio);
     gtao.enabled = level.aoOn;
-    gtao.updateGtaoMaterial({ radius: 0.45, distanceExponent: 1.4, thickness: 1.2, scale: 1.4, samples: level.aoSamples, distanceFallOff: 1.0, screenSpaceRadius: false });
-    gtao.updatePdMaterial({ lumaPhi: 10, depthPhi: 2, normalPhi: 3, radius: 5, rings: 2, samples: level.aoPdSamples });
+    gtao.updateGtaoMaterial({ radius: 0.45, distanceExponent: 1.4, thickness: 0.7, scale: 1.4, samples: level.aoSamples, distanceFallOff: 1.0, screenSpaceRadius: false });
+    gtao.updatePdMaterial({ lumaPhi: 12, depthPhi: 2, normalPhi: 3, radius: 7, rings: 3, samples: level.aoPdSamples });
     scaleSetSize(gtao, level.aoScale); scaleSetSize(bloom, level.bloomScale);
     bloom.enabled = level.bloomOn;
     for (const t of [composer.renderTarget1, composer.renderTarget2]) { t.samples = level.msaa; t.dispose(); } // recreated lazily with the new sample count
@@ -67,7 +70,7 @@ export function createPost({ renderer, scene, camera, width, height, quality = '
   // k: interpolated look from timeofday.sample.
   let lastK = null;
   // A bloom at a lower resolution spreads wider on screen, so strength and radius shrink with the bloom scale.
-  function setLook(k) { lastK = k; bloom.strength = k.bloom * (0.55 + 0.45 * level.bloomScale); bloom.radius = 0.4 * (0.5 + 0.5 * level.bloomScale); final.uniforms.vig.value = k.vig; renderer.toneMappingExposure = k.exp; }
+  function setLook(k) { lastK = k; bloom.strength = k.bloom * (0.55 + 0.45 * level.bloomScale); bloom.radius = 0.3 * (0.5 + 0.5 * level.bloomScale); bloom.threshold = BLOOM_THRESHOLD; final.uniforms.vig.value = k.vig; renderer.toneMappingExposure = k.exp; }
 
   applyLevel(level.id);
   return { composer, passes: { render, gtao, bloom, output, final }, render: () => composer.render(), resize, setQuality: applyLevel, setLook,

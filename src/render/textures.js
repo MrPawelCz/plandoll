@@ -385,14 +385,14 @@ function genConcrete(size, seed, color, height, avg) {
   }
 }
 
-// Matt paint on plaster: almost flat, a faint orange peel and a very slow drift so the wall stays calm.
+// Matt paint on plaster: a soft orange peel and a slow drift of tone, enough to read as a painted wall from the default view.
 function genPlaster(size, seed, color, height, avg) {
   const peel = noiseField(size, size >> 2, size >> 2, 2, seed + 1);
   const drift = noiseField(size, 3, 3, 3, seed + 2);
   for (let y = 0; y < size; y++) {
     for (let x = 0; x < size; x++) {
       const i = y * size + x, w = wn(x, y, seed + 3);
-      const lum = 1 + 0.0075 * peel[i] + 0.005 * drift[i] + 0.003 * w;
+      const lum = 1 + 0.009 * peel[i] + 0.018 * drift[i] + 0.003 * w;
       put(color, i * 4, avg[0] * lum * (1 + 0.0015 * drift[i]), avg[1] * lum, avg[2] * lum * (1 - 0.002 * drift[i]));
       height[i] = peel[i] + 0.5 * w;
     }

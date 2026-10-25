@@ -11,14 +11,14 @@ export const DAY_SPAN_HOURS = 17;
 const K = (t, o) => Object.freeze({ t, ...o });
 
 export const KEYFRAMES = Object.freeze([
-  K(0.0, { sunC: '#ffb48a', sunI: 1.3, sky: '#9aa4c8', gnd: '#4a4048', hemiI: 0.5, envI: 0.22, exp: 0.95, winC: '#ffd2aa', winI: 1.1, lampK: 0.5, bnc: 0.25, bncC: '#ffcba0', bloom: 0.3, vig: 0.3, bgTop: '#b9bfd6', bgBot: '#e9d3c0', glow: '#ffc08a', glowA: 0.35 }),
+  K(0.0, { sunC: '#ffb48a', sunI: 1.3, sky: '#9aa4c8', gnd: '#4a4048', hemiI: 0.5, envI: 0.22, exp: 0.95, winC: '#ffd2aa', winI: 1.1, lampK: 0.5, bnc: 0.25, bncC: '#ffcba0', bloom: 0.22, vig: 0.3, bgTop: '#b9bfd6', bgBot: '#e9d3c0', glow: '#ffc08a', glowA: 0.35 }),
   K(0.18, { sunC: '#fff0dc', sunI: 2.4, sky: '#e4ecff', gnd: '#d9cdb8', hemiI: 0.65, envI: 0.36, exp: 0.95, winC: '#f2f6ff', winI: 1.0, lampK: 0.0, bnc: 0.3, bncC: '#ffe8cc', bloom: 0.1, vig: 0.22, bgTop: '#cfd9ea', bgBot: '#efe9df', glow: '#f4f7ff', glowA: 0.3 }),
   K(0.4, { sunC: '#fffbf4', sunI: 2.7, sky: '#e8f0ff', gnd: '#ddd2c0', hemiI: 0.65, envI: 0.42, exp: 0.85, winC: '#eef5ff', winI: 1.1, lampK: 0.0, bnc: 0.32, bncC: '#fff0da', bloom: 0.1, vig: 0.2, bgTop: '#d4dff0', bgBot: '#f1ece3', glow: '#ffffff', glowA: 0.35 }),
-  K(0.62, { sunC: '#ffe0b0', sunI: 3.3, sky: '#f4dcc0', gnd: '#6a5444', hemiI: 0.6, envI: 0.35, exp: 1.0, winC: '#ffdcae', winI: 1.4, lampK: 0.05, bnc: 0.38, bncC: '#ffcf9a', bloom: 0.3, vig: 0.26, bgTop: '#d8c6bd', bgBot: '#ecd4b8', glow: '#ffd8a0', glowA: 0.45 }),
-  K(0.735, { sunC: '#ff9a44', sunI: 3.0, sky: '#ffc08a', gnd: '#5a4033', hemiI: 0.42, envI: 0.24, exp: 0.95, winC: '#ffb25f', winI: 1.2, lampK: 0.4, bnc: 0.42, bncC: '#ffb070', bloom: 0.3, vig: 0.34, bgTop: '#b79aa6', bgBot: '#e0b48c', glow: '#ff9a55', glowA: 0.55 }),
-  K(0.83, { sunC: '#7f86c0', sunI: 0.9, sky: '#6e5f94', gnd: '#241a2a', hemiI: 0.34, envI: 0.12, exp: 1.1, winC: '#7f78b4', winI: 0.8, lampK: 0.85, bnc: 0.3, bncC: '#ff9f60', bloom: 0.34, vig: 0.44, bgTop: '#5a5586', bgBot: '#2b2540', glow: '#ff9a5a', glowA: 0.6 }),
-  K(0.95, { sunC: '#8fa8ff', sunI: 0.9, sky: '#4a5f94', gnd: '#10131c', hemiI: 0.28, envI: 0.08, exp: 1.1, winC: '#6282c8', winI: 0.5, lampK: 1.0, bnc: 0.26, bncC: '#ffa860', bloom: 0.36, vig: 0.5, bgTop: '#243252', bgBot: '#0f1426', glow: '#ffb060', glowA: 0.7 }),
-  K(1.0, { sunC: '#8fa8ff', sunI: 0.9, sky: '#4a5f94', gnd: '#10131c', hemiI: 0.28, envI: 0.08, exp: 1.1, winC: '#6282c8', winI: 0.5, lampK: 1.0, bnc: 0.26, bncC: '#ffa860', bloom: 0.36, vig: 0.5, bgTop: '#243252', bgBot: '#0f1426', glow: '#ffb060', glowA: 0.7 }),
+  K(0.62, { sunC: '#ffe0b0', sunI: 3.3, sky: '#f4dcc0', gnd: '#6a5444', hemiI: 0.6, envI: 0.35, exp: 1.0, winC: '#ffdcae', winI: 1.4, lampK: 0.05, bnc: 0.38, bncC: '#ffcf9a', bloom: 0.2, vig: 0.26, bgTop: '#d8c6bd', bgBot: '#ecd4b8', glow: '#ffd8a0', glowA: 0.45 }),
+  K(0.735, { sunC: '#ff9a44', sunI: 3.0, sky: '#ffc08a', gnd: '#5a4033', hemiI: 0.42, envI: 0.24, exp: 0.95, winC: '#ffb25f', winI: 1.2, lampK: 0.4, bnc: 0.42, bncC: '#ffb070', bloom: 0.15, vig: 0.34, bgTop: '#b79aa6', bgBot: '#e0b48c', glow: '#ff9a55', glowA: 0.55 }),
+  K(0.83, { sunC: '#7f86c0', sunI: 0.9, sky: '#6e5f94', gnd: '#241a2a', hemiI: 0.34, envI: 0.12, exp: 1.1, winC: '#7f78b4', winI: 0.8, lampK: 0.85, bnc: 0.3, bncC: '#ff9f60', bloom: 0.15, vig: 0.44, bgTop: '#5a5586', bgBot: '#2b2540', glow: '#ff9a5a', glowA: 0.6 }),
+  K(0.95, { sunC: '#8fa8ff', sunI: 0.9, sky: '#4a5f94', gnd: '#10131c', hemiI: 0.28, envI: 0.08, exp: 1.1, winC: '#6282c8', winI: 0.5, lampK: 1.0, bnc: 0.26, bncC: '#ffa860', bloom: 0.14, vig: 0.5, bgTop: '#243252', bgBot: '#0f1426', glow: '#ffb060', glowA: 0.7 }),
+  K(1.0, { sunC: '#8fa8ff', sunI: 0.9, sky: '#4a5f94', gnd: '#10131c', hemiI: 0.28, envI: 0.08, exp: 1.1, winC: '#6282c8', winI: 0.5, lampK: 1.0, bnc: 0.26, bncC: '#ffa860', bloom: 0.14, vig: 0.5, bgTop: '#243252', bgBot: '#0f1426', glow: '#ffb060', glowA: 0.7 }),
 ]);
 
 export const COLOR_FIELDS = Object.freeze(['sunC', 'sky', 'gnd', 'winC', 'bncC', 'bgTop', 'bgBot', 'glow']);

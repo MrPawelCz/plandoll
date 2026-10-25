@@ -9,6 +9,7 @@ import { getLevel } from './quality.js';
 import { backdropCrop } from './crop.js';
 import { mat } from '../render/materials.js';
 import { setTextureAnisotropy } from '../render/materials.js';
+import { setContactLook } from '../render/contact.js';
 
 // ---------- palette tints (they multiply the procedural textures of the material library) ----------
 export function applyPalette(P) {
@@ -100,6 +101,22 @@ function poolAlphaTexture() {
 
 // options: { renderer, scene, bounds: { minX, maxX, minZ, maxZ, minY, maxY }, quality, preset, t }
 // Returns { group, applyTime(t), setPreset(name), setQuality(level), setEmitters(list), dispose(), ... }.
+// What the window panes show: a pale sky that deepens towards the top and two rows of far towers. Grey values only, because the
+// pane multiplies it by the glow colour of the hour (day, dusk, night). Small and drawn once; the filtering blurs it into a view.
+function windowViewTexture() {
+  const c = document.createElement('canvas'); c.width = 128; c.height = 64;
+  const x = c.getContext('2d'), r = lcg(77);
+  const sky = x.createLinearGradient(0, 0, 0, 64);
+  sky.addColorStop(0, '#9db9f0'); sky.addColorStop(0.55, '#e4eeff'); sky.addColorStop(1, '#ffffff');
+  x.fillStyle = sky; x.fillRect(0, 0, 128, 64);
+  for (const [shade, lo, hi] of [['#c3cde0', 12, 24], ['#7d889f', 6, 18]]) {
+    x.fillStyle = shade;
+    for (let px = 0, n = 0; px < 128 && n < 40; n++) { const w = 6 + Math.floor(r() * 10), h = lo + Math.floor(r() * (hi - lo)); x.fillRect(px, 64 - h, w, h); px += w + Math.floor(r() * 3); }
+  }
+  const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace; tex.name = 'window-view';
+  return tex;
+}
+
 export function createStage(options = {}) {
   const { renderer = null, scene = null, quality = 'medium' } = options;
   const b = { minX: 0, maxX: 8, minZ: 0, maxZ: 6, minY: -0.15, maxY: 2.6, ...(options.bounds || {}) };
@@ -132,6 +149,7 @@ export function createStage(options = {}) {
   if (scene) { scene.add(group); scene.background = bgTex; if (rig.environment) scene.environment = rig.environment; }
 
   const glass = mat('glass'); glass.transparent = true; glass.opacity = 0.9; glass.color.set('#ffffff'); glass.roughness = 0.1;
+  const view = windowViewTexture(); glass.map = view; glass.emissiveMap = view; glass.envMapIntensity = 1.6; glass.needsUpdate = true;
   washWalls();
   setTextureAnisotropy(getLevel(quality).anisotropy);
 
@@ -143,11 +161,14 @@ export function createStage(options = {}) {
     const k = sample(t); state.t = k.t; state.look = k; state.clockText = clock(k.t).text;
     const res = rig.applyTime(k, k.t); state.lampK = res.lampK; state.sun = res.sun;
     if (scene && rig.environment) scene.environmentIntensity = k.envI;
+    setContactLook(k);
     glass.emissive.set(k.winC); glass.emissiveIntensity = k.winI; glass.color.set(k.winC).multiplyScalar(0.25);
     const sig = k.bgTop + k.bgBot + k.glow + k.glowA.toFixed(2);
     if (sig !== lastBg) { lastBg = sig; paintBackdrop(bg, k); bgTex.needsUpdate = true; }
-    tableMat.color.set(k.bgBot).lerp(new THREE.Color('#d9cdb8'), 0.55);
-    paper.color.set('#efe6d4').lerp(new THREE.Color(k.sky), 0.06);
+    // At night the base turns dark too (a pale slab under a night scene reads as unlit paper).
+    const night = Math.min(1, Math.max(0, (k.lampK - 0.55) / 0.35)), dark = night * night * (3 - 2 * night);
+    tableMat.color.set(k.bgBot).lerp(new THREE.Color('#d9cdb8'), 0.55 - 0.42 * dark);
+    paper.color.set('#efe6d4').lerp(new THREE.Color(k.sky), 0.06).lerp(new THREE.Color('#161c2e'), 0.6 * dark);
     return k;
   }
   // The level's shadow budget: meshes smaller than shadowCutoff (bounding radius in metres) stay out of the shadow pass, and of
@@ -176,7 +197,7 @@ export function createStage(options = {}) {
   function setPreset(name) { const p = getPreset(name ?? DEFAULT_PRESET); state.preset = p.id; applyPalette(p.palette); return p; }
   function setQuality(name) { const l = getLevel(name); state.quality = l.id; rig.setQuality(l.id); setTextureAnisotropy(l.anisotropy); return l; }
   function setEmitters(list) { rig.setEmitters(list); }
-  function dispose() { rig.dispose(); bgTex.dispose(); tableMat.alphaMap?.dispose(); contactMat.map?.dispose(); for (const o of [board, under, table, contact]) o.geometry.dispose(); [paper, card, tableMat, contactMat].forEach((m) => m.dispose()); scene?.remove(group); }
+  function dispose() { rig.dispose(); bgTex.dispose(); glass.map = null; glass.emissiveMap = null; view.dispose(); tableMat.alphaMap?.dispose(); contactMat.map?.dispose(); for (const o of [board, under, table, contact]) o.geometry.dispose(); [paper, card, tableMat, contactMat].forEach((m) => m.dispose()); scene?.remove(group); }
 
   setPreset(options.preset);
   applyTime(options.t ?? getPreset(options.preset).t);
