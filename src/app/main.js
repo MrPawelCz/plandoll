@@ -32,7 +32,7 @@ import { applyWallCut } from '../render/cutaway.js';
 import { createOpenShell } from '../render/openshell.js';
 import { stepClock, modeOf } from '../render/openmotion.js';
 import { openExtent, openPoints, flatFootprint } from '../model/foldwalls.js';
-import { createCameraController, stateFrom, positionOf, nearSides, sameSides, sidesKey, viewOf, fitView, wrapDegrees, fillBoost, lowestOnPicture, nearPlane } from './camera.js';
+import { createCameraController, stateFrom, positionOf, nearSides, sameSides, sidesKey, viewOf, fitView, wrapDegrees, fillBoost, lowestOnPicture, nearPlane, liftOf, PAN_GROW } from './camera.js';
 import { boardRect } from '../look/board.js';
 import flat from '../../examples/flat-1.plan.json';
 import duplex from '../../examples/duplex-1.plan.json';
@@ -105,8 +105,21 @@ try {
   const dh = stateFrom(pose.pos, pose.target), askAz = params.az ?? dh.azimuth, askPol = params.pol ?? dh.polar;
   let wantFit = params.cam !== 'close' && (useShell || Math.abs(wrapDegrees(askAz - dh.azimuth + 180) - 180) > 1 || Math.abs(askPol - dh.polar) > 1); // with the shell the view is always fitted to the closed and the open model
   let cover = 0; // the share of the window height that the bars at the bottom cover (stack.js): the model is kept above it
+  // How far the centre of the projection is moved up (picture units): the fitted view looks at the middle of the model and puts that point in the middle of the
+  // part above the bars, so that turning and zooming happen about what the person sees. The default view of liftPose (no fit) lowers its target instead and has none.
+  let viewLift = 0;
+  // Where the view may go: with the shell the card board of the moment (it hugs the closed house and holds the walls as they fall) plus a hand's breadth, so that a
+  // pinch or a drag over the empty ground cannot lose the model; without the shell the box of the whole model grown by PAN_GROW.
+  const BOARD_GROW = 0.04;
+  const limitsOf = () => { const r = boardOf(); return r ? [r, BOARD_GROW] : [frameExt, PAN_GROW]; };
+  // The board changed (the shell moves): the view is brought back with it when it sat near the edge of a board that shrinks.
+  function limitCamera() {
+    if (!cam) return;
+    const was = cam.target; cam.setLimits(...limitsOf()); const now = cam.target;
+    if (now[0] !== was[0] || now[2] !== was[2]) { camera.position.set(...positionOf(cam.state, now)); camera.lookAt(...now); }
+  }
   const fitPose = (p) => {
-    const fit = fitView({ azimuth: askAz, polar: askPol }, frameExt, { fov: p.fov, aspect: W / H, bottom: cover, points: framePts });
+    const fit = fitView({ azimuth: askAz, polar: askPol }, frameExt, { fov: p.fov, aspect: W / H, bottom: cover, points: framePts, lift: true });
     return { ...p, target: fit.target, pos: positionOf({ azimuth: askAz, polar: askPol, distance: fit.distance }, fit.target) };
   };
   // The default view stays exactly as cameraFor gives it while the whole box shows above the bars; when its lowest corner would sit behind them (a tall
@@ -164,9 +177,11 @@ try {
     cover = barsCover();
     pose = cameraFor(frameExt, W / H, params.cam, focus);
     pose = wantFit ? fitPose(pose) : liftPose(pose);
-    if (cam) { cam.setLimits(frameExt); cam.setTarget(pose.target); cam.rehome(stateFrom(pose.pos, pose.target)); current = cam.state; } // the pan stays, now from the new home
+    viewLift = wantFit ? liftOf(cover) : 0;
+    if (cam) { cam.setLift(viewLift); cam.setLimits(...limitsOf()); cam.setTarget(pose.target); cam.rehome(stateFrom(pose.pos, pose.target)); current = cam.state; } // the pan stays, now from the new home
     const eye = cam ? cam.target : pose.target; // what the camera looks at: the home target and the pan
     camera.fov = pose.fov; camera.aspect = W / H; camera.near = nearPlane(current.distance);
+    if (viewLift > 0) camera.setViewOffset(W, H, 0, (viewLift * H) / 2, W, H); else camera.clearViewOffset(); // the picture is the part of a taller one, so the camera's target lands in the middle of the part above the bars
     camera.position.set(...positionOf(current, eye)); camera.lookAt(...eye); camera.updateProjectionMatrix(); stage.fitBackdrop(W / H);
   }
   frameCamera();
@@ -267,7 +282,7 @@ try {
     const was = shell.active;
     shell.pose(p); recut(); shell.hidePatches();
     if (was !== shell.active) settle();
-    const rect = boardOf(); if (rect) stage.setBoard(rect); // the board holds the walls as they stand now
+    const rect = boardOf(); if (rect) { stage.setBoard(rect); limitCamera(); } // the board holds the walls as they stand now, and the view may not leave it
     onHinge?.();
     redraw();
   }
@@ -295,7 +310,7 @@ try {
     touchHinted = true;
     sayLine(T('1 palec: obrót, 2 palce: zoom i ruch, 2 dotknięcia: wróć', '1 finger: turn, 2 fingers: zoom and move, double tap: back')); // the line goes away by itself after 6 seconds
   };
-  cam = createCameraController({ element: renderer.domElement, home: home0, initial: { azimuth: params.az, polar: params.pol }, target: pose.target, limits: frameExt, fov: pose.fov, onChange: onCamera, onGesture });
+  cam = createCameraController({ element: renderer.domElement, home: home0, initial: { azimuth: params.az, polar: params.pol }, target: pose.target, limits: limitsOf()[0], grow: limitsOf()[1], lift: viewLift, fov: pose.fov, onChange: onCamera, onGesture });
   applyAll();
   // ---------- edit mode (edit=1): select a piece, drag it over the floor, turn, delete, undo and redo ----------
   let session = null;
@@ -576,7 +591,7 @@ try {
   window.__planInfo = () => ({ pieces: furn.pieces.size, levels: model.levels.length, rooms: model.levels.reduce((n, l) => n + (l.rooms?.length ?? 0), 0), extent: [ext.minX, ext.maxX, ext.minZ, ext.maxZ].map((v) => +v.toFixed(2)) }); // for test tools
   window.__setT = setTime; window.__setPreset = setPreset; window.__setQuality = setQ;
   // For test tools: the view (turn, tilt, distance and its default), the pan in metres, what the camera looks at, the ground point under a client point, and the plane of the near cut
-  window.__camera = { get azimuth() { return cam.state.azimuth; }, get polar() { return cam.state.polar; }, get distance() { return cam.state.distance; }, get base() { return cam.state.base; }, get pan() { return cam.pan; }, get target() { return cam.target; },
+  window.__camera = { get azimuth() { return cam.state.azimuth; }, get polar() { return cam.state.polar; }, get distance() { return cam.state.distance; }, get base() { return cam.state.base; }, get pan() { return cam.pan; }, get target() { return cam.target; }, get lift() { return cam.lift; },
     get near() { return sidesKey(near); }, get nearPlane() { return camera.near; }, get busy() { return cam.busy; }, groundAt: (x, y) => cam.groundAt(x, y), set: (azimuth, polar) => cam.set({ azimuth, polar }), reset: () => cam.reset(false) };
   // For test tools and the film (there while the shell is built, also while editing): the clock (0 closed, 1 open), the target and the mode, open/close/toggle like the button, the pose of every wall,
   // the camera as three.js holds it, and seek(p) which puts the walls at clock p without any transition and resolves after the frame that shows it.

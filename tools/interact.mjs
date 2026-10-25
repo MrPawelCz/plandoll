@@ -13,6 +13,8 @@
 // while moved, the double tap and the touch hint; with the mouse the right and middle button, Shift with the left button, the wheel at the pointer, the nearest zoom and the double click; and the
 // card board (closed, half open, open, closed again, a loaded plan). --edit adds gestures that start on a piece: two or three fingers, the right button and Shift move the picture and no piece.
 // Each camera step reads the ground point under the fingers from the page (window.__camera.groundAt) and checks that it did not drift, besides the picture changing.
+// After the camera steps of each plan (liftBlock) it checks that the centre of the projection is lifted over the part above the controls, that the model starts in the middle of that part and that three turns
+// of 45 degrees after a zoom to about half the distance keep it there (the camera looks at the middle of the model, not at a point below the floor).
 // Exits 1 when a step fails, the page reports an error, writes to storage or asks for anything outside its own address.
 // On a small machine run only one browser at a time (tools/chrome-lock.sh).
 import { spawn } from 'node:child_process';
@@ -225,13 +227,14 @@ async function cameraBlock(tag) {
     const after = await camNow(), picReset = await picture(`${tag}-cam-6-double-tap-reset`);
     record(label('a double tap goes back to the start: turn, zoom and pan'), panLen(before) > 0.05 && panLen(after) < 0.005 && Math.abs(after.d - home.base) < 0.01 && Math.abs(((after.az - home.az + 540) % 360) - 180) < 1.5 && picReset !== picTurn,
       { before: { pan: before.pan.map(round2), d: round2(before.d), az: round2(before.az) }, after: { pan: after.pan.map(round2), d: round2(after.d), az: round2(after.az) }, home: { d: round2(home.base), az: round2(home.az) }, sameAsStart: picReset === picHome });
-    // the move stops at the edge of the model grown by 15 percent: a long drag does not lose the model
+    // the move stops at the edge of the card board (with the shell: the board of the moment grown by 4 percent; without: the model grown by 15 percent): a long drag does not lose the model
     for (let k = 0; k < 3; k++) await multiDrag([{ x: 10, y: cy }, { x: 60, y: cy }], [{ x: W - 40, y: cy }, { x: W - 10, y: cy }], 6);
     await sleep(300);
-    const far = await camNow(), lim = JSON.parse(await ev('JSON.stringify(window.__shell ? window.__shell.extent() : window.__planInfo().extent)'));
-    const box = Array.isArray(lim) ? { minX: lim[0], maxX: lim[1], minZ: lim[2], maxZ: lim[3] } : lim, gx = (box.maxX - box.minX) * 0.15, gz = (box.maxZ - box.minZ) * 0.15;
-    record(label('a long drag stops at the edge of the model grown by 15 percent'), panLen(far) > 1 && far.target[0] >= box.minX - gx - 0.01 && far.target[0] <= box.maxX + gx + 0.01 && far.target[2] >= box.minZ - gz - 0.01 && far.target[2] <= box.maxZ + gz + 0.01,
-      { target: far.target.map(round2), box: [box.minX, box.maxX, box.minZ, box.maxZ].map(round2), pan: far.pan.map(round2) });
+    const far = await camNow(), boardNow = JSON.parse(await ev('JSON.stringify(window.__shell ? window.__stats.board : null)'));
+    const lim = boardNow ?? JSON.parse(await ev('JSON.stringify(window.__planInfo().extent)')), grow = boardNow ? 0.04 : 0.15;
+    const box = Array.isArray(lim) ? { minX: lim[0], maxX: lim[1], minZ: lim[2], maxZ: lim[3] } : lim, gx = (box.maxX - box.minX) * grow, gz = (box.maxZ - box.minZ) * grow;
+    record(label(boardNow ? 'a long drag stops at the edge of the card board grown by 4 percent' : 'a long drag stops at the edge of the model grown by 15 percent'), panLen(far) > 1 && far.target[0] >= box.minX - gx - 0.01 && far.target[0] <= box.maxX + gx + 0.01 && far.target[2] >= box.minZ - gz - 0.01 && far.target[2] <= box.maxZ + gz + 0.01,
+      { target: far.target.map(round2), box: [box.minX, box.maxX, box.minZ, box.maxZ].map(round2), grow, pan: far.pan.map(round2) });
     await homeAgain();
     await resizeKeepsPan(tag);
   } else {
@@ -330,6 +333,40 @@ async function editCameraBlock(pieceId) {
     const gw0 = await groundAt(cx, cy), w = await gesture(async () => { for (let k = 0; k < 3; k++) { await wheelAt(cx, cy, -240); await sleep(70); } }), gw1 = await groundAt(cx, cy);
     record('camera edit: the wheel zooms towards the pointer, the ground under it stays', w.c1.d < 0.8 * w.c0.d && gap(gw0, gw1) < 0.15 && (await layoutNow()) === lay0, { distance: `${round2(w.c0.d)} -> ${round2(w.c1.d)}`, driftMetres: round2(gap(gw0, gw1)) });
   }
+  await homeAgain();
+}
+
+// The centre of the projection sits over the part of the picture that the controls leave free, and the camera looks at the middle of the model: it stays in that
+// part at the start and while the person zooms in and turns it (the fit puts the middle of the closed model and of every wall lying flat there; a turn about a point
+// below the floor swung the house out of the picture). Reads the corners from window.__shell.project() (px) and the top of the controls from the same call.
+const modelOnPicture = async () => JSON.parse(await ev(`JSON.stringify((() => {
+  const p = window.__shell.project(), pts = p.pts, xs = pts.map((q) => q.x), ys = pts.map((q) => q.y), cl = pts.filter((q) => q.kind === 'closed');
+  return { w: p.w, h: p.h, barTop: p.barTop, lift: window.__camera.lift, all: { x: (Math.min(...xs) + Math.max(...xs)) / 2, y: (Math.min(...ys) + Math.max(...ys)) / 2 }, closed: { x: cl.reduce((s, q) => s + q.x, 0) / cl.length, y: cl.reduce((s, q) => s + q.y, 0) / cl.length } };
+})())`));
+async function liftBlock(tag) {
+  const label = (s) => `lift ${tag}: ${s}`;
+  await homeAgain();
+  const i0 = await modelOnPicture(), top = i0.barTop ?? H, mid = { x: W / 2, y: top / 2 };
+  record(label('at the start the middle of the model is in the middle of the part above the controls, and the centre of the projection is lifted by the share they cover'),
+    Math.abs(i0.all.x - mid.x) < 0.05 * W && Math.abs(i0.all.y - mid.y) < 0.04 * H && Math.abs(i0.lift - Math.min(0.4, (H - top) / H)) < 0.02 && i0.lift > 0,
+    { middle: { x: round2(i0.all.x), y: round2(i0.all.y) }, wantMiddle: { x: round2(mid.x), y: round2(mid.y) }, barTop: round2(top), lift: round2(i0.lift) });
+  // zoom in about the middle of the free part to about 0.45 of the start distance: a pinch (touch) or the wheel (mouse)
+  const c0 = await camNow(), cyF = Math.round(mid.y);
+  if (opt.desktop) await gesture(async () => { for (let k = 0; k < 6 && (await camNow()).d > 0.5 * c0.base; k++) { await wheelAt(Math.round(mid.x), cyF, -300); await sleep(80); } });
+  else await gesture(() => multiDrag([{ x: mid.x - 35, y: cyF }, { x: mid.x + 35, y: cyF }], [{ x: mid.x - 78, y: cyF }, { x: mid.x + 78, y: cyF }]));
+  const z = await camNow(), step = Math.round(0.225 * Math.min(W, H)); // 45 degrees of turn
+  const seen = [];
+  let allIn = z.d < 0.7 * z.base, az = z.az, turned = true;
+  for (let k = 1; k <= 3; k++) {
+    const x0 = Math.round(W * 0.25), yy = Math.min(Math.round(top * 0.85), cyF + 70);
+    const t = await gesture(() => drag(x0, yy, x0 + step, yy, 150)); await waitFor('window.__camera.busy === false', 60);
+    const i = await modelOnPicture(), da = Math.abs(((t.c1.az - az + 540) % 360) - 180);
+    turned = turned && da > 20 && da < 70;
+    const inside = Math.abs(i.closed.x - mid.x) < 0.25 * W && Math.abs(i.closed.y - mid.y) < 0.3 * top;
+    allIn = allIn && inside; az = t.c1.az;
+    seen.push({ turn: k, azimuth: round2(t.c1.az), closed: { x: round2(i.closed.x), y: round2(i.closed.y) }, inside });
+  }
+  record(label('zoomed in to about half the distance, three turns of 45 degrees keep the model in the middle of the part above the controls'), allIn && turned, { distance: `${round2(c0.d)} -> ${round2(z.d)}`, middle: { x: round2(mid.x), y: round2(mid.y) }, seen });
   await homeAgain();
 }
 
@@ -974,6 +1011,7 @@ try {
 
     // the camera steps (pan, pinch, wheel, double tap) on the flat, then on the duplex below
     await cameraBlock('flat-1');
+    await liftBlock('flat-1');
 
     // the example plans: Duplex builds the two-storey plan in place (a second level, another picture, plan=duplex-1 in the address, its button pressed), Flat goes back
     const planNow = async () => JSON.parse(await ev(`JSON.stringify({ levels: window.__planInfo().levels, pieces: window.__planInfo().pieces, pressed: [...document.querySelectorAll('#ps-ui button[data-plan]')].filter((b) => b.getAttribute('aria-pressed') === 'true').map((b) => b.dataset.plan), hash: location.hash, fail: window.__fail || null })`));
@@ -983,6 +1021,7 @@ try {
     const planDup = await planNow(), picPlanDup = await picture('36-plan-duplex');
     record('example plans: Duplex builds the two-storey plan in place', planBefore.levels === 1 && planBefore.pressed.join() === 'flat-1' && planDup.levels === 2 && planDup.pressed.join() === 'duplex-1' && /plan=duplex-1/.test(planDup.hash) && picPlanDup !== picPlanFlat && !planDup.fail, { before: planBefore, after: planDup, pictureChanged: picPlanDup !== picPlanFlat });
     await cameraBlock('duplex-1');
+    await liftBlock('duplex-1');
     fpl = await frames();
     await tapAt('#ps-ui button[data-plan="flat-1"]'); await redrawn(fpl);
     const planFlat2 = await planNow(), picPlanFlat2 = await picture('37-plan-flat-again');

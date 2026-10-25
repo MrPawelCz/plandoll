@@ -10,6 +10,9 @@ export const ZOOM_MIN = 0.2, ZOOM_MAX = 1.8; // times the default distance
 export const PAN_GROW = 0.15; // the target may leave the box of the model by this share of its size on every side
 export const HYSTERESIS = 10; // degrees: a wall changes sides only this far past the turning point, so it does not flicker
 export const RESET_MS = 400;
+export const SLOP_MOUSE = 6, SLOP_TOUCH = 10; // px a pointer may move and still be a tap (a finger is less steady than a mouse; Android's own slop is 8 dp)
+export const PINCH_MIN = 24; // px: two fingers closer than this only jitter, they do not zoom
+const slopOf = (g) => (g?.type === 'mouse' ? SLOP_MOUSE : SLOP_TOUCH);
 export const NEAR_MIN = 0.12, NEAR_MAX = 0.5; // metres: the near plane of the camera shrinks with the distance so that a close view does not cut the model
 
 const RAD = Math.PI / 180;
@@ -98,10 +101,12 @@ export function groundPoint(state, target, fovDegrees, aspect, x, y) {
   return [r.origin[0] + r.direction[0] * t, r.origin[2] + r.direction[2] * t];
 }
 
-// A client point as a point of the picture, for an element at rect { left, top, width, height }.
-export function toPicture(rect, clientX, clientY) {
+// A client point as a point of the picture, for an element at rect { left, top, width, height }. `lift` is how far above the middle of the element the
+// centre of the projection sits, in picture units (the share of the height that bars cover at the bottom, see liftOf): the picture point (0, 0) is then the
+// one that the camera looks at, which is the middle of the part of the picture that the bars leave free.
+export function toPicture(rect, clientX, clientY, lift = 0) {
   const w = rect?.width || 1, h = rect?.height || 1;
-  return [((fin(clientX) - fin(rect?.left)) / w) * 2 - 1, 1 - ((fin(clientY) - fin(rect?.top)) / h) * 2];
+  return [((fin(clientX) - fin(rect?.left)) / w) * 2 - 1, 1 - ((fin(clientY) - fin(rect?.top)) / h) * 2 - fin(lift)];
 }
 
 // How far the target has to move over the ground, [dx, dz] in metres, so that the ground point that `before` showed at the picture point `from`
@@ -113,10 +118,10 @@ export function panShift(before, after, target, fovDegrees, aspect, from, to) {
 }
 
 // Drag by pixels: the ground under the finger at client point `from` follows it to `to`. rect: the element's { left, top, width, height }.
-// Returns the shift [dx, dz] of the target in metres.
-export function panByPixels(state, target, fovDegrees, rect, from, to) {
+// Returns the shift [dx, dz] of the target in metres. `lift` as in toPicture.
+export function panByPixels(state, target, fovDegrees, rect, from, to, lift = 0) {
   const aspect = (rect?.width || 1) / (rect?.height || 1);
-  return panShift(state, state, target, fovDegrees, aspect, toPicture(rect, from[0], from[1]), toPicture(rect, to[0], to[1]));
+  return panShift(state, state, target, fovDegrees, aspect, toPicture(rect, from[0], from[1], lift), toPicture(rect, to[0], to[1], lift));
 }
 
 // Zoom by `factor` (above 1 is nearer) about the picture point `at`, which moves to `to` (the same point for a wheel, the next midpoint of the fingers
@@ -160,16 +165,22 @@ const dot3 = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 // bounds: { minX, maxX, minY, maxY, minZ, maxZ } in metres, all storeys; the 8 corners of the box are fitted. state: only azimuth and
 // polar are used. options: fov (vertical, degrees), aspect (width / height of the picture), margin (share of the half picture kept
 // free on every side), points (optional list of [x, y, z] that is fitted instead of the eight corners of `bounds`), iterations (centring passes), bottom (share of the picture height, from the bottom edge, that bars cover, 0 to
-// BOTTOM_MAX: the box is then fitted into the part above them). Returns { distance, target } with the distance within 0.5..500 m. Bad
+// BOTTOM_MAX: the box is then fitted into the part above them), lift (true when the centre of the projection has been moved up to the middle of that
+// free part, see liftOf: the target is then the middle of the box and the box is fitted into the free part around the centre, instead of the target being
+// lowered below the box to push it up the picture). Returns { distance, target } with the distance within 0.5..500 m. Bad
 // input gives the centre of whatever bounds are usable (else the origin) and the state's own distance: never NaN.
 export const BOTTOM_MAX = 0.4;
+// How far the centre of the projection is moved up for bars that cover this share of the picture height at the bottom, in picture units (half pictures):
+// the free part then runs from -1 + 2 * lift to 1 and its middle, the point the camera looks at, sits `lift` above the centre of the picture.
+export const liftOf = (cover) => clamp(fin(cover), 0, BOTTOM_MAX);
 export function fitView(state, bounds, options) {
   const o = options ?? {}, b = bounds ?? {};
   const th = Math.tan((clamp(fin(o.fov, 27), 1, 150) * RAD) / 2), asp = clamp(Number.isFinite(o.aspect) && o.aspect > 0 ? o.aspect : 1.78, 0.1, 10);
   const k = 1 - clamp(fin(o.margin, 0.08), 0, 0.5), passes = clamp(Math.round(fin(o.iterations, 4)), 0, 12);
   // The free part of the picture runs from -1 + 2 * bt to 1 (y up, in half pictures): its middle sits bt above the centre. `up` and `dn` are how far a
-  // point may go above and below the centre line once the margin is taken off.
-  const bt = clamp(fin(o.bottom, 0), 0, BOTTOM_MAX), up = (1 - bt) * k + bt, dn = Math.max(0.02, (1 - bt) * k - bt);
+  // point may go above and below the centre line once the margin is taken off. With the lift the centre line is the middle of the free part: up and dn are equal.
+  const bt = clamp(fin(o.bottom, 0), 0, BOTTOM_MAX), lifted = !!o.lift;
+  const up = lifted ? (1 - bt) * k : (1 - bt) * k + bt, dn = Math.max(0.02, lifted ? (1 - bt) * k : (1 - bt) * k - bt);
   const mid = (lo, hi) => (Number.isFinite(lo) && Number.isFinite(hi) ? (lo + hi) / 2 : 0);
   const centre = [mid(b.minX, b.maxX), mid(b.minY, b.maxY), mid(b.minZ, b.maxZ)];
   const fallback = { distance: clamp(fin(state?.distance, 10), FIT_MIN, FIT_MAX), target: centre };
@@ -194,7 +205,7 @@ export function fitView(state, bounds, options) {
     if (!Number.isFinite(distance)) return null;
     if (local.some((p) => distance + p[2] < 1e-6)) return { distance, mx: 0, my: 0 }; // limited to 500 m, a corner is behind the camera: nothing to centre
     const xs = local.map((p) => p[0] / (distance + p[2])), ys = local.map((p) => p[1] / (distance + p[2]));
-    return { distance, mx: (Math.min(...xs) + Math.max(...xs)) / 2, my: (Math.min(...ys) + Math.max(...ys)) / 2 - bt * th }; // my: from the middle of the free part
+    return { distance, mx: (Math.min(...xs) + Math.max(...xs)) / 2, my: (Math.min(...ys) + Math.max(...ys)) / 2 - (lifted ? 0 : bt * th) }; // my: from the middle of the free part
   };
 
   // Start at the centre of the box; after each solve move the target across the picture by the offset of the extent's middle (at the
@@ -236,13 +247,16 @@ export function lowestOnPicture(state, target, bounds, fov = 27) {
 // button turns; the right or middle button, or Shift with the left button, moves; the wheel zooms towards the pointer. A double tap or double click goes back
 // to the home view, the move included (400 ms); arrow keys turn by 15 degrees. A frame is asked for (onChange) only while something moves; at rest nothing is
 // queued. The move (pan) is an offset of the target over the ground, limited to the box of the model grown by PAN_GROW. No storage, no network.
-//   options: { element, home, target, fov, limits ({ minX, maxX, minZ, maxZ }), initial: { azimuth, polar, distance }, onChange(state, source),
+//   options: { element, home, target, fov, limits ({ minX, maxX, minZ, maxZ }), grow (share of the limits box that the target may go past it, PAN_GROW), lift (see toPicture), initial: { azimuth, polar, distance }, onChange(state, source),
 //   onGesture({ kind: 'orbit' | 'pinch' | 'pan' | 'wheel' | 'key', pointerType }), request, now, keys }
 export function createCameraController(options) {
   const { element, fov = 27, onChange = () => {}, onGesture = () => {}, request = (f) => requestAnimationFrame(f), now = () => performance.now() } = options;
   let target = options.target; // the home target: the point the camera looks at without a pan; setTarget moves it
   let home = makeState(options.home);
-  let limits = panLimits(options.limits); // where the target may be
+  let growBy = Number.isFinite(options.grow) ? options.grow : PAN_GROW; // how far past the box of `limits` the target may go, as a share of its size
+  let limits = panLimits(options.limits, growBy); // where the target may be
+  let lift = liftOf(options.lift); // how far above the middle of the element the centre of the projection sits (the camera looks at the middle of the free part)
+  const pic = (rect, x, y) => toPicture(rect, x, y, lift);
   let pan = [0, 0]; // metres over the ground, added to the home target
   const start = options.initial ?? {};
   let state = { ...home, azimuth: wrapDegrees(fin(start.azimuth, home.azimuth)), polar: clamp(fin(start.polar, home.polar), POLAR_MIN, POLAR_MAX),
@@ -292,8 +306,9 @@ export function createCameraController(options) {
     target = [next[0], next[1], next[2]]; pan = clampPan(pan, target, limits); return true;
   }
 
-  // The box of the model (the open extent): the target may go as far as this box grown by PAN_GROW on every side. Bad input takes the limit away.
-  function setLimits(box) { limits = panLimits(box); pan = clampPan(pan, target, limits); }
+  // The box that the target may go to: this box grown by `grow` (PAN_GROW unless given, and then kept) of its size on every side. Bad input takes the limit away.
+  // A view that is past the new limit is brought back at once; the caller moves the three.js camera when `target` changed.
+  function setLimits(box, grow) { if (Number.isFinite(grow)) growBy = grow; limits = panLimits(box, growBy); pan = clampPan(pan, target, limits); }
 
   // A new default distance (the window changed shape): the turn stays, the zoom keeps its ratio to the default, the pan stays as it was from the new home.
   function rehome(next) {
@@ -321,12 +336,13 @@ export function createCameraController(options) {
     const mouse = e.pointerType === 'mouse';
     if (!enabled || (mouse && e.button > 2)) return;
     stopMotion();
+    if (e.isPrimary && pointers.size) { pointers.clear(); gesture = null; } // a first finger (or the mouse) cannot go down while another one is: whatever is kept from before is stale (a missed pointerup)
     if (mouse && e.button !== 0) e.preventDefault?.(); // no autoscroll on the middle button
     pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
     try { element.setPointerCapture(e.pointerId); } catch {}
     const t = now();
-    if (pointers.size === 1) gesture = { t0: t, x0: e.clientX, y0: e.clientY, moved: 0, last: t, vx: 0, vy: 0, pinch: 0, mid: null, type: e.pointerType, pan: mouse && (e.button !== 0 || !!e.shiftKey) };
-    else if (gesture) gesture.moved = 99; // a second finger: never a tap
+    if (pointers.size === 1) gesture = { t0: t, x0: e.clientX, y0: e.clientY, moved: 0, last: t, vx: 0, vy: 0, pinch: 0, mid: null, multi: false, type: e.pointerType, pan: mouse && (e.button !== 0 || !!e.shiftKey) };
+    else if (gesture) { gesture.moved = 99; gesture.multi = true; } // a second finger: never a tap, and the finger that stays after the others lift does not turn the model
     refer();
   };
   const onMove = (e) => {
@@ -334,17 +350,18 @@ export function createCameraController(options) {
     const dx = e.clientX - p.x, dy = e.clientY - p.y, rect = element.getBoundingClientRect(), aspect = aspectOf(rect); p.x = e.clientX; p.y = e.clientY;
     if (pointers.size >= 2) { // two fingers zoom and move, three or more move with their middle
       const mid = middle(), a = [...pointers.values()], two = a.length === 2, d = two ? Math.hypot(a[0].x - a[1].x, a[0].y - a[1].y) : 0;
-      const factor = two && gesture.pinch > 0 && d > 0 ? d / gesture.pinch : 1, from = gesture.mid;
+      const factor = two && gesture.pinch >= PINCH_MIN && d > 0 ? d / gesture.pinch : 1, from = gesture.mid; // fingers closer than PINCH_MIN only jitter: no zoom from them
       gesture.pinch = d; gesture.mid = mid;
-      if (factor !== 1 || mid.x !== from.x || mid.y !== from.y) view(factor, toPicture(rect, from.x, from.y), toPicture(rect, mid.x, mid.y), aspect, { kind: factor !== 1 ? 'pinch' : 'pan', pointerType: gesture.type });
+      if (factor !== 1 || mid.x !== from.x || mid.y !== from.y) view(factor, pic(rect, from.x, from.y), pic(rect, mid.x, mid.y), aspect, { kind: factor !== 1 ? 'pinch' : 'pan', pointerType: gesture.type });
       return;
     }
+    if (gesture.multi) return; // the one finger that is left of a multi-finger gesture does nothing until it is lifted
     gesture.moved += Math.hypot(dx, dy);
     if (gesture.pan) { // the mouse moves the model: the ground under the pointer follows it, from the first pixel (no click ever resets or turns)
-      view(1, toPicture(rect, e.clientX - dx, e.clientY - dy), toPicture(rect, e.clientX, e.clientY), aspect, { kind: 'pan', pointerType: gesture.type });
+      view(1, pic(rect, e.clientX - dx, e.clientY - dy), pic(rect, e.clientX, e.clientY), aspect, { kind: 'pan', pointerType: gesture.type });
       return;
     }
-    if (gesture.moved < 6) return; // a tap is not a drag
+    if (gesture.moved < slopOf(gesture)) return; // a tap is not a drag
     const k = perPixel(), t = now(), dt = Math.max(1, t - gesture.last); gesture.last = t;
     state = orbit(state, dx * k, dy * k);
     gesture.vx = 0.6 * gesture.vx + 0.4 * ((dx * k) / dt); gesture.vy = 0.6 * gesture.vy + 0.4 * ((dy * k) / dt);
@@ -356,16 +373,16 @@ export function createCameraController(options) {
     const g = gesture, t = now();
     if (pointers.size > 0) { refer(); return; }
     gesture = null; if (!g || !enabled || g.pan) return;
-    if (g.moved < 6 && t - g.t0 < 350) { // a tap: two close taps are a double tap
+    if (g.moved < slopOf(g) && t - g.t0 < 350) { // a tap: two close taps are a double tap
       if (tap && t - tap.t < 350 && Math.hypot(e.clientX - tap.x, e.clientY - tap.y) < 30) { tap = null; reset(true); } else tap = { t, x: e.clientX, y: e.clientY };
-    } else if (g.moved >= 6 && g.moved < 99 && t - g.last < 80 && Math.hypot(g.vx, g.vy) > 0.02) { spin = { vx: g.vx, vy: g.vy, last: t }; schedule(); }
+    } else if (g.moved >= slopOf(g) && g.moved < 99 && t - g.last < 80 && Math.hypot(g.vx, g.vy) > 0.02) { spin = { vx: g.vx, vy: g.vy, last: t }; schedule(); }
   };
   const onCancel = (e) => { pointers.delete(e.pointerId); if (!pointers.size) gesture = null; else refer(); };
   const onWheel = (e) => { // zooms towards the pointer: the ground point under it stays under it
     if (!enabled) return;
     e.preventDefault();
     const dy = (e.deltaMode === 1 ? 16 : 1) * fin(e.deltaY), step = e.ctrlKey ? 0.01 : 0.0012; // a pinch on a trackpad arrives as ctrl + wheel
-    const rect = element.getBoundingClientRect(), at = toPicture(rect, fin(e.clientX, rect.left + (rect.width || 0) / 2), fin(e.clientY, rect.top + (rect.height || 0) / 2));
+    const rect = element.getBoundingClientRect(), at = pic(rect, fin(e.clientX, rect.left + (rect.width || 0) / 2), fin(e.clientY, rect.top + (rect.height || 0) / 2));
     stopMotion(); view(Math.exp(-clamp(dy, -400, 400) * step), at, at, aspectOf(rect), { kind: 'wheel', pointerType: 'mouse' });
   };
   const onContext = (e) => { if (enabled) e.preventDefault?.(); }; // the right button moves the model: no menu over the picture
@@ -392,6 +409,12 @@ export function createCameraController(options) {
   element.addEventListener('wheel', onWheel, { passive: false }); element.addEventListener('contextmenu', onContext);
   const keyHost = options.keys ?? (typeof window !== 'undefined' ? window : null);
   keyHost?.addEventListener('keydown', onKey);
+  // A finger whose pointerup or pointercancel never came (a system gesture, a switch to another app) would stay in `pointers` for good and turn every later
+  // one-finger drag into a two-finger one: the window losing the focus or the page going to the background lets go of all of them.
+  const win = typeof window !== 'undefined' ? window : null, doc = typeof document !== 'undefined' ? document : null;
+  const dropPointers = () => { if (pointers.size || gesture) { pointers.clear(); gesture = null; } };
+  const onHide = () => { if (doc?.visibilityState === 'hidden') dropPointers(); };
+  win?.addEventListener('blur', dropPointers); doc?.addEventListener('visibilitychange', onHide);
 
   return {
     get state() { return state; },
@@ -403,23 +426,26 @@ export function createCameraController(options) {
     get homeTarget() { return [...target]; },
     get pan() { return [...pan]; }, // metres [x, z] over the ground
     get limits() { return limits ? { ...limits } : null; },
+    get lift() { return lift; },
+    // The centre of the projection moved (the bars changed size, the window changed shape): the caller moves the projection of its camera by the same amount and redraws.
+    setLift(next) { lift = liftOf(next); },
     position: () => positionOf(state, eye()),
     reset, set, rehome, setTarget, setLimits,
     // The ray under a pointer event, for picking: { origin, direction } in world space.
     pointerToRay(event) {
-      const r = element.getBoundingClientRect(), w = r.width || 1, h = r.height || 1;
-      return rayFor(state, eye(), fov, w / h, ((event.clientX - r.left) / w) * 2 - 1, 1 - ((event.clientY - r.top) / h) * 2);
+      const r = element.getBoundingClientRect(), p = pic(r, event.clientX, event.clientY);
+      return rayFor(state, eye(), fov, aspectOf(r), p[0], p[1]);
     },
     // The ground point [x, z] under a client point (null near the horizon): for picking and for test tools.
     groundAt(clientX, clientY) {
-      const r = element.getBoundingClientRect(), p = toPicture(r, clientX, clientY);
+      const r = element.getBoundingClientRect(), p = pic(r, clientX, clientY);
       return groundPoint(state, eye(), fov, aspectOf(r), p[0], p[1]);
     },
     key: onKey,
     dispose() {
       stopMotion(); element.removeEventListener('pointerdown', onDown); element.removeEventListener('pointermove', onMove);
       element.removeEventListener('pointerup', onUp); element.removeEventListener('pointercancel', onCancel); element.removeEventListener('wheel', onWheel); element.removeEventListener('contextmenu', onContext);
-      keyHost?.removeEventListener('keydown', onKey);
+      keyHost?.removeEventListener('keydown', onKey); win?.removeEventListener('blur', dropPointers); doc?.removeEventListener('visibilitychange', onHide);
     },
   };
 }

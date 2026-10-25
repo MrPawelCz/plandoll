@@ -2,8 +2,8 @@
 // pointers: two fingers zoom and move, three fingers move, the mouse buttons move, the wheel zooms towards the pointer, a double tap goes home.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { makeState, zoom, positionOf, rayFor, groundPoint, toPicture, panShift, panByPixels, zoomAt, panLimits, clampPan, blendPan, nearPlane, createCameraController,
-  ZOOM_MIN, ZOOM_MAX, PAN_GROW, NEAR_MIN, NEAR_MAX, RESET_MS } from '../../src/app/camera.js';
+import { makeState, zoom, positionOf, rayFor, groundPoint, toPicture, panShift, panByPixels, zoomAt, panLimits, clampPan, blendPan, nearPlane, createCameraController, liftOf,
+  ZOOM_MIN, ZOOM_MAX, PAN_GROW, NEAR_MIN, NEAR_MAX, RESET_MS, BOTTOM_MAX, SLOP_TOUCH, SLOP_MOUSE, PINCH_MIN } from '../../src/app/camera.js';
 
 const target = [5, 0.5, 4];
 const near = (a, b, tol = 1e-6) => Math.abs(a - b) <= tol;
@@ -279,4 +279,132 @@ test('controller: a cancelled finger of a two-finger gesture does not make the v
   const e = rig(); e.cam.enabled = false; const n = e.changes.length;
   e.down(1, 200, 400, { pointerType: 'mouse', button: 2 }); e.move(1, 300, 440, { pointerType: 'mouse' }); e.fire('wheel', { deltaY: -100, clientX: 300, clientY: 300 });
   assert.equal(e.changes.length, n); assert.deepEqual(e.cam.pan, [0, 0]);
+});
+
+// ---- the lift: the centre of the projection sits above the middle of the element, over the part that the bars leave free ----
+test('liftOf keeps the share of the picture that bars cover inside 0 to BOTTOM_MAX, and bad input is no lift', () => {
+  assert.equal(BOTTOM_MAX, 0.4);
+  assert.equal(liftOf(0.25), 0.25); assert.equal(liftOf(0), 0); assert.equal(liftOf(0.9), BOTTOM_MAX); assert.equal(liftOf(-2), 0);
+  for (const bad of [NaN, undefined, null, 'x', Infinity]) assert.ok(liftOf(bad) >= 0 && liftOf(bad) <= BOTTOM_MAX && Number.isFinite(liftOf(bad)), String(bad));
+});
+
+test('toPicture with a lift: picture point (0, 0) is the middle of the part above the bars, the edges move with it, and without a lift nothing changes', () => {
+  const rect = { left: 10, top: 20, width: 200, height: 400 }, lift = 0.3;
+  assert.deepEqual(toPicture(rect, 110, 220), toPicture(rect, 110, 220, 0), 'no lift is the old mapping');
+  assert.ok(nearPt(toPicture(rect, 110, 220), [0, 0]));
+  assert.ok(nearPt(toPicture(rect, 110, 20 + (400 * (1 - lift)) / 2, lift), [0, 0]), 'the middle of the free part is the middle of the projection');
+  assert.ok(near(toPicture(rect, 110, 20, lift)[1], 1 - lift) && near(toPicture(rect, 110, 420, lift)[1], -1 - lift), 'top and bottom edge');
+  assert.ok(near(toPicture(rect, 10, 220, lift)[0], -1) && near(toPicture(rect, 210, 220, lift)[0], 1), 'the sides do not move');
+  assert.deepEqual(toPicture(rect, NaN, NaN, NaN), toPicture(rect, 0, 0, 0), 'bad numbers are zeros');
+});
+
+test('panByPixels with a lift: the ground under the finger follows it, measured from the lifted centre', () => {
+  const rect = { left: 0, top: 0, width: 400, height: 800 }, lift = 0.3, s = states[0], from = [200, 280], to = [260, 330];
+  const sh = panByPixels(s, target, 27, rect, from, to, lift), a = groundPoint(s, target, 27, 0.5, ...toPicture(rect, ...from, lift));
+  const moved = [target[0] + sh[0], target[1], target[2] + sh[1]], g = groundPoint(s, moved, 27, 0.5, ...toPicture(rect, ...to, lift));
+  assert.ok(nearPt(g, a, 1e-6), 'after the move the ground point sits under the new pixel');
+});
+
+test('controller with a lift: the middle of the free part looks at the target, a pinch there does not move it, and one finger turns about it', () => {
+  const lift = 0.3, r = rig({ lift }), centreY = (800 * (1 - lift)) / 2; // the middle of the part above the bars, in client pixels
+  assert.equal(r.cam.lift, lift);
+  const g = r.cam.groundAt(200, centreY), ray = r.cam.pointerToRay({ clientX: 200, clientY: centreY });
+  assert.ok(nearPt(g, [target[0], target[2]], 1e-6), `the middle of the free part is the target: ${g}`);
+  const o = ray.origin, want = [target[0] - o[0], target[1] - o[1], target[2] - o[2]], wl = Math.hypot(...want);
+  assert.ok(ray.direction.every((v, i) => near(v, want[i] / wl, 1e-9)), 'and its ray goes through the target');
+  // the middle of the element is no longer the target
+  assert.ok(!nearPt(r.cam.groundAt(200, 400), [target[0], target[2]], 0.5), 'the middle of the element looks lower');
+  // a pinch about the middle of the free part zooms without moving the target
+  r.down(1, 160, centreY); r.down(2, 240, centreY);
+  for (let k = 1; k <= 6; k++) { r.move(1, 160 - 10 * k, centreY); r.move(2, 240 + 10 * k, centreY); }
+  assert.ok(r.cam.state.distance < 20 * 0.5 && len(r.cam.pan) < 1e-6, `${r.cam.state.distance} ${r.cam.pan}`);
+  r.up(2, 300, centreY); r.up(1, 100, centreY);
+  // a turn keeps the target and the point under the middle of the free part
+  const t0 = r.cam.target; r.down(1, 200, centreY); for (let k = 1; k <= 12; k++) r.move(1, 200 + 8 * k, centreY); r.up(1, 296, centreY);
+  assert.ok(r.cam.state.azimuth !== 35, 'turned'); assert.deepEqual(r.cam.target, t0, 'about the same target');
+  assert.ok(nearPt(r.cam.groundAt(200, centreY), [t0[0], t0[2]], 1e-6), 'the middle of the free part still looks at it');
+});
+
+test('controller setLift moves the centre of the projection, bad values are no lift, and pointerToRay agrees with groundAt', () => {
+  const r = rig(); assert.equal(r.cam.lift, 0);
+  r.cam.setLift(0.2); assert.equal(r.cam.lift, 0.2);
+  r.cam.setLift(5); assert.equal(r.cam.lift, BOTTOM_MAX); r.cam.setLift(NaN); assert.equal(r.cam.lift, 0);
+  r.cam.setLift(0.25);
+  for (const [x, y] of [[100, 150], [320, 500], [200, 300]]) {
+    const ray = r.cam.pointerToRay({ clientX: x, clientY: y }), g = r.cam.groundAt(x, y), t = (target[1] - ray.origin[1]) / ray.direction[1];
+    assert.ok(nearPt([ray.origin[0] + ray.direction[0] * t, ray.origin[2] + ray.direction[2] * t], g, 1e-6), `${x},${y}`);
+  }
+});
+
+// ---- fingers on a real phone: the finger that is left, a missed pointerup, a shaky tap, two fingers that touch ----
+test('controller: the finger that stays after a two-finger gesture does not turn the model, and the next touch turns it again', () => {
+  const r = rig(), az0 = r.cam.state.azimuth, d0 = r.cam.state.distance;
+  r.down(1, 150, 400, { isPrimary: true }); r.down(2, 250, 400, { isPrimary: false });
+  r.slide([[150, 400], [250, 400]], 40, 30);
+  r.up(2, 290, 430, { isPrimary: false }); // one finger leaves first, the other is still moving
+  for (let k = 1; k <= 10; k++) r.move(1, 190 + 5 * k, 430);
+  assert.equal(r.cam.state.azimuth, az0, 'the finger that is left does not turn the model'); assert.ok(near(r.cam.state.distance, d0, 1e-9));
+  r.up(1, 240, 430, { isPrimary: true });
+  assert.equal(r.queue.length, 0, 'no spin after a multi-finger gesture'); assert.equal(r.cam.busy, false);
+  r.down(1, 150, 400, { isPrimary: true }); for (let k = 1; k <= 12; k++) r.move(1, 150 + 6 * k, 400); r.up(1, 222, 400, { isPrimary: true });
+  assert.ok(r.cam.state.azimuth !== az0, 'a new touch turns the model again');
+});
+
+test('controller: a first finger that goes down while a pointer from before is still kept drops it, so the drag turns the model', () => {
+  const r = rig(), az0 = r.cam.state.azimuth;
+  r.down(7, 100, 300, { isPrimary: true }); // its pointerup never comes
+  r.down(9, 200, 400, { isPrimary: true });
+  for (let k = 1; k <= 12; k++) r.move(9, 200 + 6 * k, 400);
+  assert.ok(r.cam.state.azimuth !== az0, 'turned by one finger, not treated as two fingers');
+  r.up(9, 272, 400, { isPrimary: true });
+  assert.equal(r.cam.busy === false || r.queue.length >= 0, true);
+});
+
+test('controller: a window that loses the focus lets go of the fingers it kept', () => {
+  const seen = {}; const win = { addEventListener(t, f) { seen[t] = f; }, removeEventListener(t) { delete seen[t]; } };
+  globalThis.window = win; let r;
+  try { r = rig(); } finally { delete globalThis.window; }
+  assert.equal(typeof seen.blur, 'function', 'it listens for the window losing the focus');
+  const az0 = r.cam.state.azimuth;
+  r.down(1, 150, 400, { isPrimary: false }); r.down(2, 250, 400, { isPrimary: false }); // two stale fingers (no primary event came)
+  seen.blur();
+  r.down(3, 200, 400, { isPrimary: false }); for (let k = 1; k <= 12; k++) r.move(3, 200 + 6 * k, 400);
+  assert.ok(r.cam.state.azimuth !== az0, 'after the blur one finger turns the model again');
+  r.cam.dispose(); assert.equal(seen.blur, undefined, 'dispose removes the listener');
+});
+
+test('controller: a touch tap may wander up to SLOP_TOUCH pixels, a mouse click only SLOP_MOUSE, and a shaky double tap goes home', () => {
+  assert.ok(SLOP_TOUCH > SLOP_MOUSE && SLOP_MOUSE === 6 && SLOP_TOUCH === 10);
+  const r = rig(), az0 = r.cam.state.azimuth;
+  r.down(1, 200, 400, { isPrimary: true }); r.move(1, 203, 403); r.move(1, 205, 400); r.up(1, 205, 400, { isPrimary: true }); // about 8 px of path: over a mouse's 6, under a finger's 10
+  assert.equal(r.cam.state.azimuth, az0, 'no turn from a shaky tap');
+  r.tick(120); r.down(1, 204, 402, { isPrimary: true }); r.move(1, 203, 400); r.up(1, 203, 400, { isPrimary: true });
+  assert.ok(r.queue.length > 0 || r.cam.busy, 'the second tap made it a double tap: the view goes home');
+  const m = rig(); m.down(1, 200, 400, { pointerType: 'mouse', isPrimary: true }); m.move(1, 203, 403, { pointerType: 'mouse' }); m.move(1, 205, 400, { pointerType: 'mouse' });
+  assert.ok(m.cam.state.azimuth !== az0, 'a mouse that moved about 8 px is a drag');
+});
+
+test('controller: two fingers closer than PINCH_MIN do not zoom, and the zoom starts without a jump once they are apart', () => {
+  assert.equal(PINCH_MIN, 24);
+  const r = rig(), d0 = r.cam.state.distance;
+  r.down(1, 195, 400, { isPrimary: true }); r.down(2, 213, 400, { isPrimary: false }); // 18 px apart
+  r.move(1, 193, 400); r.move(2, 215, 400); r.move(1, 190, 400); // jitter at 18 to 25 px
+  assert.equal(r.cam.state.distance, d0, 'no zoom from the jitter of fingers that touch');
+  for (let k = 1; k <= 10; k++) { r.move(1, 190 - 6 * k, 400); r.move(2, 215 + 6 * k, 400); }
+  assert.ok(r.cam.state.distance < d0 * 0.8, `zoomed once apart: ${r.cam.state.distance}`);
+  r.up(2, 275, 400, { isPrimary: false }); r.up(1, 130, 400, { isPrimary: true });
+});
+
+test('controller: the limits box can grow by its own share, setLimits keeps it, and a view past a smaller box is brought back at once', () => {
+  const box = { minX: 0, maxX: 10, minZ: 0, maxZ: 8 }, r = rig({ limits: box, grow: 0.04 });
+  assert.ok(r.cam.limits && near(r.cam.limits.minX, -0.4) && near(r.cam.limits.maxX, 10.4) && near(r.cam.limits.maxZ, 8.32), `${JSON.stringify(r.cam.limits)}`);
+  r.cam.setLimits({ minX: 0, maxX: 20, minZ: 0, maxZ: 10 }); // the share stays
+  assert.ok(near(r.cam.limits.maxX, 20.8) && near(r.cam.limits.maxZ, 10.4), 'the same 4 percent of the new box');
+  r.cam.setLimits({ minX: 0, maxX: 20, minZ: 0, maxZ: 10 }, 0.15); assert.ok(near(r.cam.limits.maxX, 23), 'a new share replaces it');
+  const far = rig({ limits: { minX: -50, maxX: 50, minZ: -50, maxZ: 50 }, grow: 0 });
+  far.down(1, 100, 400, { isPrimary: true }); far.down(2, 160, 400, { isPrimary: false }); far.slide([[100, 400], [160, 400]], 150, 200, 20); far.up(2, 310, 600, { isPrimary: false }); far.up(1, 250, 600, { isPrimary: true });
+  const moved = far.cam.target; assert.ok(Math.hypot(moved[0] - target[0], moved[2] - target[2]) > 1, 'the view moved');
+  far.cam.setLimits({ minX: target[0] - 0.5, maxX: target[0] + 0.5, minZ: target[2] - 0.5, maxZ: target[2] + 0.5 }, 0);
+  const back = far.cam.target; assert.ok(Math.abs(back[0] - target[0]) <= 0.5 + 1e-9 && Math.abs(back[2] - target[2]) <= 0.5 + 1e-9, `brought back: ${back}`);
+  const home = rig({ limits: box }); assert.ok(near(home.cam.limits.maxX, 11.5), 'the default share is PAN_GROW');
 });

@@ -340,6 +340,30 @@ test('fitView with bottom: every corner of the box lands above the bars, the box
   assert.ok(covered.target[1] < plain.target[1] + 1e-6 || covered.target[0] !== plain.target[0] || covered.target[2] !== plain.target[2], 'and aims lower, so the model rises on the picture');
 });
 
+test('fitView with lift: the box is fitted around the middle of the free part with the target staying in the middle of the box, and no bars means no difference', () => {
+  const centre = (b) => [(b.minX + b.maxX) / 2, (b.minY + b.maxY) / 2, (b.minZ + b.maxZ) / 2];
+  for (const bounds of [twoStorey, oneStorey]) for (const aspect of [phone, 1.78]) for (const azimuth of [35, 125, 215, 305]) for (const bottom of [0.15, 0.3, BOTTOM_MAX]) {
+    const margin = 0.08, state0 = { azimuth, polar: 45 }, fit = fitView(state0, bounds, { aspect, margin, bottom, lift: true }), state = { ...state0, distance: fit.distance };
+    const k = 1 - margin, half = (1 - bottom) * k, mid = centre(bounds);
+    let tight = 0, lo = Infinity, hi = -Infinity;
+    for (const c of cornersOf(bounds)) {
+      const q = project(state, fit.target, 27, aspect, c); // from the centre of the projection, which sits in the middle of the free part
+      tight = Math.max(tight, Math.abs(q.x) / k, Math.abs(q.y) / half);
+      assert.ok(q.depth > 0 && Math.abs(q.x) <= k + 1e-6, `corner ${c} is inside the width (az ${azimuth}, bottom ${bottom})`);
+      assert.ok(Math.abs(q.y) <= half + 1e-6, `corner ${c} is inside the free half height: ${q.y.toFixed(3)} <= ${half.toFixed(3)} (az ${azimuth}, bottom ${bottom}, aspect ${aspect.toFixed(2)})`);
+      assert.ok(q.y + bottom >= -1 + 2 * bottom - 1e-6, `corner ${c} lands above the bars once the centre is lifted`);
+      lo = Math.min(lo, q.y); hi = Math.max(hi, q.y);
+    }
+    assert.ok(tight >= 0.97, `the tightest corner touches the limit of the free part (${tight.toFixed(3)}; az ${azimuth}, bottom ${bottom}, aspect ${aspect.toFixed(2)})`);
+    assert.ok(Math.abs(lo + hi) / 2 < 0.03, `the box is centred on the projection centre (${lo.toFixed(3)} to ${hi.toFixed(3)})`);
+    assert.ok(Math.hypot(fit.target[0] - mid[0], fit.target[1] - mid[1], fit.target[2] - mid[2]) < 1, `the target stays in the middle of the box: ${fit.target}`);
+    const unlifted = fitView(state0, bounds, { aspect, margin, bottom });
+    assert.ok(Math.abs(unlifted.distance - fit.distance) / fit.distance < 0.05, `the same free band needs about the same distance (${unlifted.distance.toFixed(2)} and ${fit.distance.toFixed(2)})`);
+  }
+  assert.deepEqual(fitView({ azimuth: 35, polar: 45 }, twoStorey, { aspect: phone, lift: true }), fitView({ azimuth: 35, polar: 45 }, twoStorey, { aspect: phone }), 'with no bars the lift changes nothing');
+  for (const b of [NaN, -1, 'x', null, Infinity, 5]) { const r = fitView({ azimuth: 35, polar: 45 }, twoStorey, { aspect: phone, bottom: b, lift: true }); assert.ok(Number.isFinite(r.distance) && r.target.every(Number.isFinite), `bottom ${b} gives a usable lifted fit`); }
+});
+
 test('lowestOnPicture agrees with the projection and refuses a box it cannot project', () => {
   const tgt = [6, 2.8, 4.5];
   for (const azimuth of [0, 35, 140, 250]) for (const polar of [30, 45, 70]) {
