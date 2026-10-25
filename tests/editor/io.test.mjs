@@ -143,7 +143,8 @@ test('sizes are moved into their range with a warning, colours are checked', () 
   assert.equal(r.ok, true);
   const s = r.layout.levels[0].pieces[0];
   assert.deepEqual(s.size, [2.8, 0.95, 0.85], 'width clamped, fixed depth and height back to the spec');
-  assert.deepEqual(s.colors, { upholstery: '#abcdef', legs: 'oak' });
+  assert.deepEqual(s.colors, { upholstery: '#abcdef', legs: 'lib:oak' }, 'a bare library key is read in the full form');
+  assert.ok(r.warnings.some((w) => /legs.*lib:oak/.test(w)), 'and the reader says so');
   assert.ok(r.warnings.some((w) => /moved into the range/.test(w)));
   assert.ok(r.warnings.some((w) => /"nope"/.test(w)));
   assert.ok(r.warnings.some((w) => /cushions/.test(w)));

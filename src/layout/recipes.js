@@ -11,7 +11,7 @@ const centreOf = (p) => [p.x, p.y];
 function pairScore(e) { return longest(e, true) - 0.8 * e.windows.length - 0.3 * e.doors.length; }
 
 // Chairs around a table (4 or 6), facing it. Returns the chairs placed.
-function chairsAround(R, table, n) {
+function chairsAround(R, table, n, strict = false) {
   const [ux, uy] = axisOf(table.rot), [fx, fy] = frontOf(table.rot);
   const [w, d] = table.size, cs = SPEC_BY_ID['dining-chair'].size;
   const spots = [];
@@ -22,13 +22,14 @@ function chairsAround(R, table, n) {
     let x, y, front;
     if (s.end !== undefined) { x = table.x + ux * s.lat; y = table.y + uy * s.lat; front = [ux * s.end, uy * s.end]; }
     else { x = table.x + ux * s.lat + fx * s.off; y = table.y + uy * s.lat + fy * s.off; front = [fx * s.face, fy * s.face]; }
-    const c = R.at('dining-chair', { x, y, rot: rotFromFront(front[0], front[1]), partners: [table], noClear: true });
+    const c = R.at('dining-chair', { x, y, rot: rotFromFront(front[0], front[1]), partners: [table], noClear: !strict });
     if (c) out.push(c);
   }
   return out;
 }
 
-function diningSet(R, { chairs, long = 1.6 }) {
+// With `strict` the table and the chairs also keep out of the free strips in front of the pieces already there (a kitchen run).
+function diningSet(R, { chairs, long = 1.6, strict = false }) {
   if (!R.can('dining-table')) return null;
   const rotLong = R.bbox.w >= R.bbox.h ? 0 : 90;
   const minClear = 0.55;
@@ -36,9 +37,9 @@ function diningSet(R, { chairs, long = 1.6 }) {
     for (const pt of R.roomyPoints(minClear, 40)) {
       for (const rot of [rotLong, (rotLong + 90) % 360]) {
         const mk = R.mark();
-        const table = R.at('dining-table', { x: pt.x, y: pt.y, rot, size: { w: wTable }, noClear: true });
+        const table = R.at('dining-table', { x: pt.x, y: pt.y, rot, size: { w: wTable }, noClear: !strict });
         if (!table) continue;
-        const cs = chairsAround(R, table, chairs);
+        const cs = chairsAround(R, table, chairs, strict);
         if (cs.length >= Math.min(4, chairs)) {
           R.at('pendant', { x: table.x, y: table.y, rot, noClear: true });
           return { table, chairs: cs };
@@ -50,8 +51,23 @@ function diningSet(R, { chairs, long = 1.6 }) {
   return null;
 }
 
+// Every room where people sit or sleep gets at least one light: when the recipe has not placed a lamp, a standing lamp goes in the
+// corner closest to `near` and, if no corner is free, a pendant hangs over the roomiest floor.
+const LIGHTS = ['floor-lamp', 'table-lamp', 'pendant'];
+function ensureLight(R, near) {
+  if (R.mine.some((p) => LIGHTS.includes(p.type))) return;
+  const order = near ? (a, b) => (a.v[0] - near[0]) ** 2 + (a.v[1] - near[1]) ** 2 - ((b.v[0] - near[0]) ** 2 + (b.v[1] - near[1]) ** 2) : undefined;
+  if (R.corner('floor-lamp', { anyRoom: true, noClear: true, order })) return;
+  const pt = R.roomyPoints(0.3, 1)[0] ?? { x: R.bbox.minX + R.bbox.w / 2, y: R.bbox.minY + R.bbox.h / 2 };
+  R.at('pendant', { x: pt.x, y: pt.y, rot: 0, noClear: true });
+}
+
 function livingRecipe(R) {
   const sofaSpecW = SPEC_BY_ID.sofa3.size[0];
+  // a living room under 16 m2 gets a sofa bed first (it is also where a guest sleeps); an ordinary sofa is the fallback
+  const bedFirst = R.area < 16 && R.can('sofa-bed');
+  const sofaOpts = (t) => (t === 'sofa-bed' ? { size: { w: R.area < 12 ? 1.6 : 1.8 } } : {});
+  const sofaTypes = (wide) => [...(bedFirst ? ['sofa-bed'] : []), ...(wide ? ['sofa3', 'sofa2'] : ['sofa2'])];
   const tvEdges = R.edgesBy(pairScore).filter((e) => e.len >= 1.8).slice(0, 5);
   let sofa = null, ct = null;
   let firstUnit = null;
@@ -68,8 +84,8 @@ function livingRecipe(R) {
       const dist = Math.abs(dot([e.a[0] - tvEdge.a[0], e.a[1] - tvEdge.a[1]], tvEdge.n));
       if (dist < 2.3) continue;
       const wide = longest(e, false) >= sofaSpecW + 1.3 && R.can('sofa3');
-      for (const t of wide ? ['sofa3', 'sofa2'] : ['sofa2']) {
-        sofa = R.wall(t, { edges: [e], around: centreOf(unit), margin: 0.3, margins: [0.3, 0.02], partners: [unit] });
+      for (const t of sofaTypes(wide)) {
+        sofa = R.wall(t, { edges: [e], around: centreOf(unit), margin: 0.3, margins: [0.3, 0.02], partners: [unit], ...sofaOpts(t) });
         if (sofa) break;
       }
       if (sofa) break;
@@ -79,7 +95,7 @@ function livingRecipe(R) {
       const [fx, fy] = frontOf(unit.rot);
       for (const away of [2.7, 2.3]) {
         const x = unit.x + fx * (unit.size[1] / 2 + away), y = unit.y + fy * (unit.size[1] / 2 + away);
-        sofa = R.at('sofa2', { x, y, rot: rotFromFront(-fx, -fy), partners: [unit], soft: true });
+        for (const t of sofaTypes(false)) { sofa = R.at(t, { x, y, rot: rotFromFront(-fx, -fy), partners: [unit], soft: true, ...sofaOpts(t) }); if (sofa) break; }
         if (sofa) break;
       }
     }
@@ -90,10 +106,10 @@ function livingRecipe(R) {
     const unit = R.wall('tv-unit', { edges: [firstUnit.edge], align: 'center', soft: false });
     if (unit) {
       R.on(unit, 'tv', { dy: -(unit.size[1] / 2 - SPEC_BY_ID.tv.size[1] / 2 - 0.04) });
-      sofa = R.wall('sofa2', { avoidWindows: false, soft: true, partners: [unit] });
+      for (const t of sofaTypes(false)) { sofa = R.wall(t, { avoidWindows: false, soft: true, partners: [unit], ...sofaOpts(t) }); if (sofa) break; }
     }
   }
-  if (!sofa) sofa = R.wall('sofa2', { soft: true });
+  if (!sofa) for (const t of sofaTypes(false)) { sofa = R.wall(t, { soft: true, ...sofaOpts(t) }); if (sofa) break; }
   if (sofa) {
     const [fx, fy] = frontOf(sofa.rot);
     const cts = SPEC_BY_ID['coffee-table'].size;
@@ -139,6 +155,7 @@ function livingRecipe(R) {
       if (R.at('floor-lamp', { x: sofa.x + ux * side * reach - fx * back, y: sofa.y + uy * side * reach - fy * back, rot: sofa.rot, noClear: true })) break;
     }
   }
+  ensureLight(R, sofa ? centreOf(sofa) : null);
   if (R.area >= 12) R.wall('bookshelf', { avoidWindows: true, align: 'start', size: { w: R.area >= 24 ? 1.2 : 0.9 }, score: (e) => longest(e, true) });
   R.corner('plant-large', { anyRoom: true, order: sofa ? (a, b) => dist2(b.v, sofa) - dist2(a.v, sofa) : undefined });
 }
@@ -232,7 +249,7 @@ function kitchenRecipe(R) {
     if (!['kitchen-base', 'kitchen-hob', 'kitchen-sink'].includes(p.type) || !p._edge) continue;
     R.alongEdge('kitchen-upper', p._edge, p._s, { size: { w: p.size[0] }, soft: false, noClear: true });
   }
-  if (R.area >= 11 && R.zone === 'kitchen' && R.type === 'kitchen') diningSet(R, { chairs: 4, long: 1.4 });
+  if (R.area >= 11 && R.zone === 'kitchen' && R.type === 'kitchen') diningSet(R, { chairs: 4, long: 1.4, strict: true });
   if (R.area >= 8) R.wall('washing-machine', { soft: true, align: 'end' });
 }
 
@@ -244,7 +261,12 @@ function bedroomRecipe(R) {
   const far = (e) => (doorPts.length ? Math.min(...doorPts.map((p) => Math.hypot(p[0] - (e.a[0] + e.b[0]) / 2, p[1] - (e.a[1] + e.b[1]) / 2))) : 0);
   const score = (e) => longest(e, true) - 3 * e.windows.length - 2 * e.doors.length + 0.25 * far(e);
   const ww = R.area >= 16 ? [2.4, 1.8, 1.2, 0.9] : R.area >= 11 ? [1.8, 1.2, 0.9] : [1.2, 0.9];
-  const wardrobe = () => { for (const w of ww) { const p = R.wall('wardrobe', { size: { w }, avoidWindows: true, align: 'start', score: (e) => longest(e, true) - 2 * e.doors.length }); if (p) return p; } return null; };
+  const wardrobe = () => {
+    for (const w of ww) { const p = R.wall('wardrobe', { size: { w }, avoidWindows: true, align: 'start', score: (e) => longest(e, true) - 2 * e.doors.length }); if (p) return p; }
+    // no room for a big one: a small wardrobe still gives the room somewhere to put clothes
+    for (const w of [1.2, 0.9, 0.6]) { const p = R.wall('wardrobe-small', { size: { w }, avoidWindows: true, align: 'start', score: (e) => longest(e, true) - 2 * e.doors.length }); if (p) return p; }
+    return null;
+  };
   const nightstands = (bed) => {
     const [ux, uy] = axisOf(bed.rot), [fx, fy] = frontOf(bed.rot);
     const ns = SPEC_BY_ID.nightstand.size;
@@ -284,6 +306,7 @@ function bedroomRecipe(R) {
   }
   if (!kids && R.area >= 13) R.wall('dresser', { avoidWindows: true });
   if (!kids && R.area >= 16) R.corner('armchair', { noClear: true });
+  ensureLight(R, bed ? centreOf(bed) : null);
   R.corner('plant-large', { anyRoom: true });
 }
 
@@ -312,7 +335,11 @@ function bathRecipe(R) {
     ({ toilet, basin } = dry());
     ok = wet();
   }
-  if (basin && R.can('mirror')) {
+  let cabinet = null;
+  if (basin && R.can('bathroom-cabinet')) {
+    cabinet = R.wall('bathroom-cabinet', { edges: basin._edge ? [basin._edge] : undefined, around: [basin.x, basin.y], size: { w: clamp(basin.size[0], 0.4, 1.0) }, soft: false, noClear: true });
+  }
+  if (basin && !cabinet && R.can('mirror')) {
     const mw = clamp(Math.max(0.6, basin.size[0]), 0.4, 1.2);
     R.wall('mirror', { edges: basin._edge ? [basin._edge] : undefined, around: [basin.x, basin.y], size: { w: mw, h: 0.8 }, elev: 1.1, soft: false, noClear: true });
   }
@@ -323,6 +350,7 @@ function bathRecipe(R) {
 function hallRecipe(R) {
   if (R.minDim >= 1.2) R.wall('mirror', { avoidWindows: true, soft: false, noClear: true, align: 'center', score: (e) => longest(e, true) });
   if (R.minDim >= 2.3 && R.area >= 7) R.wall('wardrobe', { avoidWindows: true, size: { w: 1.2 }, align: 'start' });
+  else if (R.minDim >= 1.5 && R.area >= 3.5 && R.wall('wardrobe-small', { avoidWindows: true, align: 'start' })) { /* placed */ }
   else if (R.minDim >= 1.9 && R.area >= 5) R.wall('dresser', { avoidWindows: true, align: 'start' });
   if (R.can('shoe-cabinet')) R.wall('shoe-cabinet', { avoidWindows: true, align: 'end' });
   if (R.can('bench') && R.minDim >= 2.0) R.wall('bench', { avoidWindows: true, align: 'end' });
@@ -336,6 +364,7 @@ function officeRecipe(R) {
     R.at('desk-chair', { x: desk.x + fx * (desk.size[1] / 2 + 0.28), y: desk.y + fy * (desk.size[1] / 2 + 0.28), rot: rotFromFront(-fx, -fy), partners: [desk], noClear: true });
     R.on(desk, 'table-lamp', { dx: desk.size[0] * 0.35 });
   }
+  ensureLight(R, desk ? centreOf(desk) : null);
   R.wall('bookshelf', { avoidWindows: true, align: 'start', size: { w: R.area >= 10 ? 1.2 : 0.9 } });
   if (R.area >= 12) R.corner('armchair', { noClear: true });
   R.corner('plant-large', { anyRoom: true });
@@ -355,14 +384,23 @@ function hangArt(R) {
   const art = (t, anchor, elev) => R.wall(t, { edges: anchor._edge ? [anchor._edge] : undefined, around: [anchor.x, anchor.y], elev, soft: false, noClear: true, avoidWindows: false });
   const level = R.level;
   const ceil = level.height - 0.25;
-  const anchors = R.mine.filter((p) => ['sofa2', 'sofa3', 'bed-double', 'bed-single', 'dresser', 'sideboard', 'desk'].includes(p.type) && p._edge);
+  const anchors = R.mine.filter((p) => ['sofa2', 'sofa3', 'sofa-bed', 'bed-double', 'bed-single', 'dresser', 'sideboard', 'desk', 'shoe-cabinet'].includes(p.type) && p._edge);
+  const shelfSpec = SPEC_BY_ID['shelf-wall'];
   for (const a of anchors.slice(0, 3)) {
     const top = a.elev + a.size[2];
+    if (['dresser', 'sideboard', 'desk', 'shoe-cabinet'].includes(a.type) && R.can('shelf-wall')) {
+      // a wall shelf above the chest or desk, a hand's width narrower than it and clear of windows and doors
+      const elevS = Math.max(shelfSpec.place.elevation, top + 0.45);
+      if (elevS + shelfSpec.size[2] <= ceil && R.wall('shelf-wall', { edges: [a._edge], around: [a.x, a.y], size: { w: clamp(a.size[0] - 0.1, 0.5, 1.4) }, elev: elevS, soft: false, noClear: true, avoidWindows: true, align: 'any' })) continue;
+    }
     const big = SPEC_BY_ID['art-large'].size[2];
     const elev = Math.max(SPEC_BY_ID['art-large'].place.elevation, top + (a.type.startsWith('bed') ? 0.7 : 0.25));
     if (a.type !== 'desk' && a.type !== 'dresser' && elev + big <= ceil && art('art-large', a, elev)) continue;
     const e2 = Math.max(SPEC_BY_ID['art-small'].place.elevation, top + 0.3);
     if (e2 + SPEC_BY_ID['art-small'].size[2] <= ceil) art('art-small', a, e2);
+  }
+  if (R.type === 'hall' && R.can('shelf-wall') && !R.has('shelf-wall') && shelfSpec.place.elevation + shelfSpec.size[2] <= ceil) {
+    R.wall('shelf-wall', { elev: shelfSpec.place.elevation, soft: false, noClear: true, avoidWindows: true, align: 'any', score: (e) => longest(e, true) });
   }
   const extra = R.type === 'living' ? 2 : R.type === 'hall' || R.type === 'bedroom' || R.type === 'office' || R.type === 'dining' ? 1 : R.type === 'other' ? 1 : 0;
   for (let i = 0; i < extra; i++) {

@@ -4,7 +4,8 @@
 import { specOf } from '../furniture/specs.js';
 import { LIMITS } from '../layout/engine.js';
 import { roomInterior, boxInsidePolygon, obb, pointInPolygon } from '../layout/geometry.js';
-import { sizeFrom, cleanColor, validRoomId, ROOM_PARTS, ROOM_LIMIT } from './state.js';
+import { sizeFrom, validRoomId, ROOM_PARTS, ROOM_LIMIT } from './state.js';
+import { readColor, cleanColor, cleanRoomColor } from './colors.js';
 import { normRot } from './rules.js';
 
 export const IO_LIMITS = Object.freeze({ chars: 2000000, levels: 20, warnings: 60 });
@@ -16,7 +17,7 @@ const isObj = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
 function canonPiece(p) {
   if (![p.x, p.y, p.rot, p.elev, ...p.size].every(fin)) throw new Error('a number is not finite');
   const colors = {};
-  for (const k of Object.keys(p.colors ?? {}).sort()) colors[k] = p.colors[k];
+  for (const k of Object.keys(p.colors ?? {}).sort()) { const c = cleanColor(p.colors[k]); if (c) colors[k] = c; } // always the full form
   return { id: p.id, type: p.type, room: p.room, x: r3(p.x), y: r3(p.y), rot: r3(p.rot), size: p.size.map(r3), elev: r3(p.elev), on: p.on ?? null, colors };
 }
 
@@ -28,7 +29,7 @@ function canonRooms(rooms) {
     const src = rooms[id];
     if (!validRoomId(id) || !isObj(src)) continue;
     const entry = {};
-    for (const part of ROOM_PARTS) { const c = Object.prototype.hasOwnProperty.call(src, part) ? cleanColor(src[part]) : null; if (c) entry[part] = c; }
+    for (const part of ROOM_PARTS) { const c = Object.prototype.hasOwnProperty.call(src, part) ? cleanRoomColor(src[part]) : null; if (c) entry[part] = c; }
     if (Object.keys(entry).length) out.push([id, entry]);
   }
   return out.slice(0, ROOM_LIMIT);
@@ -142,8 +143,10 @@ function readRooms(lv, mlevel, warn) {
     const got = {};
     for (const k of Object.keys(src).slice(0, 20)) {
       if (!ROOM_PARTS.includes(k)) { warn(`Room ${id}: "${k.slice(0, 30)}" is not a colour of a room (use wall or floor).`); continue; }
-      const c = cleanColor(src[k]);
-      if (c) got[k] = c; else warn(`Room ${id}: the ${k} colour is not valid and was left out.`);
+      const c = readColor(src[k], 'room');
+      if (!c) { warn(`Room ${id}: the ${k} colour is not valid and was left out.`); continue; }
+      if (c.bare) warn(`Room ${id}: the ${k} colour "${String(src[k]).slice(0, 30)}" is now written ${c.value}.`);
+      got[k] = c.value;
     }
     const entry = {};
     for (const part of ROOM_PARTS) if (got[part]) entry[part] = got[part];
@@ -191,8 +194,10 @@ function readPieces(lv, mlevel, seenId, warn) {
       if (!isObj(p.colors)) warn(`Piece ${p.id}: the colours are not a list and were ignored.`);
       else for (const k of Object.keys(p.colors).slice(0, 40)) {
         if (!spec.slots.includes(k)) { warn(`Piece ${p.id}: ${spec.id} has no colour slot "${String(k).slice(0, 30)}".`); continue; }
-        const c = cleanColor(p.colors[k]);
-        if (c) colors[k] = c; else warn(`Piece ${p.id}: the colour of ${k} is not valid and was left out.`);
+        const c = readColor(p.colors[k], 'piece');
+        if (!c) { warn(`Piece ${p.id}: the colour of ${k} is not valid and was left out.`); continue; }
+        if (c.bare) warn(`Piece ${p.id}: the colour of ${k} "${String(p.colors[k]).slice(0, 30)}" is now written ${c.value}.`);
+        colors[k] = c.value;
       }
     }
     const piece = { id: p.id, type: spec.id, room: p.room, x: r3(p.x), y: r3(p.y), rot: normRot(p.rot ?? 0), size: size.map(r3), elev: r3(elev), on: p.on ?? null, colors };

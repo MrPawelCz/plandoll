@@ -411,7 +411,7 @@ let work = Infinity;
 let workSkipped = false;
 function spend(n) {
   if (work === Infinity) return true;
-  if (work < n) { work = 0; workSkipped = true; return false; }
+  if (!(n <= work)) { work = 0; workSkipped = true; return false; } // also when n is NaN or Infinity (a coordinate at the edge of the number range)
   work -= n;
   return true;
 }
@@ -504,7 +504,7 @@ function unwalledSamples(poly, walls, step = 0.1) {
   for (let i = 0; i < poly.length; i++) {
     const p0 = poly[i], p1 = poly[(i + 1) % poly.length];
     const el = Math.hypot(p1[0] - p0[0], p1[1] - p0[1]);
-    if (el < 1e-9) continue;
+    if (!(el >= 1e-9) || !Number.isFinite(el)) continue;
     const n = Math.max(1, Math.ceil(el / step)), w = el / n;
     if (!spend(n * walls.length)) continue;
     for (let s = 0; s < n; s++) {

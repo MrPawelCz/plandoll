@@ -9,14 +9,12 @@
 //   coalesceKey   operations with the same key in a row share one undo step (a drag of one piece)
 import { specOf } from '../furniture/specs.js';
 import { LIMITS, autoFurnish } from '../layout/engine.js';
-import { MATERIAL_DEFS } from '../render/matgen.js';
+import { cleanColor, cleanRoomColor, MATERIAL_KEYS } from './colors.js';
 import { axisOf, frontOf } from '../layout/geometry.js';
 import { placeAt, placementProblems, hardProblems, roomAt, normRot, keepBackOnWall } from './rules.js';
 
 export const HISTORY_LIMIT = 200;
-export const MATERIAL_KEYS = Object.freeze(Object.keys(MATERIAL_DEFS));
-const MATERIAL_SET = new Set(MATERIAL_KEYS);
-const HEX = /^#[0-9a-fA-F]{6}$/;
+export { cleanColor, cleanRoomColor, MATERIAL_KEYS };
 
 const r3 = (v) => Math.round(v * 1000) / 1000;
 const fin = (v) => typeof v === 'number' && Number.isFinite(v);
@@ -139,14 +137,6 @@ export function sizeFrom(spec, base, req) {
     size[i] = v;
   }
   return { size, clamped };
-}
-
-// Colour value of a slot: `#rrggbb` (stored lower case) or a key of the material library. Returns the value or null.
-export function cleanColor(v, materialKeys = MATERIAL_SET) {
-  if (typeof v !== 'string') return null;
-  if (HEX.test(v)) return v.toLowerCase();
-  const keys = materialKeys instanceof Set ? materialKeys : new Set(materialKeys ?? []);
-  return keys.has(v) ? v : null;
 }
 
 function judge(state, res, o) {
@@ -329,7 +319,8 @@ export const duplicatePiece = guarded((state, id, opts) => {
   return { state: commit(state, layout, { selection: piece.id, key: o.coalesceKey }), ok: true, id: piece.id, problems, snapped };
 });
 
-// recolorPiece(state, id, slot, color, opts): color is `#rrggbb`, a material library key, or null to go back to the piece's default.
+// recolorPiece(state, id, slot, color, opts): color is `#rrggbb`, `lib:<key>`, `f:<key>` (see colors.js; a bare library key is read as
+// `lib:<key>`) or null to go back to the piece's default.
 export const recolorPiece = guarded((state, id, slot, color, opts) => {
   const o = optsOf(opts);
   const f = findPiece(state.layout, id);
@@ -359,12 +350,12 @@ export function roomColorsOf(layout, levelId, roomId) {
   const rooms = lv && isObj(lv.rooms) ? lv.rooms : null;
   const entry = rooms && validRoomId(roomId) && own(rooms, roomId) && isObj(rooms[roomId]) ? rooms[roomId] : null;
   const out = {};
-  if (entry) for (const part of ROOM_PARTS) { const c = own(entry, part) ? cleanColor(entry[part]) : null; if (c) out[part] = c; }
+  if (entry) for (const part of ROOM_PARTS) { const c = own(entry, part) ? cleanRoomColor(entry[part]) : null; if (c) out[part] = c; }
   return out;
 }
 
-// recolorRoom(state, levelId, roomId, part, color, opts): part is 'wall' or 'floor'; color is `#rrggbb`, a material library key or
-// null (back to the plan's own look). With opts.model the room must exist in the plan. One undo step; a series with the same
+// recolorRoom(state, levelId, roomId, part, color, opts): part is 'wall' or 'floor'; color is `#rrggbb`, `lib:<key>` (a bare library
+// key is read as `lib:<key>`) or null (back to the plan's own look). With opts.model the room must exist in the plan. One undo step; a series with the same
 // coalesceKey (a colour picker being dragged) is one step.
 export const recolorRoom = guarded((state, levelId, roomId, part, color, opts) => {
   const o = optsOf(opts);
@@ -381,7 +372,7 @@ export const recolorRoom = guarded((state, levelId, roomId, part, color, opts) =
     if (!own(entry, part)) return fail(state, 'no-change');
     delete entry[part];
   } else {
-    const c = cleanColor(color, o.materialKeys);
+    const c = cleanRoomColor(color, o.materialKeys);
     if (!c) return fail(state, 'bad-color');
     if (entry[part] === c) return fail(state, 'no-change');
     entry[part] = c;

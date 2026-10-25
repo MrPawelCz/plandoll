@@ -128,7 +128,8 @@ test('recolorPiece: hex colours, material keys, reset, refusals', () => {
   assert.equal(piece(r.state, 'p3').colors.cushions, '#aa00bb');
   assert.equal(piece(r.state, 'p3').colors.upholstery, '#7d8b99', 'other slots are kept');
   const key = MATERIAL_KEYS[0];
-  assert.equal(piece(recolorPiece(st, 'p3', 'upholstery', key).state, 'p3').colors.upholstery, key);
+  assert.equal(piece(recolorPiece(st, 'p3', 'upholstery', `lib:${key}`).state, 'p3').colors.upholstery, `lib:${key}`);
+  assert.equal(piece(recolorPiece(st, 'p3', 'upholstery', key).state, 'p3').colors.upholstery, `lib:${key}`, 'a bare library key is stored in the full form');
   assert.deepEqual(piece(recolorPiece(st, 'p3', 'upholstery', null).state, 'p3').colors, {});
   assert.equal(recolorPiece(st, 'p3', 'upholstery', '#7d8b99').reason, 'no-change');
   assert.equal(recolorPiece(st, 'p3', 'legs', null).reason, 'no-change');

@@ -8,7 +8,7 @@ import { blocks, defaultAllowed, LIMITS } from './engine.js';
 
 // What a finished room of each type must hold (any of the listed ids counts for one entry, `min` pieces of the group).
 const SETS = {
-  living: { minArea: 8, need: [['sofa2', 'sofa3'], ['tv-unit'], ['coffee-table'], ['rug']] },
+  living: { minArea: 8, need: [['sofa2', 'sofa3', 'sofa-bed'], ['tv-unit'], ['coffee-table'], ['rug']] },
   bedroom: { minArea: 6, need: [['bed-double', 'bed-single', 'bed-king']], bigNeed: [10, [['wardrobe']]], wideNeed: [2.4, [['nightstand']]] },
   kitchen: { minArea: 5, need: [['fridge'], ['kitchen-sink'], ['kitchen-hob'], ['kitchen-base']] },
   bath: { minArea: 2.5, need: [['toilet'], ['washbasin']], bigNeed: [3.5, [['shower', 'bathtub']]] },

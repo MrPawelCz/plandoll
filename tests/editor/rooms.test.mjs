@@ -21,12 +21,12 @@ test('recolorRoom sets the wall and the floor: hex stored in lower case, materia
   const key = MATERIAL_KEYS[0];
   r = recolorRoom(r.state, L0, room, 'floor', key, { model: flat.model });
   assert.equal(r.ok, true);
-  assert.deepEqual(roomColorsOf(r.state.layout, L0, room), { wall: '#aabbcc', floor: key });
+  assert.deepEqual(roomColorsOf(r.state.layout, L0, room), { wall: '#aabbcc', floor: `lib:${key}` });
   assert.equal(r.state.history.past.length, 2);
   assert.equal(st.layout.levels[0].rooms, undefined, 'the input state is untouched');
   const back = undo(r.state).state;
   assert.deepEqual(roomColorsOf(back.layout, L0, room), { wall: '#aabbcc' });
-  assert.deepEqual(roomColorsOf(redo(back).state.layout, L0, room), { wall: '#aabbcc', floor: key });
+  assert.deepEqual(roomColorsOf(redo(back).state.layout, L0, room), { wall: '#aabbcc', floor: `lib:${key}` });
 });
 
 test('recolorRoom with null clears a part; the last part removes the room and then the rooms key', () => {

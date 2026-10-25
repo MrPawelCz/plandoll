@@ -64,6 +64,30 @@ export function roomAt(model, levelId, x, y, prefer = null) {
   return null;
 }
 
+// The rooms of a level, in plan order: [{ id, name, use, area, polygon, interior }] (at most 400). `polygon` is the room as drawn in
+// the plan, `interior` the floor inside the walls (the area roomAt tests), both as copies of [x, y] pairs; `interior` is null when the
+// room has no usable floor. An unknown level, or a model that is not a model, gives [].
+export function roomsOf(model, levelId) {
+  const ctx = levelCtx(model, levelId);
+  if (!ctx) return [];
+  const out = [];
+  for (const r of (ctx.level.rooms ?? []).slice(0, 400)) {
+    if (!r || typeof r.id !== 'string' || !Array.isArray(r.polygon)) continue;
+    const ip = interiorOf(ctx, r.id);
+    out.push({
+      id: r.id, name: typeof r.name === 'string' && r.name ? r.name : r.id, use: typeof r.use === 'string' ? r.use : null,
+      area: fin(r.area) ? r.area : null, polygon: r.polygon.map((q) => [q[0], q[1]]), interior: ip ? ip.poly.map((q) => [q[0], q[1]]) : null,
+    });
+  }
+  return out;
+}
+
+// The room record (as roomsOf lists it) whose floor holds the point, or null (the preferred room wins when it holds it too).
+export function roomInfoAt(model, levelId, x, y, prefer = null) {
+  const id = roomAt(model, levelId, x, y, prefer);
+  return id ? roomsOf(model, levelId).find((r) => r.id === id) ?? null : null;
+}
+
 const adaptCache = new WeakMap();
 function finitePiece(p) {
   return p && typeof p === 'object' && Array.isArray(p.size) && p.size.length === 3 && [p.x, p.y, p.rot, p.elev, ...p.size].every(fin);
@@ -101,7 +125,12 @@ const solidSpec = (spec) => spec.place.mode === 'floor' || spec.place.mode === '
 // Pieces that are meant to stand in front of another one: they do not count as blocking its front.
 const SEATS = ['sofa2', 'sofa3', 'sofa-bed', 'armchair'];
 const LOW_TABLES = ['coffee-table', 'coffee-table-round'];
+// Fixtures of one run share their open floor: the fronts of kitchen units meet at the corner of an L or U shaped run, and bathroom
+// fixtures face the same middle of the room, so those strips may cross each other.
+const KITCHEN_RUN = ['kitchen-base', 'kitchen-sink', 'kitchen-hob', 'fridge', 'washing-machine'];
+const BATH_FIXTURES = ['toilet', 'washbasin', 'shower', 'bathtub', 'washing-machine'];
 const FRONT_COMPANIONS = new Map([...SEATS.map((t) => [t, LOW_TABLES]), ['desk', ['desk-chair']], ['tv-unit', [...SEATS, ...LOW_TABLES]]]);
+for (const group of [KITCHEN_RUN, BATH_FIXTURES]) for (const t of group) FRONT_COMPANIONS.set(t, [...new Set([...(FRONT_COMPANIONS.get(t) ?? []), ...group])]);
 
 // The strip in front of a piece that has to stay free (`place.clearFront` deep, 90% of the width), as a box, or null.
 export function clearBox(piece) {

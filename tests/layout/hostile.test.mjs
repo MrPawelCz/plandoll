@@ -131,3 +131,69 @@ test('engine inputs that are not plans do not throw', () => {
   assert.deepEqual(autoFurnish({ levels: [] }).levels, []);
   assert.deepEqual(autoFurnish({}).levels, []);
 });
+
+// ---- the whole chain (validate, build the model, furnish) on hostile plans: no exception, under two seconds in all ----
+function chain(plan) {
+  const t0 = performance.now();
+  let res;
+  assert.doesNotThrow(() => { res = analyzePlan(plan); }, 'validation does not throw');
+  assert.equal(typeof res.ok, 'boolean');
+  let pieces = 0;
+  if (res.ok) {
+    let model;
+    assert.doesNotThrow(() => { model = buildModel(modelOf(res)); }, 'building the model does not throw');
+    let lay;
+    assert.doesNotThrow(() => { lay = autoFurnish(model, { seed: 2 }); }, 'furnishing does not throw');
+    pieces = lay.levels.reduce((n, l) => n + l.pieces.length, 0);
+    assert.ok(pieces <= LIMITS.total);
+    for (const l of lay.levels) for (const p of l.pieces) assert.ok([p.x, p.y, p.rot, p.elev, ...p.size].every(Number.isFinite), 'finite numbers only');
+  } else {
+    assert.ok(Array.isArray(res.errors) && res.errors.length > 0, 'a refused plan says why');
+  }
+  const ms = performance.now() - t0;
+  assert.ok(ms < 2000, `${ms.toFixed(0)} ms`);
+  return { ok: res.ok, pieces, ms };
+}
+
+test('hostile plans, whole chain: empty, a level without rooms, numbers that are not numbers', () => {
+  const level = { id: 'L0', name: 'x', height: 2.7, walls: [], openings: [], rooms: [] };
+  const base = { version: 1, name: 'x', units: 'm' };
+  assert.equal(chain({ ...base, levels: [] }).pieces, 0);
+  assert.equal(chain({ ...base, levels: [level] }).pieces, 0);
+  assert.equal(chain({}).ok, false);
+  assert.equal(chain(null).ok, false);
+  assert.equal(chain('').ok, false);
+  assert.equal(chain([]).ok, false);
+  const nan = (v) => ({ ...base, levels: [{ ...level, ...v }] });
+  const poly = [[0, 0], [4, 0], [4, 3], [0, 3]];
+  const walls = wallsOf(poly, 'w');
+  const room = { id: 'r', name: 'Salon', polygon: poly, use: 'living' };
+  for (const bad of [NaN, Infinity, -Infinity, 1e308, null, '4', {}, [], true]) {
+    const w2 = walls.map((w, i) => (i === 1 ? { ...w, to: [bad, 0] } : w));
+    chain(nan({ walls: w2, rooms: [room], openings: [{ id: 'd', wall: 'w0', type: 'door', offset: 0.1, width: 0.8 }] }));
+    chain(nan({ walls, rooms: [{ ...room, polygon: [[0, 0], [bad, 0], [4, 3], [0, 3]] }] }));
+    chain(nan({ walls, rooms: [room], height: bad }));
+    chain(nan({ walls, rooms: [room], openings: [{ id: 'd', wall: 'w0', type: 'door', offset: bad, width: 0.8 }] }));
+    chain(nan({ walls, rooms: [room], openings: [{ id: 'd', wall: 'w0', type: 'window', offset: 0.1, width: bad, sill: bad }] }));
+  }
+});
+
+test('hostile plans, whole chain: 200 rooms, a room of 0.2 square metres, a self crossing room, 100000 walls', () => {
+  const names = ['Salon', 'Bedroom', 'Kuchnia', 'Łazienka', 'Hall', 'Gabinet', 'xyz', 'Kids', 'WC', 'Jadalnia'];
+  const rooms = [];
+  for (let i = 0; i < 200; i++) rooms.push({ polygon: rect((i % 20) * 4.2, Math.floor(i / 20) * 4.2, 4, 4), name: names[i % 10], window: i % 2 === 0 });
+  chain(planOf(rooms));
+  chain(planOf([{ polygon: rect(0, 0, 0.5, 0.4), name: 'Salon' }, { polygon: rect(1, 0, 4, 3), name: 'Salon' }]));
+  chain(planOf([{ polygon: [[0, 0], [4, 3], [4, 0], [0, 3]], name: 'Salon', door: false }, { polygon: rect(5, 0, 4, 3), name: 'Bedroom' }]));
+  const walls = [];
+  for (let i = 0; i < 100000; i++) walls.push({ id: `w${i}`, from: [i * 0.01, 0], to: [i * 0.01, 1], kind: 'interior' });
+  const r = chain({ version: 1, name: 'huge', units: 'm', levels: [{ id: 'L0', name: 'x', height: 2.7, walls, openings: [], rooms: [] }] });
+  assert.equal(r.ok, false);
+  // 100000 openings, rooms with 100000 points, and 100000 levels are refused as cheaply
+  const openings = Array.from({ length: 100000 }, (_, i) => ({ id: `o${i}`, wall: 'w0', type: 'window', offset: 0.1, width: 0.5 }));
+  assert.equal(chain({ version: 1, name: 'huge', units: 'm', levels: [{ id: 'L0', name: 'x', height: 2.7, walls: wallsOf(rect(0, 0, 4, 3), 'w'), openings, rooms: [] }] }).ok, false);
+  const pts = Array.from({ length: 100000 }, (_, i) => [Math.cos(i), Math.sin(i)]);
+  assert.equal(chain({ version: 1, name: 'huge', units: 'm', levels: [{ id: 'L0', name: 'x', height: 2.7, walls: wallsOf(rect(0, 0, 4, 3), 'w'), openings: [], rooms: [{ id: 'r', name: 'Salon', polygon: pts }] }] }).ok, false);
+  const levels = Array.from({ length: 100000 }, (_, i) => ({ id: `L${i}`, name: 'x', height: 2.7, walls: [], openings: [], rooms: [] }));
+  assert.equal(chain({ version: 1, name: 'huge', units: 'm', levels }).ok, false);
+});
