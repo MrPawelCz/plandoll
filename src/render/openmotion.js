@@ -1,4 +1,4 @@
-// The motion of "open the shell" (#shell=1): the outer walls fall outward round their foot line like the sides of a paper model.
+// The motion of "open the shell": the outer walls fall outward round their foot line like the sides of a paper model.
 // This file is the clock and the curves only: when each wall starts, how far it has turned, how tall it stands while it turns, and the order
 // the walls go in. One clock p (0 closed, 1 open) runs forward to open and backward to close, so closing is the same motion in reverse.
 // Pure: no scene, no DOM, no timers; tested in Node.

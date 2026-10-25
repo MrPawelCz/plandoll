@@ -153,7 +153,7 @@ try {
 
   // The bars at the bottom (controls, edit bar) as a share of the window height on a narrow window (a phone), where they span the window; zero on a wide one,
   // where they are a small box in the middle, and when the picture is not the size of the window (a captured size).
-  // With shell=1 the folded walls reach the bottom of the picture, so a wide window keeps the model above the bars too.
+  // With the shell the folded walls reach the bottom of the picture, so a wide window keeps the model above the bars too.
   const barsCover = () => (W === window.innerWidth && H === window.innerHeight && (useShell || isNarrow(W)) ? coverShare(['#ps-ui', '#ps-edit'].map((s) => document.querySelector(s)?.getBoundingClientRect() ?? null), H) : 0);
   function frameCamera() {
     cover = barsCover();
@@ -502,7 +502,7 @@ try {
   window.__planInfo = () => ({ pieces: furn.pieces.size, levels: model.levels.length, rooms: model.levels.reduce((n, l) => n + (l.rooms?.length ?? 0), 0), extent: [ext.minX, ext.maxX, ext.minZ, ext.maxZ].map((v) => +v.toFixed(2)) }); // for test tools
   window.__setT = setTime; window.__setPreset = setPreset; window.__setQuality = setQ;
   window.__camera = { get azimuth() { return cam.state.azimuth; }, get polar() { return cam.state.polar; }, get distance() { return cam.state.distance; }, get near() { return sidesKey(near); }, get busy() { return cam.busy; }, set: (azimuth, polar) => cam.set({ azimuth, polar }), reset: () => cam.reset(false) };
-  // For test tools and the film (shell=1 only): the clock (0 closed, 1 open), the target and the mode, open/close/toggle like the button, the pose of every wall,
+  // For test tools and the film (there while the shell is built, not while editing): the clock (0 closed, 1 open), the target and the mode, open/close/toggle like the button, the pose of every wall,
   // the camera as three.js holds it, and seek(p) which puts the walls at clock p without any transition and resolves after the frame that shows it.
   if (useShell) {
     window.__shell = {

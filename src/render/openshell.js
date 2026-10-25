@@ -1,4 +1,4 @@
-// "Open the shell" in the scene (#shell=1): every outer wall, with its windows and doors, hangs from a hinge group that turns about the foot line
+// "Open the shell" in the scene: every outer wall, with its windows and doors, hangs from a hinge group that turns about the foot line
 // of the wall's outer face, so the wall falls outward and lies flat with its inner face up. The groups already exist (PlanScene makes one per
 // wall and one per opening, both at the level's origin); here they get a matrix of their own, so the positions of the boxes inside stay as
 // they were and the cutaway keeps working on them. The pieces hung on those walls (pictures, mirrors, curtains) are moved into hinge groups of
