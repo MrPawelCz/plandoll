@@ -10,6 +10,17 @@ export function isFormTarget(target) {
   return tag === 'input' || tag === 'select' || tag === 'textarea' || target?.isContentEditable === true;
 }
 
+// What a key press does to the open shell (shell=1): Space opens a closed shell and closes an open one, Escape closes an open one; 'open', 'close' or null.
+// Keys with Ctrl, Cmd or Alt, keys that land in a form field, and Space on a button or a link (they use it themselves) do nothing. `wantOpen` is true while the
+// shell is open or opening.
+export function shellKey(e, wantOpen) {
+  if (!e || e.ctrlKey || e.metaKey || e.altKey || isFormTarget(e.target)) return null;
+  const tag = String(e.target?.tagName ?? '').toLowerCase();
+  if (e.key === 'Escape') return wantOpen ? 'close' : null;
+  if ((e.key === ' ' || e.code === 'Space') && tag !== 'button' && tag !== 'a') return wantOpen ? 'close' : 'open';
+  return null;
+}
+
 export function hasWebgl2(makeCanvas) {
   try { return !!makeCanvas()?.getContext?.('webgl2'); } catch { return false; }
 }

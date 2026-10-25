@@ -7,9 +7,11 @@ import { clock } from '../look/timeofday.js';
 const STR = {
   en: { time: 'Time of day', quality: 'Image quality', auto: 'Auto', high: 'High', medium: 'Medium', low: 'Low', lang: 'PL', reset: 'Reset view', resetTitle: 'Back to the starting view', hint: 'Drag to turn',
     edit: 'Edit', editDone: 'Done', editTitle: 'Edit the furniture layout', editDoneTitle: 'Leave the layout editor', saveImage: 'Save image', saveImageTitle: 'Save the current view as a PNG picture', loadPlan: 'Load plan', loadPlanTitle: 'Replace the plan with one of your own (a file or pasted text)',
+    shell: 'Open the shell', shellClose: 'Close the shell', shellTitle: 'Let the outer walls fall open round the plan (Space or Esc folds them back)', shellCloseTitle: 'Fold the outer walls back up',
     qualityHelp: 'High: sharper picture, soft accurate shadows, darker corners, a glow round the lamps, blurred top and bottom of the frame, shine and film grain; slower and uses more battery. Medium: in between. Low: faster and lighter on the battery, with fewer effects. Auto picks a level for your device.' },
   pl: { time: 'Pora dnia', quality: 'Jakość obrazu', auto: 'Auto', high: 'Wysoka', medium: 'Średnia', low: 'Niska', lang: 'EN', reset: 'Reset widoku', resetTitle: 'Wróć do widoku początkowego', hint: 'Przeciągnij, żeby obrócić',
     edit: 'Edytuj', editDone: 'Zakończ edycję', editTitle: 'Edytuj układ mebli', editDoneTitle: 'Zamknij edytor układu', saveImage: 'Zapisz obraz', saveImageTitle: 'Zapisz bieżący widok jako obraz PNG', loadPlan: 'Wczytaj plan', loadPlanTitle: 'Zastąp plan własnym (plik albo wklejony tekst)',
+    shell: 'Otwórz bryłę', shellClose: 'Złóż bryłę', shellTitle: 'Rozłóż ściany zewnętrzne wokół rzutu (spacja albo Esc składa je z powrotem)', shellCloseTitle: 'Złóż ściany zewnętrzne z powrotem',
     qualityHelp: 'Wysoka: ostrzejszy obraz, miękkie dokładne cienie, ciemnienie w narożnikach, poświata lamp, rozmycie góry i dołu kadru, połysk i ziarno; działa wolniej i zużywa więcej baterii. Średnia: pośrodku. Niska: szybciej i oszczędniej, mniej efektów. Auto dobiera poziom do urządzenia.' },
 };
 // Texts of the edit bar (shown with edit=1): the visible word, and the longer label for screen readers and tooltips.
@@ -63,6 +65,7 @@ const CSS = `
 #ps-ui button.tool:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 #ps-hint{position:fixed;left:50%;top:14px;transform:translateX(-50%);font:600 13px/1.3 ui-rounded,"SF Pro Rounded","Avenir Next","Segoe UI",system-ui,sans-serif;color:var(--ink);background:var(--paper);padding:6px 14px;border-radius:16px;border:1px solid var(--line);box-shadow:0 6px 18px rgba(40,28,12,.22);-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px);pointer-events:none;max-width:calc(100vw - 24px);box-sizing:border-box;text-align:center}
 @media (min-width:761px) and (max-width:1380px){#ps-ui{flex-wrap:wrap;justify-content:center}#ps-ui .tools{flex-basis:100%}#ps-ui .sep{display:none}}
+@media (min-width:1381px){#ps-ui.has-shell{flex-wrap:wrap;justify-content:center}#ps-ui.has-shell .tools{flex-basis:100%}#ps-ui.has-shell .sep{display:none}}
 @media (max-width:760px){#ps-ui{flex-wrap:wrap;justify-content:center;gap:8px}#ps-ui label.time{min-width:100%}#ps-ui label.quality{flex-direction:column;align-items:flex-start;gap:2px}#ps-ui select{padding:4px 6px}}
 @media (max-width:760px),(pointer:coarse){#ps-ui button.mood{min-height:44px;box-sizing:border-box}#ps-ui select{min-height:44px;box-sizing:border-box}#ps-ui button.reset,#ps-ui button.lang{min-height:44px;min-width:44px;box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center}}
 @media (max-width:760px){#ps-ui.editing label.quality,#ps-ui.editing .sep{display:none}}
@@ -144,7 +147,7 @@ export function createUI(handlers, state, doc = document) {
   lang.addEventListener('click', () => handlers.onLang(state.lang === 'pl' ? 'en' : 'pl'));
   const tools = doc.createElement('div'); tools.className = 'tools'; tools.setAttribute('role', 'group');
   const toolBtns = {};
-  for (const [key, handler] of [['edit', 'onEdit'], ['saveImage', 'onSaveImage'], ['loadPlan', 'onLoadPlan']]) {
+  for (const [key, handler] of [...(state.shell ? [['shell', 'onShell']] : []), ['edit', 'onEdit'], ['saveImage', 'onSaveImage'], ['loadPlan', 'onLoadPlan']]) {
     const b = doc.createElement('button'); b.type = 'button'; b.className = 'tool'; b.dataset.tool = key;
     b.addEventListener('click', () => handlers[handler]?.());
     tools.append(b); toolBtns[key] = b;
@@ -175,7 +178,11 @@ export function createUI(handlers, state, doc = document) {
     toolBtns.saveImage.style.display = state.editing ? 'none' : '';
     toolBtns.loadPlan.textContent = L.loadPlan; toolBtns.loadPlan.title = L.loadPlanTitle; toolBtns.loadPlan.setAttribute('aria-label', L.loadPlanTitle);
     toolBtns.loadPlan.style.display = state.editing ? 'none' : '';
-    root.className = state.editing ? 'editing' : '';
+    if (toolBtns.shell) { // the test button of the open shell: its word and its hint follow the state
+      const open = !!state.shellOpen, label = open ? L.shellClose : L.shell;
+      toolBtns.shell.textContent = label; toolBtns.shell.title = open ? L.shellCloseTitle : L.shellTitle; toolBtns.shell.setAttribute('aria-label', label);
+    }
+    root.className = [state.editing ? 'editing' : '', state.shell ? 'has-shell' : ''].filter(Boolean).join(' ');
     doc.documentElement.lang = state.lang;
   }
   update(state);

@@ -17,13 +17,15 @@ function place(m, y0, y1) {
 //  - a full-height outer wall on the south or east edge does not cast one either: the sun stands on that side, so its shadow
 //    would fall into the rooms. The walls that cast in the main view keep doing so.
 // Idempotent: the same `near` gives the same result whatever the previous one was.
-export function applyWallCut(ps, ext, near = NEAR_DEFAULT, { edge = 0.3 } = {}) {
+// `height`, when given, is called as height(cuttable, h) with the height worked out above and returns the height to cut at instead (the open
+// shell lets the walls that fall rise to their full height this way); without it nothing changes.
+export function applyWallCut(ps, ext, near = NEAR_DEFAULT, { edge = 0.3, height = null } = {}) {
   ps.cutH = 1.1; // textured look: the dark wall tops show while the walls are cut
   let changed = 0;
   for (const c of ps.cuttables) {
     const m = c.mesh, x = m.position.x, z = m.position.z;
     if (c.cast0 === undefined) c.cast0 = m.castShadow;
-    const h = wallCutHeight(x, z, ext, edge, near), top = c.y0 >= h - 1e-4 ? null : Math.min(c.y1, h);
+    const h0 = wallCutHeight(x, z, ext, edge, near), h = height ? height(c, h0) : h0, top = c.y0 >= h - 1e-4 ? null : Math.min(c.y1, h);
     const was = `${m.visible}|${m.scale.y.toFixed(5)}`;
     // a window pane that the cut leaves as a thin strip would glow like a light bar: it goes away with the wall above it
     const strip = m.pw?.pane === true && top !== null && top < c.y1 - 1e-4;
