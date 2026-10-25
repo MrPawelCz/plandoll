@@ -129,12 +129,13 @@ export function setLampGlow(root, k) {
 // Draw-call saver: the visible meshes of all pieces that share a material and shadow flags become one mesh in world space.
 // The per-piece groups stay untouched in `composed` (hide `composed.group` when you draw the merged group); call it again after
 // the layout or the visibility of pieces changes. Geometry that cannot be merged with its neighbours stays as it is.
-export function mergeByMaterial(composed) {
+// `skip` (a Set of piece ids) leaves those pieces out: the editor keeps the piece being dragged as its own object.
+export function mergeByMaterial(composed, skip = null) {
   const out = new THREE.Group(); out.name = 'furnishing-merged';
   const buckets = new Map();
   composed.group.updateMatrixWorld(true);
-  for (const g of composed.pieces.values()) {
-    if (!g.visible) continue;
+  for (const [id, g] of composed.pieces) {
+    if (!g.visible || skip?.has(id)) continue;
     g.traverse((o) => {
       if (!o.isMesh) return;
       const geo = o.geometry, names = Object.keys(geo.attributes).sort().join(',');

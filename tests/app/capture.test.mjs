@@ -33,5 +33,5 @@ test('editHash switches edit on and off and keeps the rest of the address', () =
   const off = editHash(on, false, { preset: 'clear', t: 0.25, q: 'auto', lang: 'pl' });
   const o = parseParams(off, {});
   assert.equal(o.edit, false); assert.equal(o.btn, true); assert.equal(o.az, 40); assert.equal(off.includes('q='), false);
-  assert.equal(parseParams('', {}).btn, false);
+  assert.equal(parseParams('', {}).btn, true); assert.equal(parseParams('#btn=0', {}).btn, false);
 });

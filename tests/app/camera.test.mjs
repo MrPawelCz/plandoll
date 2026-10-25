@@ -306,3 +306,11 @@ test('controller: initial.distance is clamped to the zoom limits and defaults to
   r.cam.set({ distance: 12 }); assert.equal(r.cam.state.distance, 12); assert.equal(r.cam.state.azimuth, 200);
   r.cam.reset(false); assert.equal(r.cam.state.distance, 10); assert.equal(r.cam.state.azimuth, 35);
 });
+
+test('the fill light multiplier is exactly 1 from the south side and grows towards the north', async () => {
+  const { fillBoost } = await import('../../src/app/camera.js');
+  for (const az of [0, 35.5, 90, 270, -90, 360]) assert.equal(fillBoost(az), 1, `az ${az}`);
+  assert.ok(Math.abs(fillBoost(180) - 1.3) < 1e-9);
+  assert.ok(fillBoost(150) > 1 && fillBoost(150) < fillBoost(180) && Math.abs(fillBoost(150) - fillBoost(210)) < 1e-9);
+  assert.equal(fillBoost(540), fillBoost(180)); assert.equal(fillBoost(NaN), 1);
+});

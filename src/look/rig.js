@@ -74,11 +74,15 @@ export function createRig({ group, renderer = null, quality = 'medium', target =
   }
 
   // k: the interpolated look from timeofday.sample(t); t the raw time (for the sun path).
+  // fillBoost: a multiplier for the hemisphere light that the page raises a little when the model is seen from the north, where the inside of the far wall is in shade
+  let fillBoost = 1, lastK = null;
+  function setFillBoost(b) { fillBoost = Number.isFinite(b) ? Math.min(1.6, Math.max(1, b)) : 1; if (lastK) hemi.intensity = lastK.hemiI * fillBoost; }
   function applyTime(k, t) {
+    lastK = k;
     const sp = sunPosition(t);
     sun.position.copy(tgt).addScaledVector(new THREE.Vector3(...sp.dir), dist);
     sun.color.set(k.sunC); sun.intensity = k.sunI;
-    hemi.color.set(k.sky); hemi.groundColor.set(k.gnd); hemi.intensity = k.hemiI;
+    hemi.color.set(k.sky); hemi.groundColor.set(k.gnd); hemi.intensity = k.hemiI * fillBoost;
     bounce.color.set(k.bncC); bounce.intensity = k.bnc;
     bounce.position.copy(tgt).add(new THREE.Vector3(-sp.dir[0], -0.55, -sp.dir[2]).normalize().multiplyScalar(dist));
     lampK = k.lampK; applyLamps();
@@ -88,6 +92,6 @@ export function createRig({ group, renderer = null, quality = 'medium', target =
   function setEmitters(list) { emitters = Array.isArray(list) ? list.filter((e) => e && e.pos).slice(0, 64) : []; layoutEmitters(); applyLamps(); }
 
   setQuality(quality);
-  return { hemi, sun, bounce, pool, environment: envTexture, applyTime, setQuality, setEmitters, get lampK() { return lampK; }, activeLights: () => pool.filter((p) => p.light.visible).length,
+  return { hemi, sun, bounce, pool, environment: envTexture, applyTime, setFillBoost, setQuality, setEmitters, get lampK() { return lampK; }, activeLights: () => pool.filter((p) => p.light.visible).length,
     dispose() { for (const p of pool) p.light.dispose?.(); sun.shadow.map?.dispose(); envTexture?.dispose(); pmrem?.dispose(); } };
 }

@@ -106,6 +106,10 @@ const STR = {
   en: { title: 'Paste a layout', hint: 'Paste the text of a saved layout and press Load.', field: 'Layout text', load: 'Load', cancel: 'Cancel' },
   pl: { title: 'Wklej układ', hint: 'Wklej tekst zapisanego układu i naciśnij Wczytaj.', field: 'Tekst układu', load: 'Wczytaj', cancel: 'Anuluj' },
 };
+const PLAN_STR = {
+  en: { title: 'Load a plan', hint: 'Paste the text of a plan (JSON) or choose a file, then press Load.', field: 'Plan text', load: 'Load', cancel: 'Cancel', pick: 'Choose a file' },
+  pl: { title: 'Wczytaj plan', hint: 'Wklej tekst planu (JSON) albo wybierz plik, potem naciśnij Wczytaj.', field: 'Tekst planu', load: 'Wczytaj', cancel: 'Anuluj', pick: 'Wybierz plik' },
+};
 
 const CSS = `
 #ps-files-overlay{position:fixed;inset:0;z-index:2147483000;display:flex;align-items:center;justify-content:center;padding:12px;box-sizing:border-box;background:rgba(8,6,4,.55);-webkit-backdrop-filter:blur(4px);backdrop-filter:blur(4px)}
@@ -129,9 +133,9 @@ function ensureStyle(doc) {
 const el = (doc, tag, props) => Object.assign(doc.createElement(tag), props);
 const showing = new WeakMap(); // document -> close function of the dialog that is showing
 
-// Modal for pasting layout text. Resolves with the text, or null when cancelled, blank, too long, or the dialog could not be built.
+// Modal for pasting layout text (opts.kind 'plan': the words of loading a plan, plus a button that fills the field from a file). Resolves with the text, or null when cancelled, blank, too long, or the dialog could not be built.
 // Escape or a click on the dim background cancels; Ctrl or Cmd + Enter loads. Only one dialog per document at a time.
-export function askForText(doc, lang) {
+export function askForText(doc, lang, opts = {}) {
   return new Promise((resolve) => {
     let overlay = null, before = null, settled = false;
     const finish = (value) => {
@@ -146,7 +150,7 @@ export function askForText(doc, lang) {
       showing.get(doc)?.(null); // an older dialog closes first, answering null
       detach(doc.getElementById?.('ps-files-overlay'));
       ensureStyle(doc);
-      const L = lang === 'pl' ? STR.pl : STR.en;
+      const plan = opts?.kind === 'plan', L = (plan ? PLAN_STR : STR)[lang === 'pl' ? 'pl' : 'en'];
       overlay = el(doc, 'div', { id: 'ps-files-overlay', className: 'ps-files-overlay' });
       const dialog = el(doc, 'div', { className: 'ps-files-dialog' });
       dialog.setAttribute('role', 'dialog'); dialog.setAttribute('aria-modal', 'true');
@@ -165,6 +169,12 @@ export function askForText(doc, lang) {
       load.addEventListener('click', submit);
       cancel.addEventListener('click', () => finish(null));
       const order = [area, load, cancel];
+      let pick = null; // a plan can also come from a file: its text goes into the field, so it can be looked at before it is loaded
+      if (plan) {
+        pick = el(doc, 'button', { type: 'button', className: 'ps-files-pick', textContent: L.pick });
+        pick.addEventListener('click', () => { readTextFile(doc).then((r) => { if (r.ok && !settled) area.value = r.text; }); });
+        order.splice(2, 0, pick);
+      }
       overlay.addEventListener('keydown', (e) => {
         if (e.key === 'Escape') { e.preventDefault?.(); finish(null); }
         else if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault?.(); submit(); }
@@ -177,7 +187,7 @@ export function askForText(doc, lang) {
       let pressedInside = false; // a text selection that ends on the dim background must not close the dialog
       overlay.addEventListener('pointerdown', (e) => { pressedInside = e.target !== overlay; });
       overlay.addEventListener('click', (e) => { const inside = pressedInside; pressedInside = false; if (e.target === overlay && !inside) finish(null); });
-      row.append(load, cancel); dialog.append(title, hint, area, row); overlay.append(dialog);
+      row.append(...(pick ? [load, pick, cancel] : [load, cancel])); dialog.append(title, hint, area, row); overlay.append(dialog);
       doc.body.appendChild(overlay);
       showing.set(doc, finish);
       before = doc.activeElement ?? null;

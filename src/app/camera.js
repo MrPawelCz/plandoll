@@ -286,3 +286,10 @@ export function createCameraController(options) {
     },
   };
 }
+
+// A multiplier (1 to 1.3) for the fill light by the azimuth of the view: exactly 1 for views from the south side (the default view included) and growing
+// to 1.3 when the model is seen from the north, where the inside of the far wall faces away from the sun.
+export function fillBoost(azimuth) {
+  const c = Math.cos(((Number(azimuth) || 0) - 180) * Math.PI / 180), x = Math.min(1, Math.max(0, (c - 0.3) / 0.6));
+  return 1 + 0.3 * x * x * (3 - 2 * x);
+}

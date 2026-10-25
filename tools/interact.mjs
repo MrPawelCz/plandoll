@@ -11,7 +11,7 @@
 // Exits 1 when a step fails, the page reports an error, writes to storage or asks for anything outside its own address.
 // On a small machine run only one browser at a time (tools/chrome-lock.sh).
 import { spawn } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { pathToFileURL, fileURLToPath } from 'node:url';
@@ -140,7 +140,8 @@ try {
   record('first frames', ready && info.done && !info.fail, { ...info, viewport: `${W}x${H}`, input: opt.desktop ? 'mouse' : 'touch' });
   if (!(ready && info.done && !info.fail)) throw new Error('the page did not draw its first frames');
   const bar = await rectOf('#ps-ui');
-  record('controls on screen', !!bar && bar.x >= -1 && bar.x + bar.w <= W + 1 && bar.y >= 0 && bar.y + bar.h <= H + 1, { bar });
+  const offScreen = await ev(`[...document.querySelectorAll('#ps-ui button, #ps-ui input, #ps-ui select')].filter((e) => { const r = e.getBoundingClientRect(); return r.width > 0 && (r.right > innerWidth + 1 || r.left < -1 || r.bottom > innerHeight + 1); }).length`);
+  record('controls on screen', !!bar && bar.x >= -1 && bar.x + bar.w <= W + 1 && bar.y >= 0 && bar.y + bar.h <= H + 1 && offScreen === 0, { bar, controlsOffScreen: offScreen });
   if (!opt.edit) {
     const none = await ev(`JSON.stringify({ bar: !!document.querySelector('#ps-edit'), panel: !!document.querySelector('#ps-edit-panel'), api: typeof window.__edit })`);
     record('no edit bar without edit=1', JSON.parse(none).bar === false && JSON.parse(none).panel === false && JSON.parse(none).api === 'undefined', JSON.parse(none));
@@ -273,8 +274,15 @@ try {
     for (const c of cands) {
       const pt = await ev(`window.__edit.screenOf(${JSON.stringify(c.id)})`);
       if (!inside(pt)) continue;
-      await tap(pt.x, pt.y); await sleep(350);
-      if ((await selected()) === c.id) { chosen = { ...c, pt }; break; }
+      // the sheet of a selected piece opens over the bottom of the picture, and a piece under it cannot be grabbed again: look first (the selection is set
+      // by the page, not by a tap), and only a piece that stays on the open picture is tapped for real, from the state of nothing selected
+      await ev(`window.__edit.session.select(${JSON.stringify(c.id)})`); await sleep(350);
+      const pt2 = await ev(`window.__edit.screenOf(${JSON.stringify(c.id)})`);
+      const top = pt2 ? await ev(`document.elementFromPoint(${pt2.x}, ${pt2.y})?.tagName ?? null`) : null;
+      await ev('window.__edit.session.select(null)'); await sleep(350);
+      if (top !== 'CANVAS' || !inside(pt2)) continue;
+      await tap(pt2.x, pt2.y); await sleep(350);
+      if ((await selected()) === c.id) { chosen = { ...c, pt: pt2 }; break; }
     }
     await redrawn(f);
     const picSel = await picture('9-edit-selected');
@@ -511,7 +519,7 @@ try {
   if (opt.btn && !opt.edit) {
     const toolInfo = JSON.parse(await ev(`JSON.stringify([...document.querySelectorAll('#ps-ui button.tool')].map((b) => { const r = b.getBoundingClientRect(); return { name: b.dataset.tool, x: r.left, y: r.top, w: r.width, h: r.height, text: b.textContent }; }))`));
     await picture('30-buttons');
-    record('buttons: Edit and Save image are on screen, at least 44 px', toolInfo.length === 2 && toolInfo.every((b) => b.w >= 43.5 && b.h >= 43.5 && b.x >= -1 && b.x + b.w <= W + 1 && b.y >= 0 && b.y + b.h <= H + 1), { buttons: toolInfo.map((b) => `${b.text} ${Math.round(b.w)}x${Math.round(b.h)} at ${Math.round(b.x)},${Math.round(b.y)}`) });
+    record('buttons: Edit, Save image and Load plan are on screen, at least 44 px', toolInfo.length === 3 && toolInfo.every((b) => b.w >= 43.5 && b.h >= 43.5 && b.x >= -1 && b.x + b.w <= W + 1 && b.y >= 0 && b.y + b.h <= H + 1), { buttons: toolInfo.map((b) => `${b.text} ${Math.round(b.w)}x${Math.round(b.h)} at ${Math.round(b.x)},${Math.round(b.y)}`) });
 
     // saving the picture: the file handed over is a PNG
     await ev(`(() => { window.__png = []; const orig = URL.createObjectURL.bind(URL); URL.createObjectURL = (b) => { window.__png.push(b); return orig(b); }; })()`);
@@ -550,6 +558,46 @@ try {
       const left = await waitFor('window.__done === true && typeof window.__edit === "undefined" && !document.querySelector("#ps-edit")', Number(opt.timeout));
       await sleep(500);
       record('a second tap on Done leaves the editor', left, { hash: await ev('location.hash'), label: await ev(`document.querySelector(${JSON.stringify(editSel)})?.textContent ?? null`) });
+    }
+  }
+
+
+  // 10e. Load plan: the text of another plan goes into the dialog and the page builds the new model without reloading; a bad text gives a message and changes nothing
+  {
+    const planText = readFileSync(new URL('../examples/duplex-1.plan.json', import.meta.url), 'utf8');
+    const openLoad = async () => {
+      if (opt.edit) { await tapAt('#ps-edit button[data-edit="more"]'); await sleep(300); await tapAt('#ps-edit-menu button[data-edit-item="plan"]'); }
+      else await tapAt('#ps-ui button.tool[data-tool="loadPlan"]');
+      return waitFor("!!document.querySelector('#ps-files-text')", 10);
+    };
+    const fillAndLoad = async (text) => {
+      await ev(`document.querySelector('#ps-files-text').value = ${JSON.stringify(text)}`);
+      await tapAt('#ps-files-overlay button.ps-files-load'); await sleep(400);
+    };
+    const infoNow = async () => JSON.parse(await ev('JSON.stringify(window.__planInfo ? window.__planInfo() : null)'));
+    const lineNow = () => ev(`(document.querySelector('#ps-edit-msg') ?? document.querySelector('#ps-ui-msg'))?.textContent ?? ''`);
+    const before = await infoNow(), picBefore = await picture('40-plan-before');
+    const opened = await openLoad();
+    const dialog = await ev(`JSON.stringify({ title: document.querySelector('#ps-files-title')?.textContent ?? null, pick: !!document.querySelector('#ps-files-overlay .ps-files-pick') })`);
+    await picture('41-plan-dialog');
+    await fillAndLoad('{"not": "a plan"}');
+    const badLine = await lineNow(), afterBad = await infoNow(), stillThere = await ev('!!document.querySelector("canvas") && !window.__fail');
+    record('Load plan: a text that is not a plan gives a message and changes nothing', opened && /Could not load the plan|Nie wczytano planu/.test(badLine) && JSON.stringify(afterBad) === JSON.stringify(before) && stillThere, { dialog: JSON.parse(dialog), line: badLine.slice(0, 120), before, afterBad });
+    const f0 = await frames();
+    await openLoad(); await fillAndLoad(planText);
+    const swapped = await waitFor(`window.__planInfo && window.__planInfo().levels !== ${before?.levels ?? -1}`, 30);
+    await waitFor(`window.__frames > ${f0}`, 30); await sleep(600);
+    const okLine = await lineNow(), after = await infoNow(), picAfter = await picture('42-plan-loaded');
+    record('Load plan: another plan is built in place, the picture and the pieces change', swapped && picAfter !== picBefore && after.pieces !== before.pieces && /Plan loaded|Wczytano plan/.test(okLine) && (await ev('!window.__fail')), { before, after, line: okLine.slice(0, 100) });
+    if (opt.edit) {
+      const n = await ev('window.__edit.count()'), undoable = await ev('window.__edit.session.canUndo()');
+      const firstId = await ev('window.__edit.session.state.layout.levels[0].pieces[0]?.id ?? null');
+      await ev(`window.__edit.session.select(${JSON.stringify(firstId)}); window.__edit.session.turn(90)`); await sleep(500);
+      const undoable2 = await ev('window.__edit.session.canUndo()');
+      record('Load plan: editing works on the new plan (fresh session, a turn can be undone)', n === after.pieces && undoable === false && undoable2 === true && (await ev('!window.__fail')), { pieces: n, undoBefore: undoable, undoAfterTurn: undoable2 });
+    } else {
+      const hook = JSON.parse(await ev('window.__frame({ az: 70 }).then((r) => JSON.stringify(r))'));
+      record('Load plan: the view still turns and draws after the change', hook.frames === 1 && hook.drawCalls > 0 && (await ev('!window.__fail')), { hook });
     }
   }
 

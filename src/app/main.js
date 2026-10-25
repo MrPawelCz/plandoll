@@ -14,6 +14,7 @@ import { frameRequest } from './capture.js';
 import { createLoop } from './loop.js';
 import { createUI, createEditBar, showErrorCard } from './ui.js';
 import { createEditSession } from './edit.js';
+import { readPlanText } from './planfile.js';
 import { pickPiece, floorHit } from './pick.js';
 import { createOutline, createRoomOutline, outlineKind } from '../render/outline.js';
 import { createPanel } from './panel.js';
@@ -23,7 +24,7 @@ import { autoFurnish } from '../layout/index.js';
 import { piecesImplemented } from '../furniture/index.js';
 import { composeLayout, cutawayPieces, emittersOf, focusRoom, mergeByMaterial, setLampGlow, disposeComposed } from '../render/compose.js';
 import { applyWallCut } from '../render/cutaway.js';
-import { createCameraController, stateFrom, positionOf, nearSides, sameSides, sidesKey, viewOf, fitView, wrapDegrees } from './camera.js';
+import { createCameraController, stateFrom, positionOf, nearSides, sameSides, sidesKey, viewOf, fitView, wrapDegrees, fillBoost } from './camera.js';
 import flat from '../../examples/flat-1.plan.json';
 import duplex from '../../examples/duplex-1.plan.json';
 
@@ -67,17 +68,17 @@ try {
   // ---------- the plan ----------
   const plan = params.plan.kind === 'ext' && window.__plan ? JSON.parse(JSON.stringify(window.__plan)) : JSON.parse(JSON.stringify(params.plan.name === 'duplex-1' ? duplex : flat));
   for (const lv of plan.levels) lv.furniture = []; // the plan brings no furniture: the layout engine furnishes it
-  const res = analyzePlan(plan); const model = buildModel(modelOf(res));
-  const ext = modelExtent(model);
-  const ps = new PlanScene(model, 'textured');
+  const res = analyzePlan(plan); let model = buildModel(modelOf(res)); // model, ext, ps, stage, layout and focus are replaced when a plan is loaded
+  let ext = modelExtent(model);
+  let ps = new PlanScene(model, 'textured');
   ps.setLabels(false); ps.setArcs(false); ps.setCeilings(false);
   scene.add(ps.group);
 
   // ---------- stage ----------
-  const stage = createStage({ renderer, scene, bounds: ext, quality: level, preset: S.preset, t: S.t });
+  let stage = createStage({ renderer, scene, bounds: ext, quality: level, preset: S.preset, t: S.t });
   // ---------- furniture: the engine lays the rooms out, compose builds the pieces (rebuilt when the quality changes) ----------
-  const layout = autoFurnish(model, { seed: params.seed, allowedTypes: piecesImplemented() });
-  const focus = focusRoom(model, layout);
+  let layout = autoFurnish(model, { seed: params.seed, allowedTypes: piecesImplemented() });
+  let focus = focusRoom(model, layout);
 
   // ---------- camera: turns round the model; the outer walls that face it are cut low, the others stay tall ----------
   let W = window.innerWidth, H = window.innerHeight;
@@ -86,7 +87,7 @@ try {
   // Opened at another azimuth or tilt than the default view: the distance and the target are fitted to the model as seen from there (all storeys inside
   // the frame with a margin). The default view itself is left exactly as cameraFor gives it.
   const dh = stateFrom(pose.pos, pose.target), askAz = params.az ?? dh.azimuth, askPol = params.pol ?? dh.polar;
-  const wantFit = params.cam !== 'close' && (Math.abs(wrapDegrees(askAz - dh.azimuth + 180) - 180) > 1 || Math.abs(askPol - dh.polar) > 1);
+  let wantFit = params.cam !== 'close' && (Math.abs(wrapDegrees(askAz - dh.azimuth + 180) - 180) > 1 || Math.abs(askPol - dh.polar) > 1);
   const fitPose = (p) => {
     const fit = fitView({ azimuth: askAz, polar: askPol }, ext, { fov: p.fov, aspect: W / H });
     return { ...p, target: fit.target, pos: positionOf({ azimuth: askAz, polar: askPol, distance: fit.distance }, fit.target) };
@@ -97,7 +98,7 @@ try {
   let near = nearSides(current.azimuth);
   applyWallCut(ps, ext, near);
 
-  let furn = null, curLayout = layout, sigs = new Map(); // curLayout is the layout on the stage (the editor replaces it); sigs the build signature of each piece
+  let furn = null, curLayout = layout, sigs = new Map(), live = new Set(); // live: ids of the pieces kept out of the merged meshes (the one being dragged); curLayout is the layout on the stage (the editor replaces it); sigs the build signature of each piece
   const sigOf = (p) => `${p.type}|${p.size.join(',')}|${JSON.stringify(p.colors ?? {})}`;
   const sigsOf = (lay) => { const m = new Map(); for (const lc of lay.levels) for (const p of lc.pieces) m.set(p.id, sigOf(p)); return m; };
   function furnish() {
@@ -112,7 +113,12 @@ try {
     furn.hidden = cutawayPieces(furn.pieces, ext, viewOf(current), near); // hung pieces behind the low walls would float
     furn.emitters = emittersOf(furn.pieces);
     if (furn.merged) { disposeComposed(furn.merged.group); furn.merged = null; }
-    if (params.merge) { furn.merged = mergeByMaterial(furn); furn.group.visible = false; scene.add(furn.merged.group); } // one mesh per material: far fewer draw calls
+    if (params.merge && params.edit) { // the editor merges the pieces nobody moves; the one being dragged stays its own object
+      furn.cutHidden = new Set(); for (const [id, g] of furn.pieces) if (!g.visible) furn.cutHidden.add(id); // hidden by the cutaway: not pickable
+      furn.merged = mergeByMaterial(furn, live);
+      for (const [id, g] of furn.pieces) if (!live.has(id)) g.visible = false; // the merged meshes draw them
+      scene.add(furn.merged.group);
+    } else if (params.merge) { furn.merged = mergeByMaterial(furn); furn.group.visible = false; scene.add(furn.merged.group); } // one mesh per material: far fewer draw calls
     stage.setEmitters(furn.emitters);
     stage.refreshShadowCasters(scene);
   }
@@ -142,11 +148,13 @@ try {
   function onCamera(s) {
     current = s;
     camera.position.set(...positionOf(s, pose.target)); camera.lookAt(...pose.target);
+    stage.rig.setFillBoost(fillBoost(s.azimuth));
     const n = nearSides(s.azimuth, near);
     if (!sameSides(n, near)) { near = n; applyWallCut(ps, ext, near); settle(); }
     redraw();
   }
   let editBar = null, panel = null;
+  const sayLine = (text) => (editBar ? editBar.say(text) : ui?.say(text)); // one short result line: above the edit bar, or above the controls on the plain page
   // The extra buttons of the control bar (btn=1): edit mode on or off (the page reloads with edit=1 added or removed, the mood, the time of day, the
   // quality and the language kept), and the picture of the current view as a PNG. Leaving the editor with unsaved changes needs a second tap.
   let dirty = false, leaveWarned = false, leaveTimer = 0;
@@ -154,7 +162,7 @@ try {
     const leaving = params.edit;
     if (leaving && dirty && session?.canUndo() && !leaveWarned) {
       leaveWarned = true; clearTimeout(leaveTimer); leaveTimer = setTimeout(() => { leaveWarned = false; }, 6000);
-      editBar?.say(T('Masz niezapisane zmiany: zapisz układ albo dotknij jeszcze raz', 'You have unsaved changes: save the layout or tap again'));
+      sayLine(T('Masz niezapisane zmiany: zapisz układ albo dotknij jeszcze raz', 'You have unsaved changes: save the layout or tap again'));
       return;
     }
     location.hash = editHash(location.hash, !leaving, S);
@@ -164,17 +172,47 @@ try {
     post.render(); // the view is drawn once more and read in the same turn, so the buffer still holds the picture
     renderer.domElement.toBlob((blob) => {
       const ok = !!blob && saveBlobFile(document, IMAGE_FILENAME, blob);
-      editBar?.say(ok ? T('Zapisano obraz do pliku', 'Picture saved to a file') : T('Nie udało się zapisać obrazu', 'Could not save the picture'));
+      sayLine(ok ? T('Zapisano obraz do pliku', 'Picture saved to a file') : T('Nie udało się zapisać obrazu', 'Could not save the picture'));
     }, 'image/png');
   }
-  const ui = params.ui ? createUI({ onPreset: (n) => setPreset(n), onTime: setTime, onQuality: setQ, onLang: setLang, onReset: () => cam?.reset(true), onEdit: toggleEdit, onSaveImage: saveImage }, S) : null;
+  // Loading a plan of your own (a button of the controls and an item of the More menu): the text goes through the reader and the validator, then the old
+  // scene is released and the model, the automatic layout, the stage and the view are built again, without reloading the page. Nothing is stored.
+  let onPlanSwapped = null;
+  function applyPlan(next) {
+    let built;
+    try { // everything new is built first, so a plan that cannot be built leaves the page as it was
+      const p = JSON.parse(JSON.stringify(next)); for (const lv of p.levels) lv.furniture = [];
+      const r = analyzePlan(p), m = buildModel(modelOf(r)), e = modelExtent(m);
+      const nps = new PlanScene(m, 'textured'); nps.setLabels(false); nps.setArcs(false); nps.setCeilings(false);
+      built = { m, e, nps, lay: autoFurnish(m, { seed: params.seed, allowedTypes: piecesImplemented() }) };
+    } catch { return false; }
+    if (furn) { disposeComposed(furn.group, furn.merged?.group); furn = null; }
+    scene.remove(ps.group); ps.dispose(); stage.dispose();
+    model = built.m; ext = built.e; ps = built.nps; layout = built.lay; curLayout = layout; focus = focusRoom(model, layout);
+    scene.add(ps.group);
+    stage = createStage({ renderer, scene, bounds: ext, quality: level, preset: S.preset, t: S.t });
+    wantFit = false; near = nearSides(current.azimuth); applyWallCut(ps, ext, near);
+    furnish(); // the pieces first: the camera below may re-cut the walls and the pieces
+    frameCamera(); cam.reset(false); current = cam.state;
+    applyAll(); stage.rig.setFillBoost(fillBoost(current.azimuth));
+ onPlanSwapped?.(); redraw();
+    return true;
+  }
+  function loadPlan() {
+    askForText(document, S.lang, { kind: 'plan' }).then((text) => {
+      if (text == null) return;
+      const r = readPlanText(text, S.lang);
+      if (!r.ok) { sayLine(r.message); return; }
+      sayLine(applyPlan(r.plan) ? T('Wczytano plan', 'Plan loaded') : T('Nie udało się zbudować modelu z tego planu', 'Could not build a model from this plan'));
+    });
+  }
+  const ui = params.ui ? createUI({ onPreset: (n) => setPreset(n), onTime: setTime, onQuality: setQ, onLang: setLang, onReset: () => cam?.reset(true), onEdit: toggleEdit, onSaveImage: saveImage, onLoadPlan: loadPlan }, S) : null;
   cam = createCameraController({ element: renderer.domElement, home: home0, initial: { azimuth: params.az, polar: params.pol }, target: pose.target, fov: pose.fov, onChange: onCamera, onGesture: () => ui?.hideHint() });
   applyAll();
   // ---------- edit mode (edit=1): select a piece, drag it over the floor, turn, delete, undo and redo ----------
   let session = null;
   if (params.edit) {
-    const floorOf = new Map(model.levels.map((lv) => [lv.id, Number(lv.elevation) || 0]));
-    const levelBase = (id) => floorOf.get(id) ?? 0;
+    const levelBase = (id) => Number(model.levels.find((l) => l.id === id)?.elevation) || 0;
     const outline = createOutline(); scene.add(outline.group);
     const roomOutline = createRoomOutline(); scene.add(roomOutline.group);
     const dom = renderer.domElement;
@@ -227,15 +265,19 @@ try {
       curLayout = session.state.layout;
       if (e.type === 'structure' || e.type === 'dragend') dirty = true;
       if (e.type === 'structure') {
+        live = new Set(); // a cancelled drag, a turn, an undo: every piece goes back into the merged meshes
         const next = sigsOf(curLayout);
         if (next.size === sigs.size && [...next].every(([id, sg]) => sigs.get(id) === sg)) { syncGroups(); settle(); } // only places changed
         else { furnish(); setLampGlow(furn.group, stage.state.lampK); } // pieces added, removed, resized or recoloured
         applyRoomColors();
-      } else if (e.type === 'drag') syncGroups();
-      else if (e.type === 'dragend') { syncGroups(); settle(); }
+      } else if (e.type === 'drag') {
+        const id = session.state.selection; // the piece being dragged leaves the merged meshes at the first move and goes back at the end
+        if (params.merge && id && !live.has(id)) { live = new Set([id]); syncGroups(); settle(); } else syncGroups();
+      } else if (e.type === 'dragend') { live = new Set(); syncGroups(); settle(); }
       refreshEdit(); redraw();
     }
-    session = createEditSession({ layout, model, allowedTypes: piecesImplemented(), onChange: onEdit, viewPoint });
+    const makeSession = () => createEditSession({ layout, model, allowedTypes: piecesImplemented(), onChange: onEdit, viewPoint });
+    session = makeSession();
     // layout files and the "More" menu: one short line tells how a load went
     const plItems = (n) => (n === 1 ? 'pozycję' : n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 12 || n % 100 > 14) ? 'pozycje' : 'pozycji');
     const say = (text) => editBar?.say(text);
@@ -250,14 +292,20 @@ try {
       onLoad: () => { readTextFile(document).then((r) => { if (r.ok) loaded(session.importText(r.text)); else if (r.error !== 'cancelled') say(T('Nie udało się odczytać pliku', 'Could not read the file')); }); },
       onPaste: () => { askForText(document, S.lang).then((t) => { if (t != null) loaded(session.importText(t)); }); },
     };
-    if (params.ui) editBar = createEditBar({ onTurn: () => session.turn(90), onRemove: () => session.remove(), onUndo: () => session.undo(), onRedo: () => session.redo(), onAuto: () => session.reset(), onSaveImage: saveImage, ...fileHandlers }, { lang: S.lang }, document, ui);
+    if (params.ui) editBar = createEditBar({ onTurn: () => session.turn(90), onRemove: () => session.remove(), onUndo: () => session.undo(), onRedo: () => session.redo(), onAuto: () => session.reset(), onSaveImage: saveImage, onLoadPlan: loadPlan, ...fileHandlers }, { lang: S.lang }, document, ui);
     if (params.ui) panel = createPanel({ doc: document, host: document.body, lang: S.lang, session });
     refreshEdit();
+    onPlanSwapped = () => { // a new plan: a new editing session with nothing selected, no undo history and no unsaved changes
+      gest = null; cam.enabled = true; dirty = false; leaveWarned = false; colorsKey = '{}';
+      session = makeSession();
+      if (panel) { panel.dispose(); panel = createPanel({ doc: document, host: document.body, lang: S.lang, session }); }
+      refreshEdit();
+    };
 
     // One finger or the mouse on a piece selects it and drags it; elsewhere the camera turns as before; a quick tap on nothing clears the selection.
     let gest = null, adopting = false;
     const PAD = { mouse: 0.02, touch: 0.06, pen: 0.04 }; // metres of margin round every piece when picking: a fingertip is wider than a mouse pointer
-    const hitAt = (e) => pickPiece(session.state.layout, cam.pointerToRay(e), { levelBase, pad: PAD[e.pointerType] ?? PAD.mouse, skip: (id) => !furn.pieces.get(id)?.visible });
+    const hitAt = (e) => pickPiece(session.state.layout, cam.pointerToRay(e), { levelBase, pad: PAD[e.pointerType] ?? PAD.mouse, skip: (id) => furn.cutHidden ? furn.cutHidden.has(id) : !furn.pieces.get(id)?.visible });
     const showPanel = (on) => { if (panel) panel.element.hidden = !on; };
     dom.addEventListener('pointerdown', (e) => {
       if (adopting) return;
@@ -321,7 +369,7 @@ try {
     // for test tools: the piece's place in client pixels, the number of pieces, the selected id
     const v3 = new THREE.Vector3();
     window.__edit = {
-      session,
+      get session() { return session; },
       count: () => session.state.layout.levels.reduce((n, lv) => n + lv.pieces.length, 0),
       hit: (x, y, type = 'touch') => hitAt({ clientX: x, clientY: y, pointerType: type })?.id ?? null, // the piece under a client point (with the margin of a fingertip unless type is 'mouse'), or null
       selectedId: () => session.state.selection,
@@ -366,6 +414,7 @@ try {
     else if (['1', '2', '3'].includes(e.key)) setPreset(['amber', 'clear', 'lamplit'][Number(e.key) - 1]);
   });
   addEventListener('resize', () => { W = window.innerWidth; H = window.innerHeight; frameCamera(); post.resize(W, H); redraw(); });
+  window.__planInfo = () => ({ pieces: furn.pieces.size, levels: model.levels.length, rooms: model.levels.reduce((n, l) => n + (l.rooms?.length ?? 0), 0), extent: [ext.minX, ext.maxX, ext.minZ, ext.maxZ].map((v) => +v.toFixed(2)) }); // for test tools
   window.__setT = setTime; window.__setPreset = setPreset; window.__setQuality = setQ;
   window.__camera = { get azimuth() { return cam.state.azimuth; }, get polar() { return cam.state.polar; }, get distance() { return cam.state.distance; }, get near() { return sidesKey(near); }, get busy() { return cam.busy; }, set: (azimuth, polar) => cam.set({ azimuth, polar }), reset: () => cam.reset(false) };
 

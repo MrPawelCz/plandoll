@@ -373,3 +373,18 @@ test('saveBlobFile: offers a picture Blob through the same hidden link, and refu
   assert.equal(saveBlobFile(none, '', picture), false);
   assert.equal(none.defaultView.urlLog.length, 0, 'nothing was created');
 });
+
+test('askForText: the plan kind has its own words and a file button, the text comes back as pasted', async () => {
+  for (const [lang, title, pick] of [['en', 'Load a plan', 'Choose a file'], ['pl', 'Wczytaj plan', 'Wybierz plik']]) {
+    const doc = makeDoc(); const p = askForText(doc, lang, { kind: 'plan' }); const u = parts(doc);
+    const heading = u.nodes.find((n) => n.id === u.dialog.attrs['aria-labelledby']);
+    assert.equal(heading.textContent, title);
+    assert.ok(u.buttons.some((b) => b.className === 'ps-files-pick' && b.textContent === pick));
+    assert.equal(u.buttons.length, 3);
+    assert.ok(!all(u.overlay).map((n) => n.textContent).join(' ').match(LONG_DASH), 'no long dashes in the texts');
+    u.area.value = '{"version":1}'; fire(u.load, 'click');
+    assert.equal(await p, '{"version":1}');
+  }
+  const doc = makeDoc(); const p = askForText(doc, 'en'); const u = parts(doc);
+  assert.equal(u.buttons.length, 2, 'the layout box has no file button'); fire(u.cancel, 'click'); assert.equal(await p, null);
+});

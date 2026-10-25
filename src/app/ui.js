@@ -6,20 +6,20 @@ import { clock } from '../look/timeofday.js';
 
 const STR = {
   en: { time: 'Time of day', quality: 'Image quality', auto: 'Auto', high: 'High', medium: 'Medium', low: 'Low', lang: 'PL', reset: 'Reset view', resetTitle: 'Back to the starting view', hint: 'Drag to turn',
-    edit: 'Edit', editDone: 'Done', editTitle: 'Edit the furniture layout', editDoneTitle: 'Leave the layout editor', saveImage: 'Save image', saveImageTitle: 'Save the current view as a PNG picture',
+    edit: 'Edit', editDone: 'Done', editTitle: 'Edit the furniture layout', editDoneTitle: 'Leave the layout editor', saveImage: 'Save image', saveImageTitle: 'Save the current view as a PNG picture', loadPlan: 'Load plan', loadPlanTitle: 'Replace the plan with one of your own (a file or pasted text)',
     qualityHelp: 'High: sharper picture, soft accurate shadows, darker corners, a glow round the lamps, blurred top and bottom of the frame, shine and film grain; slower and uses more battery. Medium: in between. Low: faster and lighter on the battery, with fewer effects. Auto picks a level for your device.' },
   pl: { time: 'Pora dnia', quality: 'Jakość obrazu', auto: 'Auto', high: 'Wysoka', medium: 'Średnia', low: 'Niska', lang: 'EN', reset: 'Reset widoku', resetTitle: 'Wróć do widoku początkowego', hint: 'Przeciągnij, żeby obrócić',
-    edit: 'Edytuj', editDone: 'Zakończ edycję', editTitle: 'Edytuj układ mebli', editDoneTitle: 'Zamknij edytor układu', saveImage: 'Zapisz obraz', saveImageTitle: 'Zapisz bieżący widok jako obraz PNG',
+    edit: 'Edytuj', editDone: 'Zakończ edycję', editTitle: 'Edytuj układ mebli', editDoneTitle: 'Zamknij edytor układu', saveImage: 'Zapisz obraz', saveImageTitle: 'Zapisz bieżący widok jako obraz PNG', loadPlan: 'Wczytaj plan', loadPlanTitle: 'Zastąp plan własnym (plik albo wklejony tekst)',
     qualityHelp: 'Wysoka: ostrzejszy obraz, miękkie dokładne cienie, ciemnienie w narożnikach, poświata lamp, rozmycie góry i dołu kadru, połysk i ziarno; działa wolniej i zużywa więcej baterii. Średnia: pośrodku. Niska: szybciej i oszczędniej, mniej efektów. Auto dobiera poziom do urządzenia.' },
 };
 // Texts of the edit bar (shown with edit=1): the visible word, and the longer label for screen readers and tooltips.
 export const EDIT_STR = {
   en: { turn: 'Turn', turnLabel: 'Turn the selected piece by 90 degrees', remove: 'Delete', removeLabel: 'Delete the selected piece', undo: 'Undo', undoLabel: 'Undo the last change', redo: 'Redo', redoLabel: 'Redo the change you undid',
     auto: 'Auto', autoLabel: 'Go back to the automatic layout', more: 'More', moreLabel: 'More: duplicate, save and load the layout', group: 'Edit the layout',
-    duplicate: 'Duplicate', save: 'Save layout', load: 'Load from file', paste: 'Paste layout', image: 'Save image', menu: 'More actions' },
+    duplicate: 'Duplicate', save: 'Save layout', load: 'Load from file', paste: 'Paste layout', image: 'Save image', plan: 'Load plan', menu: 'More actions' },
   pl: { turn: 'Obróć', turnLabel: 'Obróć zaznaczoną sztukę o 90 stopni', remove: 'Usuń', removeLabel: 'Usuń zaznaczoną sztukę', undo: 'Cofnij', undoLabel: 'Cofnij ostatnią zmianę', redo: 'Ponów', redoLabel: 'Ponów cofniętą zmianę',
     auto: 'Auto', autoLabel: 'Wróć do układu automatycznego', more: 'Więcej', moreLabel: 'Więcej: powiel, zapisz i wczytaj układ', group: 'Edycja układu',
-    duplicate: 'Powiel', save: 'Zapisz układ', load: 'Wczytaj z pliku', paste: 'Wklej układ', image: 'Zapisz obraz', menu: 'Więcej działań' },
+    duplicate: 'Powiel', save: 'Zapisz układ', load: 'Wczytaj z pliku', paste: 'Wklej układ', image: 'Zapisz obraz', plan: 'Wczytaj plan', menu: 'Więcej działań' },
 };
 export const ERROR_TEXT = {
   en: { title: 'This page needs WebGL 2', body: 'Your browser or device did not give us a WebGL 2 context. Try a current Chrome, Edge, Firefox or Safari and make sure hardware acceleration is on.' },
@@ -49,12 +49,15 @@ const CSS = `
 #ps-ui button.reset{all:unset;cursor:pointer;font-weight:600;font-size:12px;padding:5px 10px;border-radius:10px;border:1px solid var(--line);white-space:nowrap}
 #ps-ui button.reset:hover{background:rgba(200,121,58,.1)}
 #ps-ui button.reset:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+#ps-ui-msg{position:absolute;left:50%;bottom:calc(100% + 40px);transform:translateX(-50%);max-width:calc(100vw - 24px);box-sizing:border-box;padding:5px 12px;border-radius:12px;background:var(--paper);border:1px solid var(--line);box-shadow:0 6px 18px rgba(40,28,12,.22);font-weight:600;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;pointer-events:none}
+#ps-ui-msg:empty{display:none}
 #ps-ui .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
 #ps-ui .tools{display:flex;flex-wrap:wrap;justify-content:center;gap:6px}
 #ps-ui button.tool{all:unset;cursor:pointer;box-sizing:border-box;min-width:44px;min-height:44px;padding:0 12px;display:flex;align-items:center;justify-content:center;text-align:center;font-weight:600;font-size:12px;border-radius:12px;border:1px solid var(--line);white-space:nowrap;touch-action:manipulation}
 #ps-ui button.tool:hover{background:rgba(200,121,58,.1)}
 #ps-ui button.tool:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 #ps-hint{position:fixed;left:50%;top:14px;transform:translateX(-50%);font:600 13px/1.3 ui-rounded,"SF Pro Rounded","Avenir Next","Segoe UI",system-ui,sans-serif;color:var(--ink);background:var(--paper);padding:6px 14px;border-radius:16px;border:1px solid var(--line);box-shadow:0 6px 18px rgba(40,28,12,.22);-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px);pointer-events:none;max-width:calc(100vw - 24px);box-sizing:border-box;text-align:center}
+@media (min-width:761px) and (max-width:1380px){#ps-ui{flex-wrap:wrap;justify-content:center}#ps-ui .tools{flex-basis:100%}#ps-ui .sep{display:none}}
 @media (max-width:760px){#ps-ui{flex-wrap:wrap;justify-content:center;gap:8px}#ps-ui label.time{min-width:100%}#ps-ui label.quality{flex-direction:column;align-items:flex-start;gap:2px}#ps-ui select{padding:4px 6px}}
 #ps-edit{position:fixed;z-index:40;left:50%;bottom:96px;transform:translateX(-50%);display:flex;gap:6px;padding:6px 8px;border-radius:18px;background:var(--paper);border:1px solid var(--line);box-shadow:0 8px 24px rgba(40,28,12,.26);-webkit-backdrop-filter:blur(12px);backdrop-filter:blur(12px);max-width:calc(100vw - 12px);box-sizing:border-box;font:600 12px/1.2 ui-rounded,"SF Pro Rounded","Avenir Next","Segoe UI",system-ui,sans-serif;color:var(--ink)}
 #ps-edit button{all:unset;cursor:pointer;box-sizing:border-box;min-width:44px;min-height:44px;padding:0 9px;display:flex;align-items:center;justify-content:center;text-align:center;border-radius:12px;border:1px solid var(--line);background:#fffaf0;font-weight:600;touch-action:manipulation;white-space:nowrap}
@@ -96,8 +99,8 @@ export function showErrorCard(detail = '', doc = document) {
 }
 
 // state: { preset, t, q ('auto' or a level), autoLevel (what Auto picks here, shown beside Auto; the level in use when missing), level, lang };
-// handlers: { onPreset(name), onTime(t), onQuality(q), onLang(lang), onReset(), onEdit(), onSaveImage() }; the returned object has hideHint() for the first-visit hint.
-// state.tools shows the extra buttons (edit mode, save the picture; the address parameter btn=1); state.editing turns the edit button into "Done" and hides the others.
+// handlers: { onPreset(name), onTime(t), onQuality(q), onLang(lang), onReset(), onEdit(), onSaveImage(), onLoadPlan() }; the returned object has hideHint() for the first-visit hint and say(text) for one short result line.
+// state.tools shows the extra buttons (edit mode, save the picture, load a plan; hidden by btn=0 in the address); state.editing turns the edit button into "Done" and hides the others.
 export function createUI(handlers, state, doc = document) {
   injectStyles(doc);
   const root = doc.createElement('div'); root.id = 'ps-ui';
@@ -132,12 +135,13 @@ export function createUI(handlers, state, doc = document) {
   lang.addEventListener('click', () => handlers.onLang(state.lang === 'pl' ? 'en' : 'pl'));
   const tools = doc.createElement('div'); tools.className = 'tools'; tools.setAttribute('role', 'group');
   const toolBtns = {};
-  for (const [key, handler] of [['edit', 'onEdit'], ['saveImage', 'onSaveImage']]) {
+  for (const [key, handler] of [['edit', 'onEdit'], ['saveImage', 'onSaveImage'], ['loadPlan', 'onLoadPlan']]) {
     const b = doc.createElement('button'); b.type = 'button'; b.className = 'tool'; b.dataset.tool = key;
     b.addEventListener('click', () => handlers[handler]?.());
     tools.append(b); toolBtns[key] = b;
   }
-  root.append(blurb, moods, sep1, timeLabel, sep2, qLabel, reset, lang, tools);
+  const msg = doc.createElement('div'); msg.id = 'ps-ui-msg'; msg.setAttribute('role', 'status');
+  root.append(blurb, msg, moods, sep1, timeLabel, sep2, qLabel, reset, lang, tools);
   doc.body.appendChild(root);
   // a hint for the first visit; it goes away at the first turn of the model
   let hint = doc.createElement('div'); hint.id = 'ps-hint'; hint.setAttribute('role', 'status'); doc.body.appendChild(hint);
@@ -160,16 +164,20 @@ export function createUI(handlers, state, doc = document) {
     toolBtns.edit.textContent = editLabel; toolBtns.edit.title = editTitle; toolBtns.edit.setAttribute('aria-label', editTitle);
     toolBtns.saveImage.textContent = L.saveImage; toolBtns.saveImage.title = L.saveImageTitle; toolBtns.saveImage.setAttribute('aria-label', L.saveImageTitle);
     toolBtns.saveImage.style.display = state.editing ? 'none' : '';
+    toolBtns.loadPlan.textContent = L.loadPlan; toolBtns.loadPlan.title = L.loadPlanTitle; toolBtns.loadPlan.setAttribute('aria-label', L.loadPlanTitle);
+    toolBtns.loadPlan.style.display = state.editing ? 'none' : '';
     doc.documentElement.lang = state.lang;
   }
   update(state);
-  return { root, update, hideHint: () => { if (hint) { hint.remove(); hint = null; } }, setVisible: (v) => { root.style.display = v ? '' : 'none'; if (hint) hint.style.display = v ? '' : 'none'; }, dispose: () => { root.remove(); hint?.remove(); } };
+  let msgTimer = null; // one short line above the bar (a result of saving a picture or loading a plan)
+  const say = (text, ms = 6000) => { msg.textContent = String(text ?? ''); if (msgTimer !== null) clearTimeout(msgTimer); msgTimer = text ? setTimeout(() => { msg.textContent = ''; msgTimer = null; }, ms) : null; };
+  return { root, update, say, hideHint: () => { if (hint) { hint.remove(); hint = null; } }, setVisible: (v) => { root.style.display = v ? '' : 'none'; if (hint) hint.style.display = v ? '' : 'none'; }, dispose: () => { root.remove(); hint?.remove(); } };
 }
 
 // The edit bar (edit=1): Turn, Delete, Undo, Redo, Auto layout and More, one row above the controls, every button at least 44 px; More opens a
-// small menu above the bar (Duplicate, Save layout, Load from file, Paste layout, Save image) that closes on a tap outside or Escape; plus the empty
+// small menu above the bar (Duplicate, Save layout, Load from file, Paste layout, Save image, Load plan) that closes on a tap outside or Escape; plus the empty
 // container #ps-edit-panel that other parts of the page fill. handlers: { onTurn(), onRemove(), onUndo(), onRedo(), onAuto(), onDuplicate(),
-// onSave(), onLoad(), onPaste(), onSaveImage() }. update({ lang, selected, canUndo, canRedo }) sets the language and which buttons are enabled; `anchor` is the
+// onSave(), onLoad(), onPaste(), onSaveImage(), onLoadPlan() }. update({ lang, selected, canUndo, canRedo }) sets the language and which buttons are enabled; `anchor` is the
 // control bar that the edit bar sits above. say(text) shows one short line above the bar for a few seconds. The height of everything stacked at
 // the bottom (this bar, the mood caption, the controls) is published as the CSS variable --ps-stack-h on the root element.
 export function createEditBar(handlers, state = {}, doc = document, anchor = null) {
@@ -186,7 +194,7 @@ export function createEditBar(handlers, state = {}, doc = document, anchor = nul
   buttons.more = more; root.append(more);
   const menu = doc.createElement('div'); menu.id = 'ps-edit-menu'; menu.setAttribute('role', 'menu'); menu.hidden = true;
   const items = {};
-  const itemDefs = [['duplicate', 'onDuplicate'], ['save', 'onSave'], ['load', 'onLoad'], ['paste', 'onPaste'], ['image', 'onSaveImage']];
+  const itemDefs = [['duplicate', 'onDuplicate'], ['save', 'onSave'], ['load', 'onLoad'], ['paste', 'onPaste'], ['image', 'onSaveImage'], ['plan', 'onLoadPlan']];
   const setOpen = (v) => { menu.hidden = !v; more.setAttribute('aria-expanded', String(!!v)); };
   for (const [key, handler] of itemDefs) {
     const b = doc.createElement('button'); b.type = 'button'; b.dataset.editItem = key; b.setAttribute('role', 'menuitem');

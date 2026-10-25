@@ -10,10 +10,10 @@ test('edit is off by default and for any value other than 1', () => {
   assert.equal(parseParams('#edit=').edit, false);
 });
 
-test('edit=1 turns the editor on and forces merge off; without it merging stays on unless merge=0', () => {
+test('edit=1 turns the editor on and keeps merging on; merge=0 turns merging off', () => {
   const on = parseParams('#edit=1');
-  assert.equal(on.edit, true); assert.equal(on.merge, false);
-  assert.equal(parseParams('#edit=1&merge=1').merge, false);
+  assert.equal(on.edit, true); assert.equal(on.merge, true);
+  assert.equal(parseParams('#edit=1&merge=0').merge, false);
   assert.equal(parseParams('#amber').merge, true);
   assert.equal(parseParams('#merge=0').merge, false);
 });
