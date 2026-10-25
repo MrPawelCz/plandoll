@@ -77,11 +77,9 @@ export function emittersOf(pieces) {
 //  - tall furniture with its back to the viewer (or to a low outer wall): it would show a blank back and cover the room behind it.
 //    Lamps stay, their light is part of the picture.
 // `view` is the horizontal direction from the model towards the camera (x, z), the default is the main view of the page;
-// `near` the edges that face the camera (see wallCutHeight). `opts.folded(levelId, x, z)`, when given, says that a point is on a wall that has
-// fallen away (the open shell): a hung piece behind such a point is hidden too.
-export function cutawayPieces(pieces, ext, view = [0.5, 0.7], near = NEAR_DEFAULT, opts = null) {
+// `near` the edges that face the camera (see wallCutHeight).
+export function cutawayPieces(pieces, ext, view = [0.5, 0.7], near = NEAR_DEFAULT) {
   const vl = Math.hypot(view[0], view[1]) || 1, vx = view[0] / vl, vz = view[1] / vl;
-  const folded = typeof opts?.folded === 'function' ? opts.folded : null;
   let hidden = 0;
   for (const g of pieces.values()) {
     g.visible = true;
@@ -91,8 +89,8 @@ export function cutawayPieces(pieces, ext, view = [0.5, 0.7], near = NEAR_DEFAUL
     if (!hung && !tallBack) continue;
     const size = g.userData.size, back = new THREE.Vector3(0, 0, -1).applyQuaternion(g.quaternion);
     const reach = size[1] / 2 + 0.08;
-    const bx = g.position.x + back.x * reach, bz = g.position.z + back.z * reach, h = wallCutHeight(bx, bz, ext, 0.3, near);
-    const away = hung ? (folded !== null && folded(g.userData.levelId, bx, bz)) || g.userData.elev >= h - 0.02 || (mode === 'window' && h < 1.5) : h === WALL_LOW || back.x * vx + back.z * vz > 0.35;
+    const h = wallCutHeight(g.position.x + back.x * reach, g.position.z + back.z * reach, ext, 0.3, near);
+    const away = hung ? g.userData.elev >= h - 0.02 || (mode === 'window' && h < 1.5) : h === WALL_LOW || back.x * vx + back.z * vz > 0.35;
     if (away) { g.visible = false; hidden++; }
   }
   return hidden;

@@ -25,7 +25,7 @@ import { saveTextFile, saveBlobFile, readTextFile, askForText, refusalText, LAYO
 import { roomAt } from '../editor/index.js';
 import { autoFurnish } from '../layout/index.js';
 import { piecesImplemented } from '../furniture/index.js';
-import { composeLayout, cutawayPieces, emittersOf, focusRoom, mergeByMaterial, setLampGlow, disposeComposed } from '../render/compose.js';
+import { composeLayout, cutawayPieces, emittersOf, focusRoom, mergeByMaterial, setLampGlow, disposeComposed, wallCutHeight } from '../render/compose.js';
 import { applyWallCut } from '../render/cutaway.js';
 import { createOpenShell } from '../render/openshell.js';
 import { stepClock, modeOf } from '../render/openmotion.js';
@@ -131,13 +131,17 @@ try {
   }
   // After the pieces or the set of near walls changed: hide what the cutaway would spoil, rebuild the merged meshes and the lights.
   function settle() {
-    furn.hidden = cutawayPieces(furn.pieces, ext, viewOf(current), near, shell?.active ? { folded: shell.hosts } : null); // hung pieces behind the low walls (or the fallen ones) would float
+    const open = !!shell?.active; // the shell is open or moving: the outer walls stand full height and the pieces hung on them turn with them
+    furn.hidden = cutawayPieces(furn.pieces, ext, viewOf(current), open ? {} : near); // hung pieces behind the low walls would float
+    const hung = open ? shell.adopt(furn.group, furn.pieces, (x, z) => wallCutHeight(x, z, ext, 0.3, near)) : (shell?.release(), null); // ids of the pieces that turn with a wall
     furn.emitters = emittersOf(furn.pieces);
     if (furn.merged) { disposeComposed(furn.merged.group); furn.merged = null; }
-    if (params.merge && params.edit) { // the editor merges the pieces nobody moves; the one being dragged stays its own object
-      furn.cutHidden = new Set(); for (const [id, g] of furn.pieces) if (!g.visible) furn.cutHidden.add(id); // hidden by the cutaway: not pickable
-      furn.merged = mergeByMaterial(furn, live);
-      for (const [id, g] of furn.pieces) if (!live.has(id)) g.visible = false; // the merged meshes draw them
+    if (params.merge && (params.edit || hung?.size)) { // the editor merges the pieces nobody moves; the one being dragged (and the ones that turn with a wall) stays its own object
+      const keep = hung?.size ? new Set([...live, ...hung]) : live;
+      furn.cutHidden = new Set(); for (const [id, g] of furn.pieces) if (!g.visible || hung?.has(id)) furn.cutHidden.add(id); // hidden by the cutaway or moved by the shell: not pickable
+      furn.merged = mergeByMaterial(furn, keep);
+      for (const [id, g] of furn.pieces) if (!keep.has(id)) g.visible = false; // the merged meshes draw them
+      furn.group.visible = true;
       scene.add(furn.merged.group);
     } else if (params.merge) { furn.merged = mergeByMaterial(furn); furn.group.visible = false; scene.add(furn.merged.group); } // one mesh per material: far fewer draw calls
     stage.setEmitters(furn.emitters);

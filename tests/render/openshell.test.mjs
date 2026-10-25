@@ -9,7 +9,10 @@ import { buildModel, modelExtent } from '../../src/model/geometry.js';
 import { PlanScene } from '../../src/render/scene.js';
 import { createOpenShell } from '../../src/render/openshell.js';
 import { applyWallCut } from '../../src/render/cutaway.js';
-import { NEAR_DEFAULT, WALL_PART } from '../../src/render/compose.js';
+import { NEAR_DEFAULT, WALL_PART, composeLayout, wallCutHeight } from '../../src/render/compose.js';
+import { autoFurnish } from '../../src/layout/index.js';
+import { piecesImplemented } from '../../src/furniture/index.js';
+import { specOf } from '../../src/furniture/specs.js';
 import { generatePlan } from '../../tools/gen-plans.mjs';
 
 const ctx = new Proxy({}, {
@@ -152,5 +155,60 @@ test('a model without outer walls makes a shell that does nothing', () => {
   const shell = createOpenShell(ps, model);
   assert.equal(shell.walls.length, 0);
   shell.pose(1); shell.setOrder([0, 1]); shell.hidePatches(); applyWallCut(ps, ext, NEAR_DEFAULT, { height: shell.heightFor });
-  assert.equal(shell.hosts('x', 0, 0), false);
+  assert.equal(shell.adopt(new THREE.Group(), new Map(), () => Infinity).size, 0, 'nothing to adopt');
+});
+
+// the pieces hung on the outer walls (pictures, mirrors, curtains) turn with them
+const furnished = (plan) => {
+  const built = build(plan), layout = autoFurnish(built.model, { seed: 1, allowedTypes: piecesImplemented() });
+  const furn = composeLayout({ model: built.model, layout, quality: 'low', look: 'textured', seed: 1 });
+  return { ...built, furn, shell: createOpenShell(built.ps, built.model) };
+};
+const isHung = (g) => ['wall-mount', 'window'].includes(specOf(g.userData.pieceType)?.place?.mode);
+
+test('adopt moves the pieces hung on outer walls into hinge groups, release puts them back, and nothing else moves', () => {
+  let adopted = 0;
+  for (const [name, plan] of plans) {
+    const { ext, ps, furn, shell } = furnished(plan);
+    const closed = (x, z) => wallCutHeight(x, z, ext, 0.3, NEAR_DEFAULT);
+    const before = new Map([...furn.pieces].map(([id, g]) => [id, g.position.toArray().join()]));
+    const ids = shell.adopt(furn.group, furn.pieces, closed);
+    for (const id of ids) { const g = furn.pieces.get(id); assert.ok(isHung(g), `${name} ${id} is a hung piece`); assert.equal(g.parent.name.startsWith('hung:'), true, `${name} ${id} sits in a hinge group`); assert.equal(g.parent.parent, furn.group); assert.equal(g.parent.matrixAutoUpdate, false); }
+    for (const [id, g] of furn.pieces) { if (!ids.has(id)) assert.equal(g.parent, furn.group, `${name} ${id} is not adopted and stays`); assert.equal(g.position.toArray().join(), before.get(id), `${name} ${id} keeps its own position`); }
+    adopted += ids.size;
+    shell.pose(0); ps.group.updateMatrixWorld(true); furn.group.updateMatrixWorld(true);
+    for (const id of ids) { const g = furn.pieces.get(id); const w = g.getWorldPosition(new THREE.Vector3()); near(w.x, g.position.x, 1e-9, `${name} ${id} closed: world = own x`); near(w.z, g.position.z, 1e-9); }
+    shell.release();
+    for (const [id, g] of furn.pieces) assert.equal(g.parent, furn.group, `${name} ${id} is back in the furnishing group`);
+    assert.equal(furn.group.children.filter((c) => c.name.startsWith('hung:')).length, 0, `${name} no hinge groups left`);
+  }
+  assert.ok(adopted > 5, `${adopted} hung pieces were adopted over the plans`);
+});
+
+test('a hung piece lies flat on its fallen wall, and shows only once the wall has risen above its lower edge', () => {
+  const { ext, ps, furn, shell } = furnished(plans[0][1]);
+  const ids = shell.adopt(furn.group, furn.pieces, (x, z) => wallCutHeight(x, z, ext, 0.3, NEAR_DEFAULT));
+  assert.ok(ids.size > 0);
+  shell.pose(1); ps.group.updateMatrixWorld(true); furn.group.updateMatrixWorld(true);
+  for (const id of ids) {
+    const g = furn.pieces.get(id), b = new THREE.Box3().setFromObject(g);
+    assert.equal(g.visible, true, `${id} shows when the shell is open`);
+    const hang = g.userData.elev ?? 0;
+    assert.ok(b.max.y < 1.2 + 0.001 * hang, `${id} lies low once folded (${b.max.y.toFixed(2)} m, it hung at ${hang.toFixed(2)} m)`);
+  }
+  shell.pose(0.001); // the walls have hardly started: a piece hung above the low cut of a near wall is still hidden
+  const hidden = [...ids].filter((id) => !furn.pieces.get(id).visible);
+  const farHigh = [...ids].filter((id) => furn.pieces.get(id).visible);
+  assert.ok(hidden.length + farHigh.length === ids.size);
+  assert.ok(hidden.length > 0, 'some pieces on the walls held low wait for their wall');
+  shell.pose(1); for (const id of ids) assert.equal(furn.pieces.get(id).visible, true);
+});
+
+test('adopting twice does not lose or duplicate a piece', () => {
+  const { ext, furn, shell } = furnished(plans[0][1]);
+  const closed = (x, z) => wallCutHeight(x, z, ext, 0.3, NEAR_DEFAULT), count = () => { let n = 0; furn.group.traverse((o) => { if (o.userData?.pieceId !== undefined) n++; }); return n; };
+  const n0 = count(), a = shell.adopt(furn.group, furn.pieces, closed), b = shell.adopt(furn.group, furn.pieces, closed);
+  assert.deepEqual([...a].sort(), [...b].sort()); assert.equal(count(), n0);
+  assert.equal(furn.group.children.filter((c) => c.name.startsWith('hung:')).length, new Set([...b].map((id) => furn.pieces.get(id).parent.name)).size);
+  shell.dispose(); assert.equal(count(), n0);
 });

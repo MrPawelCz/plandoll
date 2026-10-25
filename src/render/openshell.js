@@ -1,14 +1,18 @@
 // "Open the shell" in the scene (#shell=1): every outer wall, with its windows and doors, hangs from a hinge group that turns about the foot line
 // of the wall's outer face, so the wall falls outward and lies flat with its inner face up. The groups already exist (PlanScene makes one per
-// wall and one per opening, both at the level's origin); here they get a matrix of their own, so the positions of the boxes inside stay as they
-// were and the cutaway keeps working on them. Nothing is drawn and nothing is stored here; the page asks for a frame after every change.
+// wall and one per opening, both at the level's origin); here they get a matrix of their own, so the positions of the boxes inside stay as
+// they were and the cutaway keeps working on them. The pieces hung on those walls (pictures, mirrors, curtains) are moved into hinge groups of
+// their own that turn with the same matrix. Nothing is drawn and nothing is stored here; the page asks for a frame after every change.
+import * as THREE from 'three';
 import { foldWalls, hingeMatrix, hostWall } from '../model/foldwalls.js';
+import { specOf } from '../furniture/specs.js';
 import { frameOf, startOrder } from './openmotion.js';
 
 const clamp01 = (v) => Math.min(1, Math.max(0, Number.isFinite(v) ? v : 0));
+const HUNG = new Set(['wall-mount', 'window']);
 
-// ps: a PlanScene; model: the model it was made from. Returns the shell: { walls, clock, pose(p), setOrder(view), heightFor(c, h), hosts(levelId, x, z),
-// hidePatches(), state(), dispose() }.
+// ps: a PlanScene; model: the model it was made from. Returns the shell: { walls, clock, active, setOrder(view), pose(p), heightFor(c, h), adopt(group, pieces, closedHeight),
+// release(), hidePatches(), state(), dispose() }.
 export function createOpenShell(ps, model) {
   const walls = foldWalls(model);
   const byName = ps.levelGroups.map((lg) => { const m = new Map(); for (const c of lg.children) if (c.name) m.set(c.name, c); return m; });
@@ -35,6 +39,18 @@ export function createOpenShell(ps, model) {
 
   let clock = 0, rank = walls.map((_, i) => i);
   const live = walls.map(() => ({ deg: 0, grow: 0 }));
+  let hinges = new Map(), hosted = []; // hinge groups of the hung pieces by wall; the pieces on them: { id, g, wall, elev, window, h0 }
+
+  const lift = (i, h) => { const gr = live[i].grow; return h === Infinity || !(gr > 0) ? h : gr >= 1 ? Infinity : h + (top + 0.01 - h) * gr; }; // the height a wall that was cut at h stands at now
+  // The matrix of a wall as the hung pieces see it: they live in world coordinates, the wall in its level, so the foot line is raised by the level's height.
+  const worldMatrix = (i, deg) => hingeMatrix({ ...walls[i], y: walls[i].y + ps.levelGroups[walls[i].level].position.y }, deg);
+  function moveHung() {
+    for (const [i, hg] of hinges) { hg.matrix.fromArray(worldMatrix(i, live[i].deg)); hg.matrixWorldNeedsUpdate = true; }
+    for (const e of hosted) { // a piece shows once the wall it hangs on has risen above its lower edge (the closed view cuts the near walls low)
+      const wallTop = lift(e.wall, e.h0);
+      e.g.visible = wallTop === Infinity || (e.elev < wallTop - 0.02 && !(e.window && wallTop < 1.5));
+    }
+  }
 
   return {
     walls,
@@ -51,21 +67,40 @@ export function createOpenShell(ps, model) {
         const m = hingeMatrix(f, fr.deg);
         for (const g of groups[i]) { g.matrix.fromArray(m); g.matrixWorldNeedsUpdate = true; }
       });
+      moveHung();
     },
     // For applyWallCut: the height the cutaway cuts a box of an outer wall at. The wall rises from its low cut to its full height while it starts to turn;
     // at the end of that it is not cut at all. Boxes of other walls, and walls that are not cut, keep the height they were given.
-    heightFor(c, h) {
-      const i = owner.get(c);
-      if (i === undefined || h === Infinity) return h;
-      const g = live[i].grow;
-      if (!(g > 0)) return h;
-      return g >= 1 ? Infinity : h + (top + 0.01 - h) * g;
+    heightFor(c, h) { const i = owner.get(c); return i === undefined ? h : lift(i, h); },
+    // Moves the pieces hung on the outer walls out of `group` (the furnishing, its pieces: Map id -> piece group in world coordinates) into hinge groups that turn
+    // with those walls, and returns their ids. closedHeight(x, z) is the height the closed view cuts the wall at that point. Call it again after the furnishing is rebuilt.
+    adopt(group, pieces, closedHeight) {
+      this.release(); hinges = new Map(); hosted = [];
+      for (const [id, g] of pieces) {
+        const mode = specOf(g.userData.pieceType)?.place?.mode;
+        if (!HUNG.has(mode)) continue;
+        const back = new THREE.Vector3(0, 0, -1).applyQuaternion(g.quaternion), reach = g.userData.size[1] / 2 + 0.08;
+        const bx = g.position.x + back.x * reach, bz = g.position.z + back.z * reach, wi = hostWall(walls, g.userData.levelId, bx, bz);
+        if (wi < 0) continue;
+        let hg = hinges.get(wi);
+        if (!hg) { hg = new THREE.Group(); hg.name = `hung:${walls[wi].id}`; hg.matrixAutoUpdate = false; group.add(hg); hinges.set(wi, hg); }
+        hg.add(g);
+        hosted.push({ id, g, wall: wi, elev: g.userData.elev ?? 0, window: mode === 'window', h0: closedHeight(bx, bz) });
+      }
+      moveHung();
+      return new Set(hosted.map((e) => e.id));
     },
-    // Is the point (x, z) on a level the back of a piece hung on a folding wall?
-    hosts: (levelId, x, z) => hostWall(walls, levelId, x, z) >= 0,
+    // Puts the hung pieces back into the furnishing group and drops the hinge groups.
+    release() {
+      for (const hg of hinges.values()) { const host = hg.parent; if (host) for (const g of [...hg.children]) host.add(g); hg.removeFromParent(); }
+      hinges = new Map(); hosted = [];
+    },
     // The window light on the floor goes with the wall: no patches while the shell is not closed (applyWallCut switches them on again).
     hidePatches() { if (clock > 0) for (const m of panes) ps.sunPatch?.userData.show(m, false); },
     state: () => walls.map((f, i) => ({ id: f.id, level: f.levelId, deg: live[i].deg, grow: live[i].grow })),
-    dispose() { for (const gs of groups) for (const g of gs) { g.matrixAutoUpdate = true; g.matrix.identity(); g.updateMatrix(); g.matrixWorldNeedsUpdate = true; } },
+    dispose() {
+      this.release();
+      for (const gs of groups) for (const g of gs) { g.matrixAutoUpdate = true; g.matrix.identity(); g.updateMatrix(); g.matrixWorldNeedsUpdate = true; }
+    },
   };
 }
