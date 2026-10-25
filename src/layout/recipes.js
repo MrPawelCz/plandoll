@@ -480,7 +480,109 @@ function hangCurtains(R) {
   }
 }
 
+// ---- density: small things on furniture, more pictures and mirrors on the wall that is left, a second plant, more rugs ----
+// What stands on a chest, a table or a desk: [type, offset across the top as a share of its width], tried in this order. R.on refuses a spot
+// that is taken, so a lamp or a plant placed earlier is never covered.
+const TOP_ITEMS = {
+  sideboard: [['vase', -0.32], ['plant-small', 0.36], ['books-stack', 0.04]],
+  dresser: [['plant-small', -0.34], ['vase', 0.34], ['books-stack', 0]],
+  'tv-unit': [['vase', 0.36], ['plant-small', -0.4]],
+  desk: [['books-stack', -0.36], ['plant-small', 0.05]],
+  'dining-table': [['centerpiece', 0]],
+  'coffee-table': [['books-stack', -0.3]],
+};
+const PROP_ROOMS = ['living', 'dining', 'bedroom', 'kids', 'hall', 'office', 'other'];
+
+function dressTops(R) {
+  let left = R.area >= 16 ? 4 : R.area >= 9 ? 3 : 2;
+  for (const parent of R.mine.slice()) {
+    const list = TOP_ITEMS[parent.type];
+    if (!list || parent.on) continue;
+    for (const [t, share] of list) {
+      if (left <= 0) return;
+      if (R.on(parent, t, { dx: share * parent.size[0] })) left--;
+    }
+  }
+}
+
+// Span of a piece along a wall (from its footprint), to keep a gap between neighbours on the same wall.
+function spanOn(e, p) {
+  const [ux, uy] = axisOf(p.rot), [fx, fy] = frontOf(p.rot);
+  const s = (p.x - e.a[0]) * e.t[0] + (p.y - e.a[1]) * e.t[1];
+  const h = (Math.abs(ux * e.t[0] + uy * e.t[1]) * p.size[0] + Math.abs(fx * e.t[0] + fy * e.t[1]) * p.size[1]) / 2;
+  return [s - h, s + h];
+}
+
+// One wall piece on the free stretch of wall with the widest gap to its neighbours (at least `minGap`), longest free walls first.
+function hangOne(R, t, elev, { anyRoom = false, minGap = 0.35 } = {}) {
+  const spec = SPEC_BY_ID[t];
+  if (!spec || !R.can(t, { anyRoom }) || elev + spec.size[2] > R.level.height - 0.25) return null;
+  const w = spec.size[0];
+  for (const e of R.edgesBy((x) => R.edgeScore(x, true))) {
+    const taken = R.mine.filter((p) => p._edge === e && p._mode === 'wall-mount').map((p) => spanOn(e, p));
+    for (const [a, b] of freeIntervals(e, { pad: 0.04, windows: true, minLen: w + 0.3 })) {
+      const spots = [];
+      for (let s = a + 0.15 + w / 2; s <= b - 0.15 - w / 2 + 1e-9; s += 0.15) {
+        const gap = Math.min(99, ...taken.map(([x, y]) => Math.max(x - (s + w / 2), s - w / 2 - y)));
+        if (gap >= minGap) spots.push({ s, gap: Math.min(gap, 1.5) });
+      }
+      spots.sort((p, q) => q.gap - p.gap || p.s - q.s);
+      for (const sp of spots.slice(0, 6)) {
+        const p = R.alongEdge(t, e, sp.s, { elev, noClear: true, anyRoom });
+        if (p) return p;
+      }
+    }
+  }
+  return null;
+}
+
+// Pictures in proportion to the free wall of the room, and a mirror in bedrooms and larger living rooms.
+function hangMore(R) {
+  if (!PROP_ROOMS.includes(R.type)) return;
+  const free = R.edges.reduce((sum, e) => sum + R.edgeScore(e, true), 0);
+  const cap = R.type === 'living' ? 5 : 4;
+  const want = clamp(Math.round(free / 2.4), 1, cap);
+  let have = R.mine.filter((p) => p.type === 'art-large' || p.type === 'art-small').length;
+  for (let k = 0; have < want && k < 6; k++) {
+    const big = R.area >= 12 && k % 2 === 0 && R.type !== 'hall' && R.type !== 'office';
+    if (!(big ? hangOne(R, 'art-large', 1.0) || hangOne(R, 'art-small', 1.2) : hangOne(R, 'art-small', 1.2))) break;
+    have++;
+  }
+  if ((R.type === 'bedroom' || R.type === 'kids') && !R.has('mirror')) hangOne(R, 'mirror', 0.2);
+  else if (R.type === 'living' && R.area >= 16 && !R.has('mirror')) hangOne(R, 'mirror', 0.3, { anyRoom: true });
+}
+
+// A second plant in a free corner of a roomy room, a third in a large one.
+function morePlants(R) {
+  if (!PROP_ROOMS.includes(R.type)) return;
+  const want = R.area >= 22 ? 3 : R.area >= 12 ? 2 : 1;
+  for (let i = R.count('plant-large'); i < want; i++) if (!R.corner('plant-large', { anyRoom: true })) break;
+}
+
+// A rug under the dining table, a runner along a hall.
+function moreRugs(R) {
+  const table = R.mine.find((p) => p.type === 'dining-table');
+  if (table && R.can('rug')) {
+    for (const k of [1, 0.85, 0.7]) {
+      const size = { w: clamp((table.size[0] + 1.1) * k, 1.2, 3.4), d: clamp((table.size[1] + 1.1) * k, 0.8, 2.6) };
+      if (R.at('rug', { x: table.x, y: table.y, rot: table.rot, size, noClear: true })) break;
+    }
+  }
+  const length = Math.max(R.bbox.w, R.bbox.h);
+  if (R.type === 'hall' && R.can('rug-runner') && R.minDim >= 1.1 && length >= 2.6) {
+    const rot = R.bbox.w >= R.bbox.h ? rotFromFront(1, 0) : 0;
+    for (const k of [1, 0.8, 0.65]) {
+      const size = { w: clamp(R.minDim - 0.5, 0.6, 1.0), d: clamp((length - 1.0) * k, 1.2, 3.2) };
+      if (R.at('rug-runner', { x: (R.bbox.minX + R.bbox.maxX) / 2, y: (R.bbox.minY + R.bbox.maxY) / 2, rot, size, noClear: true })) break;
+    }
+  }
+}
+
 export function decorate(R) {
   if (['living', 'dining', 'bedroom', 'kids', 'hall', 'office', 'other'].includes(R.type)) hangArt(R);
   if (['living', 'dining', 'bedroom', 'kids', 'office', 'kitchen', 'hall'].includes(R.type) && R.facts.windows > 0) hangCurtains(R);
+  dressTops(R);
+  hangMore(R);
+  morePlants(R);
+  moreRugs(R);
 }
