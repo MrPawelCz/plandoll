@@ -17,6 +17,18 @@ const fin = (v) => typeof v === 'number' && Number.isFinite(v);
 const CLEAN = (problems) => !problems.some((p) => ['overlap', 'outside-room', 'door-zone', 'stair', 'floating-prop'].includes(p.kind));
 const MAX_CANDIDATES = 600, STEP = 0.4;
 
+// Would the piece `id` stand clean with its centre at plan point (x, y) on its own level (no overlap, inside a room, outside the door zones, not on a stair, not
+// floating)? Pure: the layout is not touched and nothing is dragged. Returns { ok, problems } with the problem list of the editor rules; an unknown id or
+// a number that is not finite gives { ok: false, problems: [{ kind: 'unknown-piece' | 'bad-number' }] }.
+export function placeCheck(model, layout, id, x, y) {
+  const f = findPiece(layout, id);
+  if (!f) return { ok: false, problems: [{ kind: 'unknown-piece' }] };
+  if (!fin(x) || !fin(y)) return { ok: false, problems: [{ kind: 'bad-number' }] };
+  const room = roomAt(model, f.level.id, x, y, f.piece.room); // the room under the new place; outside every room it keeps the old one and the rules report it
+  const problems = placementProblems(model, layout, f.level.id, { ...f.piece, x, y, room: room ?? f.piece.room });
+  return { ok: CLEAN(problems), problems };
+}
+
 // viewPoint() -> { level, x, y } | null is the place the view is centred on: the default for add().
 export function createEditSession({ layout, model, onChange = () => {}, allowedTypes, viewPoint = null } = {}) {
   let state = createState(layout), drag = null, dragSeq = 0, roomSel = null, edges = false;

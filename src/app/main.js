@@ -13,7 +13,9 @@ import { parseParams, editHash } from './params.js';
 import { frameRequest } from './capture.js';
 import { createLoop } from './loop.js';
 import { createUI, createEditBar, showErrorCard } from './ui.js';
-import { createEditSession } from './edit.js';
+import { createEditSession, placeCheck } from './edit.js';
+import { NO_WEBGL2, hasWebgl2, failureDetail, planChoice, startState, partsOf, buildPlanParts } from './shell.js';
+import { coverShare, isNarrow } from './stack.js';
 import { readPlanText } from './planfile.js';
 import { pickPiece, floorHit } from './pick.js';
 import { createOutline, createRoomOutline, outlineKind } from '../render/outline.js';
@@ -24,11 +26,11 @@ import { autoFurnish } from '../layout/index.js';
 import { piecesImplemented } from '../furniture/index.js';
 import { composeLayout, cutawayPieces, emittersOf, focusRoom, mergeByMaterial, setLampGlow, disposeComposed } from '../render/compose.js';
 import { applyWallCut } from '../render/cutaway.js';
-import { createCameraController, stateFrom, positionOf, nearSides, sameSides, sidesKey, viewOf, fitView, wrapDegrees, fillBoost } from './camera.js';
+import { createCameraController, stateFrom, positionOf, nearSides, sameSides, sidesKey, viewOf, fitView, wrapDegrees, fillBoost, lowestOnPicture } from './camera.js';
 import flat from '../../examples/flat-1.plan.json';
 import duplex from '../../examples/duplex-1.plan.json';
 
-const fail = (e) => { window.__fail = String((e && e.stack) || e); console.error(window.__fail); try { showErrorCard(String((e && e.message) || e)); } catch {} };
+const fail = (e) => { window.__fail = String((e && e.stack) || e); console.error(window.__fail); try { showErrorCard(failureDetail(e)); } catch {} };
 
 // Camera for the whole model (three-quarter view from the south-east) or a close view into the north-west room.
 function cameraFor(ext, aspect, mode, focus) {
@@ -48,11 +50,10 @@ function cameraFor(ext, aspect, mode, focus) {
 
 try {
   const params = parseParams(location.hash, { language: navigator.language });
-  const canvasProbe = document.createElement('canvas');
-  if (!canvasProbe.getContext('webgl2')) throw new Error('WebGL2 is not available');
+  if (!hasWebgl2(() => document.createElement('canvas'))) throw new Error(NO_WEBGL2);
   const dpr = window.devicePixelRatio || 1;
   const env = { cores: navigator.hardwareConcurrency, touch: navigator.maxTouchPoints > 0, width: window.innerWidth, height: window.innerHeight, memory: navigator.deviceMemory };
-  const S = { preset: params.preset, t: params.t, q: params.q, lang: params.lang, tools: params.btn, editing: params.edit };
+  const S = startState(params), parts = partsOf(params); // what the controls show; which parts of the page are built (ui=0, btn=0, edit=1)
   const T = (pl, en) => (S.lang === 'pl' ? pl : en);
   let level = resolveQuality(S.q, env);
   S.level = level; S.autoLevel = resolveQuality('auto', env); // the controls show which level Auto would pick on this device
@@ -66,12 +67,13 @@ try {
   const scene = new THREE.Scene();
 
   // ---------- the plan ----------
-  const plan = params.plan.kind === 'ext' && window.__plan ? JSON.parse(JSON.stringify(window.__plan)) : JSON.parse(JSON.stringify(params.plan.name === 'duplex-1' ? duplex : flat));
+  const choice = planChoice(params, window.__plan);
+  const plan = JSON.parse(JSON.stringify(choice === 'ext' ? window.__plan : choice === 'duplex-1' ? duplex : flat));
   for (const lv of plan.levels) lv.furniture = []; // the plan brings no furniture: the layout engine furnishes it
   const res = analyzePlan(plan); let model = buildModel(modelOf(res)); // model, ext, ps, stage, layout and focus are replaced when a plan is loaded
   let ext = modelExtent(model);
-  let ps = new PlanScene(model, 'textured');
-  ps.setLabels(false); ps.setArcs(false); ps.setCeilings(false);
+  const makeScene = (m) => { const s = new PlanScene(m, 'textured'); s.setLabels(false); s.setArcs(false); s.setCeilings(false); return s; };
+  let ps = makeScene(model);
   scene.add(ps.group);
 
   // ---------- stage ----------
@@ -88,9 +90,19 @@ try {
   // the frame with a margin). The default view itself is left exactly as cameraFor gives it.
   const dh = stateFrom(pose.pos, pose.target), askAz = params.az ?? dh.azimuth, askPol = params.pol ?? dh.polar;
   let wantFit = params.cam !== 'close' && (Math.abs(wrapDegrees(askAz - dh.azimuth + 180) - 180) > 1 || Math.abs(askPol - dh.polar) > 1);
+  let cover = 0; // the share of the window height that the bars at the bottom cover (stack.js): the model is kept above it
   const fitPose = (p) => {
-    const fit = fitView({ azimuth: askAz, polar: askPol }, ext, { fov: p.fov, aspect: W / H });
+    const fit = fitView({ azimuth: askAz, polar: askPol }, ext, { fov: p.fov, aspect: W / H, bottom: cover });
     return { ...p, target: fit.target, pos: positionOf({ azimuth: askAz, polar: askPol, distance: fit.distance }, fit.target) };
+  };
+  // The default view stays exactly as cameraFor gives it while the whole box shows above the bars; when its lowest corner would sit behind them (a tall
+  // model on a phone) it is fitted into the part of the picture above the bars, from the same side and tilt.
+  const liftPose = (p) => {
+    if (!(cover > 0) || params.cam === 'close') return p;
+    const st = stateFrom(p.pos, p.target);
+    if (lowestOnPicture(st, p.target, ext, p.fov) >= -1 + 2 * cover + 0.04) return p;
+    const fit = fitView(st, ext, { fov: p.fov, aspect: W / H, bottom: cover });
+    return { ...p, target: fit.target, pos: positionOf({ azimuth: st.azimuth, polar: st.polar, distance: fit.distance }, fit.target) };
   };
   if (wantFit) pose = fitPose(pose);
   const home0 = stateFrom(pose.pos, pose.target);
@@ -124,9 +136,13 @@ try {
   }
   furnish();
 
+  // The bars at the bottom (controls, edit bar) as a share of the window height on a narrow window (a phone), where they span the window; zero on a wide one,
+  // where they are a small box in the middle, and when the picture is not the size of the window (a captured size).
+  const barsCover = () => (W === window.innerWidth && H === window.innerHeight && isNarrow(W) ? coverShare(['#ps-ui', '#ps-edit'].map((s) => document.querySelector(s)?.getBoundingClientRect() ?? null), H) : 0);
   function frameCamera() {
+    cover = barsCover();
     pose = cameraFor(ext, W / H, params.cam, focus);
-    if (wantFit) pose = fitPose(pose);
+    pose = wantFit ? fitPose(pose) : liftPose(pose);
     if (cam) { cam.setTarget(pose.target); cam.rehome(stateFrom(pose.pos, pose.target)); current = cam.state; }
     camera.fov = pose.fov; camera.aspect = W / H;
     camera.position.set(...positionOf(current, pose.target)); camera.lookAt(...pose.target); camera.updateProjectionMatrix(); stage.fitBackdrop(W / H);
@@ -175,20 +191,16 @@ try {
       sayLine(ok ? T('Zapisano obraz do pliku', 'Picture saved to a file') : T('Nie udało się zapisać obrazu', 'Could not save the picture'));
     }, 'image/png');
   }
-  // Loading a plan of your own (a button of the controls and an item of the More menu): the text goes through the reader and the validator, then the old
+  // Loading a plan of your own (a button of the controls and an item of the File menu): the text goes through the reader and the validator, then the old
   // scene is released and the model, the automatic layout, the stage and the view are built again, without reloading the page. Nothing is stored.
   let onPlanSwapped = null;
   function applyPlan(next) {
-    let built;
-    try { // everything new is built first, so a plan that cannot be built leaves the page as it was
-      const p = JSON.parse(JSON.stringify(next)); for (const lv of p.levels) lv.furniture = [];
-      const r = analyzePlan(p), m = buildModel(modelOf(r)), e = modelExtent(m);
-      const nps = new PlanScene(m, 'textured'); nps.setLabels(false); nps.setArcs(false); nps.setCeilings(false);
-      built = { m, e, nps, lay: autoFurnish(m, { seed: params.seed, allowedTypes: piecesImplemented() }) };
-    } catch { return false; }
+    // everything new is built first, so a plan that cannot be built leaves the page as it was
+    const built = buildPlanParts(next, params.seed, { analyzePlan, modelOf, buildModel, modelExtent, makeScene, autoFurnish, piecesImplemented });
+    if (!built) return false;
     if (furn) { disposeComposed(furn.group, furn.merged?.group); furn = null; }
     scene.remove(ps.group); ps.dispose(); stage.dispose();
-    model = built.m; ext = built.e; ps = built.nps; layout = built.lay; curLayout = layout; focus = focusRoom(model, layout);
+    model = built.model; ext = built.ext; ps = built.scene; layout = built.layout; curLayout = layout; focus = focusRoom(model, layout);
     scene.add(ps.group);
     stage = createStage({ renderer, scene, bounds: ext, quality: level, preset: S.preset, t: S.t });
     wantFit = false; near = nearSides(current.azimuth); applyWallCut(ps, ext, near);
@@ -206,7 +218,7 @@ try {
       sayLine(applyPlan(r.plan) ? T('Wczytano plan', 'Plan loaded') : T('Nie udało się zbudować modelu z tego planu', 'Could not build a model from this plan'));
     });
   }
-  const ui = params.ui ? createUI({ onPreset: (n) => setPreset(n), onTime: setTime, onQuality: setQ, onLang: setLang, onReset: () => cam?.reset(true), onEdit: toggleEdit, onSaveImage: saveImage, onLoadPlan: loadPlan }, S) : null;
+  const ui = parts.controls ? createUI({ onPreset: (n) => setPreset(n), onTime: setTime, onQuality: setQ, onLang: setLang, onReset: () => cam?.reset(true), onEdit: toggleEdit, onSaveImage: saveImage, onLoadPlan: loadPlan }, S) : null;
   cam = createCameraController({ element: renderer.domElement, home: home0, initial: { azimuth: params.az, polar: params.pol }, target: pose.target, fov: pose.fov, onChange: onCamera, onGesture: () => ui?.hideHint() });
   applyAll();
   // ---------- edit mode (edit=1): select a piece, drag it over the floor, turn, delete, undo and redo ----------
@@ -294,8 +306,8 @@ try {
       onLoad: () => { readTextFile(document).then((r) => { if (r.ok) loaded(session.importText(r.text)); else if (r.error !== 'cancelled') say(refusalText(S.lang, r.error === 'too-large' ? 'fileTooLarge' : 'fileFailed')); }); },
       onPaste: () => { askForText(document, S.lang).then((t) => { if (t != null) loaded(session.importText(t)); }); },
     };
-    if (params.ui) editBar = createEditBar({ onTurn: () => session.turn(90), onRemove: () => session.remove(), onUndo: () => session.undo(), onRedo: () => session.redo(), onAuto: () => session.reset(), onSaveImage: saveImage, onLoadPlan: loadPlan, ...fileHandlers }, { lang: S.lang }, document, ui);
-    if (params.ui) panel = createPanel({ doc: document, host: document.body, lang: S.lang, session });
+    if (parts.editBar) editBar = createEditBar({ onTurn: () => session.turn(90), onRemove: () => session.remove(), onUndo: () => session.undo(), onRedo: () => session.redo(), onAuto: () => session.reset(), onSaveImage: saveImage, onLoadPlan: loadPlan, ...fileHandlers }, { lang: S.lang }, document, ui);
+    if (parts.sheet) panel = createPanel({ doc: document, host: document.body, lang: S.lang, session });
     refreshEdit();
     onPlanSwapped = () => { // a new plan: a new editing session with nothing selected, no undo history and no unsaved changes
       gest = null; cam.enabled = true; dirty = false; leaveWarned = false; colorsKey = '{}';
@@ -376,6 +388,9 @@ try {
       count: () => session.state.layout.levels.reduce((n, lv) => n + lv.pieces.length, 0),
       hit: (x, y, type = 'touch') => hitAt({ clientX: x, clientY: y, pointerType: type })?.id ?? null, // the piece under a client point (with the margin of a fingertip unless type is 'mouse'), or null
       selectedId: () => session.state.selection,
+      // Would the piece `id` stand clean at plan point (x, z) on its level? Nothing changes and nothing is dragged: { ok, problems } from the editor rules
+      // (overlap, outside the room, door zone, stair, floating prop count against it).
+      canPlace: (id, x, z) => placeCheck(model, session.state.layout, id, x, z),
       selectedRoomId: () => session.selectedRoom()?.id ?? null,
       roomHit: (x, y) => roomHitAt({ clientX: x, clientY: y }), // the room under a client point: { level, id } or null
       // a client point on the floor of a room where no piece stands and the room is what a tap would pick (tests tap there): { x, y } or null
@@ -411,12 +426,20 @@ try {
       },
     };
   }
+  // The bars exist now: the view is framed again above them, and again whenever they change size (a wrapped row, another language, a turned screen).
+  let coverSeen = 0;
+  function restack() {
+    const c = barsCover(); if (Math.abs(c - coverSeen) < 0.002) return;
+    coverSeen = c; frameCamera(); redraw();
+  }
+  restack();
+  if (typeof ResizeObserver === 'function') { const watch = new ResizeObserver(() => restack()); for (const s of ['#ps-ui', '#ps-edit']) { const el = document.querySelector(s); if (el) watch.observe(el); } }
   // Arrow keys turn the model (see camera.js); Shift + left or right moves the time of day, 1 to 3 pick a mood.
   addEventListener('keydown', (e) => {
     if (e.shiftKey && e.key === 'ArrowRight') setTime(S.t + 0.02); else if (e.shiftKey && e.key === 'ArrowLeft') setTime(S.t - 0.02);
     else if (['1', '2', '3'].includes(e.key)) setPreset(['amber', 'clear', 'lamplit'][Number(e.key) - 1]);
   });
-  addEventListener('resize', () => { W = window.innerWidth; H = window.innerHeight; frameCamera(); post.resize(W, H); redraw(); });
+  addEventListener('resize', () => { W = window.innerWidth; H = window.innerHeight; frameCamera(); coverSeen = cover; post.resize(W, H); redraw(); });
   window.__planInfo = () => ({ pieces: furn.pieces.size, levels: model.levels.length, rooms: model.levels.reduce((n, l) => n + (l.rooms?.length ?? 0), 0), extent: [ext.minX, ext.maxX, ext.minZ, ext.maxZ].map((v) => +v.toFixed(2)) }); // for test tools
   window.__setT = setTime; window.__setPreset = setPreset; window.__setQuality = setQ;
   window.__camera = { get azimuth() { return cam.state.azimuth; }, get polar() { return cam.state.polar; }, get distance() { return cam.state.distance; }, get near() { return sidesKey(near); }, get busy() { return cam.busy; }, set: (azimuth, polar) => cam.set({ azimuth, polar }), reset: () => cam.reset(false) };

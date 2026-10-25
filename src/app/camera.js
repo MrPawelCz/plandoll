@@ -90,12 +90,17 @@ const dot3 = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 
 // bounds: { minX, maxX, minY, maxY, minZ, maxZ } in metres, all storeys; the 8 corners of the box are fitted. state: only azimuth and
 // polar are used. options: fov (vertical, degrees), aspect (width / height of the picture), margin (share of the half picture kept
-// free on every side), iterations (centring passes). Returns { distance, target } with the distance within 0.5..500 m. Bad input gives
-// the centre of whatever bounds are usable (else the origin) and the state's own distance: never NaN.
+// free on every side), iterations (centring passes), bottom (share of the picture height, from the bottom edge, that bars cover, 0 to
+// BOTTOM_MAX: the box is then fitted into the part above them). Returns { distance, target } with the distance within 0.5..500 m. Bad
+// input gives the centre of whatever bounds are usable (else the origin) and the state's own distance: never NaN.
+export const BOTTOM_MAX = 0.4;
 export function fitView(state, bounds, options) {
   const o = options ?? {}, b = bounds ?? {};
   const th = Math.tan((clamp(fin(o.fov, 27), 1, 150) * RAD) / 2), asp = clamp(Number.isFinite(o.aspect) && o.aspect > 0 ? o.aspect : 1.78, 0.1, 10);
   const k = 1 - clamp(fin(o.margin, 0.08), 0, 0.5), passes = clamp(Math.round(fin(o.iterations, 4)), 0, 12);
+  // The free part of the picture runs from -1 + 2 * bt to 1 (y up, in half pictures): its middle sits bt above the centre. `up` and `dn` are how far a
+  // point may go above and below the centre line once the margin is taken off.
+  const bt = clamp(fin(o.bottom, 0), 0, BOTTOM_MAX), up = (1 - bt) * k + bt, dn = Math.max(0.02, (1 - bt) * k - bt);
   const mid = (lo, hi) => (Number.isFinite(lo) && Number.isFinite(hi) ? (lo + hi) / 2 : 0);
   const centre = [mid(b.minX, b.maxX), mid(b.minY, b.maxY), mid(b.minZ, b.maxZ)];
   const fallback = { distance: clamp(fin(state?.distance, 10), FIT_MIN, FIT_MAX), target: centre };
@@ -113,12 +118,12 @@ export function fitView(state, bounds, options) {
   // the extent of the projected corners sits on the picture (mx, my, as tangents), for centring.
   const solve = (t) => {
     const local = corners.map((c) => { const v = [c[0] - t[0], c[1] - t[1], c[2] - t[2]]; return [dot3(v, r), dot3(v, u), dot3(v, f)]; });
-    const need = Math.max(0, ...local.map(([x, y, z]) => Math.max(Math.abs(x) / (k * th * asp), Math.abs(y) / (k * th)) - z));
+    const need = Math.max(0, ...local.map(([x, y, z]) => Math.max(Math.abs(x) / (k * th * asp), y / (up * th), -y / (dn * th)) - z));
     const distance = clamp(need, FIT_MIN, FIT_MAX);
     if (!Number.isFinite(distance)) return null;
     if (local.some((p) => distance + p[2] < 1e-6)) return { distance, mx: 0, my: 0 }; // limited to 500 m, a corner is behind the camera: nothing to centre
     const xs = local.map((p) => p[0] / (distance + p[2])), ys = local.map((p) => p[1] / (distance + p[2]));
-    return { distance, mx: (Math.min(...xs) + Math.max(...xs)) / 2, my: (Math.min(...ys) + Math.max(...ys)) / 2 };
+    return { distance, mx: (Math.min(...xs) + Math.max(...xs)) / 2, my: (Math.min(...ys) + Math.max(...ys)) / 2 - bt * th }; // my: from the middle of the free part
   };
 
   // Start at the centre of the box; after each solve move the target across the picture by the offset of the extent's middle (at the
@@ -135,6 +140,24 @@ export function fitView(state, bounds, options) {
     if (!t.every(Number.isFinite)) break;
   }
   return best ? best : fallback;
+}
+
+// Where the lowest corner of a box lands on the picture for a camera in this state looking at `target`: -1 is the bottom edge, 1 the top
+// (the vertical field of view does not matter for the answer except through fov). A box that cannot be projected gives -Infinity.
+export function lowestOnPicture(state, target, bounds, fov = 27) {
+  const b = bounds ?? {};
+  if (!BOX_KEYS.every((key) => Number.isFinite(b[key])) || !target || target.length !== 3) return -Infinity;
+  const az = wrapDegrees(state?.azimuth) * RAD, po = clamp(fin(state?.polar, 50), POLAR_MIN, POLAR_MAX) * RAD;
+  const sa = Math.sin(az), ca = Math.cos(az), sp = Math.sin(po), cp = Math.cos(po);
+  const f = [-sp * sa, -cp, -sp * ca], u = [-cp * sa, sp, -cp * ca], eye = positionOf({ azimuth: state.azimuth, polar: po / RAD, distance: fin(state.distance, 10) }, target);
+  const th = Math.tan((clamp(fin(fov, 27), 1, 150) * RAD) / 2);
+  let low = Infinity;
+  for (const x of [b.minX, b.maxX]) for (const y of [b.minY, b.maxY]) for (const z of [b.minZ, b.maxZ]) {
+    const v = [x - eye[0], y - eye[1], z - eye[2]], depth = dot3(v, f);
+    if (!(depth > 1e-6)) return -Infinity; // a corner behind the camera
+    low = Math.min(low, dot3(v, u) / (depth * th));
+  }
+  return low;
 }
 
 // ---------------------------------------------------------------------------------------------------------------------------

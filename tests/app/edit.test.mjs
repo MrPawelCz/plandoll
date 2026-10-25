@@ -1,7 +1,7 @@
 // The editing session on the real example plans (flat-1 and duplex-1) with their automatic layouts.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createEditSession } from '../../src/app/edit.js';
+import { createEditSession, placeCheck } from '../../src/app/edit.js';
 import { testPlans, clone } from '../editor/plans.mjs';
 import { autoFurnish } from '../../src/layout/index.js';
 import { pieceCount } from '../../src/editor/index.js';
@@ -133,3 +133,28 @@ test('a throwing listener does not break the session', () => {
   assert.equal(s.select(piece.id), true);
   assert.equal(s.remove().ok, true);
 });
+
+// ---- placeCheck: would a piece stand clean at a point, without changing anything ----
+
+for (const p of plans) {
+  test(`${p.name}: placeCheck answers for a piece at its own place, on another piece, outside the rooms, and for bad input, and changes nothing`, () => {
+    const layout = clone(p.layout), json0 = JSON.stringify(layout);
+    const all = layout.levels.flatMap((l) => l.pieces.map((q) => ({ q, level: l.id })));
+    const piece = all.map((a) => a.q).find((q) => !q.on && q.elev === 0 && !p.layout.levels.flatMap((l) => l.pieces).some((o) => o.on === q.id)) ?? all[0].q;
+    const own = placeCheck(p.model, layout, piece.id, piece.x, piece.y);
+    assert.equal(own.ok, true, `the piece stands clean where it is: ${JSON.stringify(own.problems)}`);
+    const other = all.find((a) => a.q.id !== piece.id && !a.q.on && a.q.elev === 0 && a.level === all.find((b) => b.q.id === piece.id).level && a.q.room === piece.room);
+    if (other) {
+      const onTop = placeCheck(p.model, layout, piece.id, other.q.x, other.q.y);
+      assert.equal(onTop.ok, false);
+      assert.ok(onTop.problems.some((q) => q.kind === 'overlap'), `overlap reported: ${JSON.stringify(onTop.problems)}`);
+    }
+    const far = placeCheck(p.model, layout, piece.id, 500, 500);
+    assert.equal(far.ok, false);
+    assert.ok(far.problems.some((q) => q.kind === 'outside-room'));
+    assert.deepEqual(placeCheck(p.model, layout, 'nope', 1, 1), { ok: false, problems: [{ kind: 'unknown-piece' }] });
+    assert.deepEqual(placeCheck(p.model, layout, piece.id, NaN, 1), { ok: false, problems: [{ kind: 'bad-number' }] });
+    assert.deepEqual(placeCheck(p.model, layout, piece.id, 1, undefined), { ok: false, problems: [{ kind: 'bad-number' }] });
+    assert.equal(JSON.stringify(layout), json0, 'the layout is not touched');
+  });
+}

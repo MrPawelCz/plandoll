@@ -1,7 +1,7 @@
 // The orbit camera: pure state functions and the pointer controller, against fake elements and a fake clock (no browser).
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { makeState, orbit, zoom, positionOf, stateFrom, nearSides, sameSides, sidesKey, viewOf, blend, rayFor, wrapDegrees, createCameraController, fitView,
+import { makeState, orbit, zoom, positionOf, stateFrom, nearSides, sameSides, sidesKey, viewOf, blend, rayFor, wrapDegrees, createCameraController, fitView, lowestOnPicture, BOTTOM_MAX,
   POLAR_MIN, POLAR_MAX, ZOOM_MIN, ZOOM_MAX, HYSTERESIS } from '../../src/app/camera.js';
 
 const target = [5, 0, 4];
@@ -313,4 +313,40 @@ test('the fill light multiplier is exactly 1 from the south side and grows towar
   assert.ok(Math.abs(fillBoost(180) - 1.3) < 1e-9);
   assert.ok(fillBoost(150) > 1 && fillBoost(150) < fillBoost(180) && Math.abs(fillBoost(150) - fillBoost(210)) < 1e-9);
   assert.equal(fillBoost(540), fillBoost(180)); assert.equal(fillBoost(NaN), 1);
+});
+
+// ---- the share of the picture that bars cover at the bottom ----
+test('fitView with bottom: every corner of the box lands above the bars, the box is as large as the free part allows, and bottom 0 changes nothing', () => {
+  for (const bounds of [twoStorey, oneStorey]) for (const aspect of [phone, 1.78]) for (const azimuth of [35, 125, 215, 305]) for (const bottom of [0.15, 0.3, BOTTOM_MAX]) {
+    const margin = 0.08, state0 = { azimuth, polar: 45 }, fit = fitView(state0, bounds, { aspect, margin, bottom }), state = { ...state0, distance: fit.distance };
+    const k = 1 - margin, up = (1 - bottom) * k + bottom, dn = (1 - bottom) * k - bottom;
+    let tight = 0;
+    for (const c of cornersOf(bounds)) {
+      const q = project(state, fit.target, 27, aspect, c);
+      tight = Math.max(tight, Math.abs(q.x) / k, q.y / up, -q.y / dn);
+      assert.ok(q.depth > 0 && Math.abs(q.x) <= 1 - margin + 1e-6, `corner ${c} is inside the width (az ${azimuth}, bottom ${bottom})`);
+      assert.ok(q.y >= -1 + 2 * bottom - 1e-6, `corner ${c} is above the bars: ${q.y.toFixed(3)} >= ${(-1 + 2 * bottom).toFixed(3)} (az ${azimuth}, bottom ${bottom}, aspect ${aspect.toFixed(2)})`);
+      assert.ok(q.y <= 1 - margin * (1 - bottom) + 1e-6, `corner ${c} is under the top edge`);
+    }
+    assert.ok(tight >= 0.97, `the tightest corner touches the limit of the free part (${tight.toFixed(3)}; az ${azimuth}, bottom ${bottom}, aspect ${aspect.toFixed(2)})`);
+  }
+  const plain = fitView({ azimuth: 35, polar: 45 }, twoStorey, { aspect: phone }), zero = fitView({ azimuth: 35, polar: 45 }, twoStorey, { aspect: phone, bottom: 0 });
+  assert.deepEqual(zero, plain);
+  const bad = [NaN, -1, 'x', null, Infinity, 5];
+  for (const b of bad) { const r = fitView({ azimuth: 35, polar: 45 }, twoStorey, { aspect: phone, bottom: b }); assert.ok(Number.isFinite(r.distance) && r.target.every(Number.isFinite), `bottom ${b} gives a usable fit`); }
+  const covered = fitView({ azimuth: 35, polar: 45 }, twoStorey, { aspect: phone, bottom: 0.3 });
+  assert.ok(covered.distance > plain.distance, 'a covered picture needs the camera farther away');
+  assert.ok(covered.target[1] < plain.target[1] + 1e-6 || covered.target[0] !== plain.target[0] || covered.target[2] !== plain.target[2], 'and aims lower, so the model rises on the picture');
+});
+
+test('lowestOnPicture agrees with the projection and refuses a box it cannot project', () => {
+  const tgt = [6, 2.8, 4.5];
+  for (const azimuth of [0, 35, 140, 250]) for (const polar of [30, 45, 70]) {
+    const state = { azimuth, polar, distance: 30 };
+    const want = Math.min(...cornersOf(twoStorey).map((c) => project(state, tgt, 27, 1.78, c).y));
+    assert.ok(Math.abs(lowestOnPicture(state, tgt, twoStorey, 27) - want) < 1e-6, `az ${azimuth}, polar ${polar}`);
+  }
+  assert.equal(lowestOnPicture({ azimuth: 0, polar: 45, distance: 30 }, tgt, { minX: 0 }, 27), -Infinity);
+  assert.equal(lowestOnPicture({ azimuth: 0, polar: 45, distance: 30 }, null, twoStorey, 27), -Infinity);
+  assert.equal(lowestOnPicture({ azimuth: 0, polar: 45, distance: 0.1 }, [6, 2.8, 4.5], twoStorey, 27), -Infinity); // the camera stands inside the box: a corner is behind it
 });
