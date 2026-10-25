@@ -6,6 +6,8 @@ const r3 = (v) => Math.round(v * 1000) / 1000;
 // A piece with rot (degrees clockwise on the plan) looks along front(rot); its width runs along axis(rot).
 export const frontOf = (rot) => [-Math.sin(rot * DEG), Math.cos(rot * DEG)];
 export const axisOf = (rot) => [Math.cos(rot * DEG), Math.sin(rot * DEG)];
+// True for an edge of a north or a west wall: e.n points into the room, towards the south or the east (y grows to the south).
+export const onNorthOrWestWall = (e) => e.n[1] > 0.7 || e.n[0] > 0.7;
 export function rotFromFront(fx, fy) {
   const a = (Math.atan2(-fx, fy) / DEG + 360) % 360;
   return r3(a >= 359.9995 ? 0 : a);

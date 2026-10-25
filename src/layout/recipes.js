@@ -1,12 +1,20 @@
 // Recipes: what goes into each type of room, in order. Sizes, clearances and allowed rooms come from src/furniture/specs.js.
 // Every recipe gets the stage R made by engine.js and only asks for placements; R decides whether a spot is free.
 import { SPEC_BY_ID } from '../furniture/specs.js';
-import { frontOf, axisOf, rotFromFront, freeIntervals } from './geometry.js';
+import { frontOf, axisOf, rotFromFront, freeIntervals, onNorthOrWestWall } from './geometry.js';
 
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
 const dot = (a, b) => a[0] * b[0] + a[1] * b[1];
 const longest = (e, windows) => freeIntervals(e, { pad: 0.04, windows, minLen: 0.2 })[0]?.reduce((a, b) => b - a) ?? 0;
 const centreOf = (p) => [p.x, p.y];
+
+// True when the front of the sofa points at the television within MAX_SOFA_TURN degrees.
+const MAX_SOFA_TURN = 24;
+function facesTv(sofa, unit) {
+  const [fx, fy] = frontOf(sofa.rot);
+  const dx = unit.x - sofa.x, dy = unit.y - sofa.y, l = Math.hypot(dx, dy);
+  return l < 1e-6 || (fx * dx + fy * dy) / l >= Math.cos((MAX_SOFA_TURN * Math.PI) / 180);
+}
 
 function pairScore(e) { return longest(e, true) - 0.8 * e.windows.length - 0.3 * e.doors.length; }
 
@@ -71,36 +79,43 @@ function livingRecipe(R) {
   const tvEdges = R.edgesBy(pairScore).filter((e) => e.len >= 1.8).slice(0, 5);
   let sofa = null, ct = null;
   let firstUnit = null;
-  for (const tvEdge of tvEdges) {
-    const mk = R.mark();
-    const unit = R.wall('tv-unit', { edges: [tvEdge], align: 'center', soft: false });
-    if (!unit) continue;
-    if (!firstUnit) firstUnit = { edge: tvEdge };
-    R.on(unit, 'tv', { dy: -(unit.size[1] / 2 - SPEC_BY_ID.tv.size[1] / 2 - 0.04) });
-    // sofa wall: faces the television wall, as far away as the room allows
-    const opposite = R.edges.filter((e) => dot(e.n, tvEdge.n) < -0.9);
-    const ordered = opposite.slice().sort((a, b) => pairScore(b) - pairScore(a));
-    for (const e of ordered) {
-      const dist = Math.abs(dot([e.a[0] - tvEdge.a[0], e.a[1] - tvEdge.a[1]], tvEdge.n));
-      if (dist < 2.3) continue;
-      const wide = longest(e, false) >= sofaSpecW + 1.3 && R.can('sofa3');
-      for (const t of sofaTypes(wide)) {
-        sofa = R.wall(t, { edges: [e], around: centreOf(unit), margin: 0.3, margins: [0.3, 0.02], partners: [unit], ...sofaOpts(t) });
+  // first pass: the sofa must face the television; second pass: any sofa that fits
+  for (const strict of [true, false]) {
+    if (sofa) break;
+    for (const tvEdge of tvEdges) {
+      const mk = R.mark();
+      const unit = R.wall('tv-unit', { edges: [tvEdge], align: 'center', soft: false });
+      if (!unit) continue;
+      if (!firstUnit) firstUnit = { edge: tvEdge };
+      R.on(unit, 'tv', { dy: -(unit.size[1] / 2 - SPEC_BY_ID.tv.size[1] / 2 - 0.04) });
+      // sofa wall: faces the television wall, as far away as the room allows
+      const opposite = R.edges.filter((e) => dot(e.n, tvEdge.n) < -0.9);
+      const ordered = opposite.slice().sort((a, b) => pairScore(b) - pairScore(a));
+      for (const e of ordered) {
+        const dist = Math.abs(dot([e.a[0] - tvEdge.a[0], e.a[1] - tvEdge.a[1]], tvEdge.n));
+        if (dist < 2.3) continue;
+        const wide = longest(e, false) >= sofaSpecW + 1.3 && R.can('sofa3');
+        for (const t of sofaTypes(wide)) {
+          sofa = R.wall(t, { edges: [e], around: centreOf(unit), margin: 0.3, margins: [0.3, 0.02], partners: [unit], accept: strict ? (p) => facesTv(p, unit) : undefined, ...sofaOpts(t) });
+          if (sofa) break;
+        }
         if (sofa) break;
+      }
+      if (!sofa) {
+        // floating sofa facing the television; in the first pass also nearer to it and shifted sideways (never turned away)
+        const [fx, fy] = frontOf(unit.rot), [ux, uy] = axisOf(unit.rot);
+        float: for (const away of strict ? [2.7, 2.3, 2.0, 1.8] : [2.7, 2.3]) {
+          for (const lat of strict ? [0, 0.4, -0.4, 0.8, -0.8] : [0]) {
+            const x = unit.x + fx * (unit.size[1] / 2 + away) + ux * lat, y = unit.y + fy * (unit.size[1] / 2 + away) + uy * lat;
+            const rot = rotFromFront(-fx, -fy);
+            if (!facesTv({ x, y, rot }, unit)) continue;
+            for (const t of sofaTypes(false)) { sofa = R.at(t, { x, y, rot, partners: [unit], soft: true, ...sofaOpts(t) }); if (sofa) break float; }
+          }
+        }
       }
       if (sofa) break;
+      R.rollback(mk);
     }
-    if (!sofa) {
-      // floating sofa facing the television
-      const [fx, fy] = frontOf(unit.rot);
-      for (const away of [2.7, 2.3]) {
-        const x = unit.x + fx * (unit.size[1] / 2 + away), y = unit.y + fy * (unit.size[1] / 2 + away);
-        for (const t of sofaTypes(false)) { sofa = R.at(t, { x, y, rot: rotFromFront(-fx, -fy), partners: [unit], soft: true, ...sofaOpts(t) }); if (sofa) break; }
-        if (sofa) break;
-      }
-    }
-    if (sofa) break;
-    R.rollback(mk);
   }
   if (!sofa && firstUnit) {
     const unit = R.wall('tv-unit', { edges: [firstUnit.edge], align: 'center', soft: false });
@@ -155,12 +170,51 @@ function livingRecipe(R) {
       if (R.at('floor-lamp', { x: sofa.x + ux * side * reach - fx * back, y: sofa.y + uy * side * reach - fy * back, rot: sofa.rot, noClear: true })) break;
     }
   }
+  // the sleeping zone of a studio comes before the bookshelf and the plants, which take the walls that are left
+  if (R.zones?.includes('sleep')) sleepRecipe(R);
   ensureLight(R, sofa ? centreOf(sofa) : null);
   if (R.area >= 12) R.wall('bookshelf', { avoidWindows: true, align: 'start', size: { w: R.area >= 24 ? 1.2 : 0.9 }, score: (e) => longest(e, true) });
   R.corner('plant-large', { anyRoom: true, order: sofa ? (a, b) => dist2(b.v, sofa) - dist2(a.v, sofa) : undefined });
 }
 const dist2 = (v, p) => (v[0] - p.x) ** 2 + (v[1] - p.y) ** 2;
 const gapTo = (a, b) => Math.max(0.25, Math.hypot(b.x - a.x, b.y - a.y) - a.size[1] / 2 - b.size[1] / 2);
+
+// Sleeping zone of a studio: a bed along a wall away from the sofa, with nightstands and lamps when they fit. A smaller bed, and at
+// last a sofa bed, stand in when the room is tight; a room that already has a sofa bed or a bed is left as it is.
+function sleepRecipe(R) {
+  if (R.mine.some((p) => p.type.startsWith('bed-') || p.type === 'sofa-bed')) return;
+  const sofa = R.mine.find((p) => ['sofa2', 'sofa3', 'sofa-bed'].includes(p.type));
+  const doorPts = R.edges.flatMap((e) => e.doors.map((d) => [e.a[0] + e.t[0] * (d.s0 + d.s1) / 2, e.a[1] + e.t[1] * (d.s0 + d.s1) / 2]));
+  const far = (e) => (doorPts.length ? Math.min(...doorPts.map((p) => Math.hypot(p[0] - (e.a[0] + e.b[0]) / 2, p[1] - (e.a[1] + e.b[1]) / 2))) : 0);
+  const apart = (e) => (sofa ? Math.hypot(sofa.x - (e.a[0] + e.b[0]) / 2, sofa.y - (e.a[1] + e.b[1]) / 2) : 0);
+  const score = (e) => longest(e, true) - 3 * e.windows.length - 2 * e.doors.length + 0.25 * far(e) + 0.4 * apart(e) - (onNorthOrWestWall(e) ? 0.5 : 0);
+  const nightstands = (bed) => {
+    const [ux, uy] = axisOf(bed.rot), [fx, fy] = frontOf(bed.rot);
+    const ns = SPEC_BY_ID.nightstand.size;
+    for (const side of [1, -1]) {
+      const reach = bed.size[0] / 2 + 0.03 + ns[0] / 2, back = bed.size[1] / 2 - ns[1] / 2;
+      const stand = R.at('nightstand', { anyRoom: true, x: bed.x + ux * side * reach - fx * back, y: bed.y + uy * side * reach - fy * back, rot: bed.rot, partners: [bed], noClear: true });
+      if (stand) R.on(stand, 'table-lamp');
+    }
+    return true;
+  };
+  const kinds = [['bed-double', 1.6], ['bed-double', 1.4], ['bed-single', 0.9], ['sofa-bed', 1.6]];
+  let bed = null;
+  for (const avoidWindows of [true, false]) {
+    for (const [t, w] of kinds) {
+      bed = R.wall(t, { anyRoom: true, size: { w }, score, avoidWindows, align: 'center', margins: [0.5, 0.25, 0.02], accept: nightstands });
+      if (bed) break;
+    }
+    if (bed) break;
+  }
+  if (!bed) return;
+  const [fx, fy] = frontOf(bed.rot);
+  for (const kk of [1, 0.85, 0.7]) {
+    const wRug = clamp((bed.size[0] + 0.9) * kk, 1.2, 3.4), dRug = clamp(1.7 * kk, 0.8, 2.6);
+    const cx = bed.x + fx * (bed.size[1] / 2 - 0.9 + dRug / 2 - 0.15), cy = bed.y + fy * (bed.size[1] / 2 - 0.9 + dRug / 2 - 0.15);
+    if (R.at('rug', { x: cx, y: cy, rot: bed.rot, size: { w: wRug, d: dRug }, noClear: true })) break;
+  }
+}
 
 function diningRecipe(R) {
   diningSet(R, { chairs: R.area >= 14 ? 6 : 4, long: R.area >= 14 ? 2.0 : 1.6 });
@@ -259,7 +313,8 @@ function bedroomRecipe(R) {
   const bedType = small && R.can('bed-single') ? 'bed-single' : 'bed-double';
   const doorPts = R.edges.flatMap((e) => e.doors.map((d) => [e.a[0] + e.t[0] * (d.s0 + d.s1) / 2, e.a[1] + e.t[1] * (d.s0 + d.s1) / 2]));
   const far = (e) => (doorPts.length ? Math.min(...doorPts.map((p) => Math.hypot(p[0] - (e.a[0] + e.b[0]) / 2, p[1] - (e.a[1] + e.b[1]) / 2))) : 0);
-  const score = (e) => longest(e, true) - 3 * e.windows.length - 2 * e.doors.length + 0.25 * far(e);
+  // the bed is low, so it leaves the north and west walls to the tall pieces when the room has other walls to offer
+  const score = (e) => longest(e, true) - 3 * e.windows.length - 2 * e.doors.length + 0.25 * far(e) - (onNorthOrWestWall(e) ? 1.5 : 0);
   const ww = R.area >= 16 ? [2.4, 1.8, 1.2, 0.9] : R.area >= 11 ? [1.8, 1.2, 0.9] : [1.2, 0.9];
   const wardrobe = () => {
     for (const w of ww) { const p = R.wall('wardrobe', { size: { w }, avoidWindows: true, align: 'start', score: (e) => longest(e, true) - 2 * e.doors.length }); if (p) return p; }
@@ -375,7 +430,7 @@ function balconyRecipe(R) { R.corner('plant-large', { anyRoom: true }); }
 function otherRecipe(R) { R.corner('plant-large', { anyRoom: true }); }
 
 export const RECIPES = {
-  living: livingRecipe, dining: diningRecipe, kitchen: kitchenRecipe, bedroom: bedroomRecipe, kids: bedroomRecipe,
+  living: livingRecipe, sleep: sleepRecipe, dining: diningRecipe, kitchen: kitchenRecipe, bedroom: bedroomRecipe, kids: bedroomRecipe,
   bath: bathRecipe, wc: bathRecipe, hall: hallRecipe, office: officeRecipe, utility: utilityRecipe, balcony: balconyRecipe, storage: () => {}, other: otherRecipe,
 };
 

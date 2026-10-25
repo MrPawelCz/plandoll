@@ -154,6 +154,12 @@ export function roomType(room, model) {
   return OTHER;
 }
 
+// A studio is a living room named so (studio, garsoniera, kawalerka): it also needs a place to sleep.
+const STUDIO_WORD = /\b(studio|garsonier\w*|kawaler\w*)\b/;
+export function isStudio(room, model) {
+  return roomType(room, model) === 'living' && STUDIO_WORD.test(normalizeName(room?.name));
+}
+
 // Zones of a room: a living room that is named after a kitchen too, or is joined to a kitchen by an open passage, gets a second zone.
 export function roomZones(room, model) {
   const type = roomType(room, model);
@@ -173,6 +179,7 @@ export function roomZones(room, model) {
     }
     if (kitchenZone) zones.push('kitchen');
     if (/\b(jadaln\w*|dining)\b/.test(n)) zones.push('dining');
+    if (isStudio(room, model)) zones.push('sleep');
   }
   return zones;
 }

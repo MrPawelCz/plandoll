@@ -3,7 +3,7 @@
 // the interior of the room, door zones, window zones, stairs, the pieces already standing and the clear space in front of them.
 import { SPEC_BY_ID, SPECS } from '../furniture/specs.js';
 import { roomType, roomZones, roomFacts } from './rooms.js';
-import { obb, penetration, boxInsidePolygon, frontOf, axisOf, rotFromFront, roomInterior, attachOpenings, freeIntervals, levelZones } from './geometry.js';
+import { obb, penetration, boxInsidePolygon, frontOf, axisOf, rotFromFront, roomInterior, attachOpenings, freeIntervals, levelZones, onNorthOrWestWall } from './geometry.js';
 import { RECIPES, decorate } from './recipes.js';
 
 export const LIMITS = Object.freeze({ perLevel: 400, total: 1500, fitsPerLevel: 60000, fitsTotal: 200000 });
@@ -59,6 +59,10 @@ function blocks(p, q) {
   return penetration(p._obb, q._obb) > 0.003;
 }
 export { blocks };
+
+// Tall floor pieces (wardrobes, bookcases, shelving) prefer a north or a west wall, so they do not stand between the default
+// camera (looking in from the south and east) and the room. The bonus is added to the score of an edge, in metres of free wall.
+export const TALL_WALL_BONUS = 3;
 
 function solid(p) { return !p._flat && (p._mode === 'floor' || p._mode === 'corner'); }
 
@@ -166,7 +170,9 @@ function makeStage(lc, room, type, zone, interior) {
     if (!R.can(t, o)) return null;
     const spec = SPEC_BY_ID[t];
     const [w] = sizeOf(spec, o.size);
-    const edges = o.edges ?? R.edgesBy(o.score ?? ((e) => R.edgeScore(e, true)));
+    const base = o.score ?? ((e) => R.edgeScore(e, true));
+    const tallPrefer = o.tallPrefer ?? (spec.tall && spec.place.mode === 'floor');
+    const edges = o.edges ?? R.edgesBy(tallPrefer ? (e) => base(e) + (onNorthOrWestWall(e) ? TALL_WALL_BONUS : 0) : base);
     const margins = o.margins ?? [o.margin ?? 0.02];
     for (const cf of o.soft === false ? [1] : [1, 0.6, 0.3]) {
       for (const avoid of o.avoidWindows === false ? [false] : o.avoidWindows ? [true] : [true, false]) {
@@ -313,6 +319,7 @@ export function autoFurnish(model, { seed = 1, allowedTypes, debug = false } = {
       const type = roomType(room, model);
       const zones = roomZones(room, model);
       const R = makeStage(lc, room, type, type, interior);
+      R.zones = zones;
       stages.push(R);
       for (const z of zones) {
         R.zone = z;

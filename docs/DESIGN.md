@@ -150,6 +150,8 @@ The recipes (`recipes.js`) also use four types of the extended catalogue, only w
 
 Every living room, dining room, bedroom, children's room and office ends with at least one light: when a recipe has not placed a lamp, a standing lamp goes in the free corner closest to the main piece and, if no corner is free, a pendant hangs over the roomiest floor.
 
+Three rules refine the recipes. A living room first looks for a sofa that faces the television within 24 degrees (against a wall or floating, 1.8 to 2.7 m away, with sideways shifts); only when no such place exists does the search fall back to any sofa that fits, so a living room never loses its sofa. Wardrobes, bookcases and shelving units get a bonus of 3 m of free wall (`TALL_WALL_BONUS`) on north and west walls (`onNorthOrWestWall`), which keeps them from standing between the default camera and the room; the option `tallPrefer: false` switches the bonus off. A studio (a living room named studio, garsoniera or kawalerka, see `isStudio` in `rooms.js`) also gets a `sleep` zone: `sleepRecipe` puts a bed along a wall away from the sofa, with nightstands and lamps when they fit, and steps down to a smaller bed and then to a sofa bed when the room is tight; a room that already holds a bed or a sofa bed is left as it is.
+
 ## 5a. Editor (src/editor)
 
 Pure functions, no DOM, no three.js, no storage and no network. They run in Node and in the page; the page keeps one state and replaces it with the state an operation returns. `src/editor/index.js` is the public API.
