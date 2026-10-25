@@ -32,7 +32,7 @@ import { applyWallCut } from '../render/cutaway.js';
 import { createOpenShell } from '../render/openshell.js';
 import { stepClock, modeOf } from '../render/openmotion.js';
 import { openExtent, openPoints, flatFootprint } from '../model/foldwalls.js';
-import { createCameraController, stateFrom, positionOf, nearSides, sameSides, sidesKey, viewOf, fitView, wrapDegrees, fillBoost, lowestOnPicture, nearPlane, liftOf, PAN_GROW } from './camera.js';
+import { createCameraController, stateFrom, positionOf, nearSides, sameSides, sidesKey, viewOf, fitView, wrapDegrees, fillBoost, lowestOnPicture, nearPlane, liftOf, PAN_GROW, SLOP_MOUSE, SLOP_TOUCH } from './camera.js';
 import { boardRect } from '../look/board.js';
 import flat from '../../examples/flat-1.plan.json';
 import duplex from '../../examples/duplex-1.plan.json';
@@ -423,11 +423,22 @@ try {
     // that has turned, the inner face of that wall in the wall's closed place, so the piece moves along the wall wherever the wall lies. host: shell.hostOf(id) or null.
     const surfaceAt = slidePoint;
     const showPanel = (on) => { if (panel) panel.element.hidden = !on; };
-    const down = new Set(); // the pointers that are down: a second or a third finger belongs to the camera (zoom and move), never to a piece
+    const down = new Map(); // the pointers that are down (id to pointer type): a second or a third finger belongs to the camera (zoom and move), never to a piece
+    const slopOf = (e) => (e.pointerType === 'mouse' ? SLOP_MOUSE : SLOP_TOUCH); // as in the camera: a tap may wander this far before it is a drag
+    // A pointerup or pointercancel that never came (a system gesture, a switch to another app) would leave a finger in `down` for good, and no piece could be picked
+    // again until a reload. A pointer of that kind going down as the first one, the window losing the focus or the page going to the background lets go of what is left
+    // (a piece that was being dragged goes back).
+    const releaseStale = (type) => {
+      for (const [id, t] of down) if (type === undefined || t === type) down.delete(id);
+      if (gest && !down.has(gest.pointerId)) { if (gest.dragging) session.cancelDrag(); if (gest.id) { cam.enabled = true; showPanel(true); } gest = null; }
+    };
+    addEventListener('blur', () => releaseStale());
+    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') releaseStale(); });
     dom.addEventListener('pointerdown', (e) => {
       if (adopting) return;
       if (e.pointerType === 'mouse' && (e.button !== 0 || e.shiftKey)) return; // the right and the middle button, and Shift with the left one, move the view
-      down.add(e.pointerId);
+      if (e.isPrimary) releaseStale(e.pointerType);
+      down.set(e.pointerId, e.pointerType);
       if (gest) { // a second finger: the piece goes back, the selection that the first finger made is taken back, and the camera takes over with both fingers
         const first = gest; gest = null;
         if (first.dragging) session.cancelDrag();
@@ -452,7 +463,7 @@ try {
       const g = gest; if (!g || !g.id || g.pointerId !== e.pointerId) return;
       g.lastX = e.clientX; g.lastY = e.clientY;
       g.moved = Math.max(g.moved, Math.hypot(e.clientX - g.x0, e.clientY - g.y0));
-      if (g.moved < 6) return; // a tap is not a drag
+      if (g.moved < slopOf(e)) return; // a tap is not a drag
       if (!g.dragging) { g.dragging = session.beginDrag(g.id); if (!g.dragging) return; showPanel(false); }
       const ray = cam.pointerToRay(e), host = shell?.hostOf(g.id) ?? null;
       if ((host?.wall ?? null) !== g.wall) return; // another wall holds the piece than at the grab (the shell opened or closed meanwhile): the grab no longer fits
@@ -473,7 +484,7 @@ try {
         if (g.dragging) { if (cancelled) session.cancelDrag(); else session.endDrag(); }
         if (g.dragging && !cancelled && window.innerWidth <= 760) panel?.collapse?.(); // on a phone the sheet folds to its header after a drop
         showPanel(true);
-      } else if (!cancelled && Math.hypot(e.clientX - g.x0, e.clientY - g.y0) < 6 && performance.now() - g.t0 < 350) {
+      } else if (!cancelled && Math.hypot(e.clientX - g.x0, e.clientY - g.y0) < slopOf(e) && performance.now() - g.t0 < 350) {
         if (g.room) session.selectRoom(g.room.level, g.room.id); else session.select(null); // a tap on a floor picks the room, a tap beside the plan clears
       }
     };
