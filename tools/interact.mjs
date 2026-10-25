@@ -605,8 +605,12 @@ try {
           const p1 = await infoOf(id), h1 = await hostOf(id), s1 = await ev(`window.__edit.screenOf(${JSON.stringify(id)})`);
           return { p0, p1, h0, h1, s1, e1, mid, d };
         };
+        const layoutBeforeMove = await layoutJson();
         let a = await attempt(0.8);
-        if (kind === 'wall' && Math.hypot(a.p1.x - a.p0.x, a.p1.y - a.p0.y) < 0.4) { await click('undo'); await sleep(350); a = await attempt(-0.8); }
+        if (kind === 'wall' && Math.hypot(a.p1.x - a.p0.x, a.p1.y - a.p0.y) < 0.4) { // the wall ends there: go the other way (a drag that changed nothing left no undo step)
+          if ((await layoutJson()) !== layoutBeforeMove) { await click('undo'); await sleep(350); }
+          a = await attempt(-0.8);
+        }
         const moved = Math.hypot(a.p1.x - a.p0.x, a.p1.y - a.p0.y), picDrag = await scenePicture(`55-${kind}-dragged`), gapDrag = await gapOf(id);
         const ang = ((a.p0.rot ?? 0) * Math.PI) / 180, across = Math.abs(-(a.p1.x - a.p0.x) * Math.sin(ang) + (a.p1.y - a.p0.y) * Math.cos(ang)); // the part of the move across the width axis of the piece (along its front)
         const okMove = kind === 'floor' ? moved > 0.1 : moved > 0.3 && moved < 1.4 && across < 0.08 && !!a.h0 && !!a.h1 && a.h0.wall === a.h1.wall && Math.abs(a.p1.elev - a.p0.elev) < 1e-9 && a.p1.rot === a.p0.rot;
