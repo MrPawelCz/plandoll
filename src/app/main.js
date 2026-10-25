@@ -17,7 +17,7 @@ import { frameRequest } from './capture.js';
 import { createLoop } from './loop.js';
 import { createUI, createEditBar, showErrorCard } from './ui.js';
 import { createEditSession, placeCheck } from './edit.js';
-import { NO_WEBGL2, hasWebgl2, failureDetail, planChoice, startState, partsOf, buildPlanParts, isFormTarget, shellKey, shellOn } from './shell.js';
+import { NO_WEBGL2, hasWebgl2, failureDetail, planChoice, startState, partsOf, buildPlanParts, isFormTarget, shellKey, shellOn, strayClick } from './shell.js';
 import { coverShare, isNarrow } from './stack.js';
 import { readPlanText } from './planfile.js';
 import { pickPiece, floorHit, slidePoint } from './pick.js';
@@ -443,7 +443,7 @@ try {
         const first = gest; gest = null;
         if (first.dragging) session.cancelDrag();
         if (first.id) {
-          if (session.state.selection === first.id) session.select(first.before);
+          if (session.state.selection === first.id) session.restoreSelection(first.before); // the piece that was selected before, or the room (picking the piece cleared it)
           cam.enabled = true; showPanel(true);
           adopting = true; // the camera learns about the first finger too, so that the pinch starts at once
           try { dom.dispatchEvent(new PointerEvent('pointerdown', { pointerId: first.pointerId, pointerType: e.pointerType, clientX: first.lastX, clientY: first.lastY, button: 0, buttons: 1, isPrimary: true, bubbles: true, cancelable: true })); } catch {}
@@ -455,7 +455,7 @@ try {
       const hit = hitAt(e), base = { pointerId: e.pointerId, x0: e.clientX, y0: e.clientY, lastX: e.clientX, lastY: e.clientY, t0: performance.now(), moved: 0, id: null, dragging: false };
       if (!hit) { gest = { ...base, room: roomHitAt(e) }; return; }
       const piece = session.pieceById(hit.id), host = shell?.hostOf(hit.id) ?? null, at = surfaceAt(cam.pointerToRay(e), host, levelBase(hit.level) + piece.elev);
-      gest = { ...base, id: hit.id, level: hit.level, before: session.state.selection ?? null, base: levelBase(hit.level) + piece.elev, wall: host?.wall ?? null, off: at ? [piece.x - at[0], piece.y - at[1]] : [0, 0] };
+      gest = { ...base, id: hit.id, level: hit.level, before: session.selectionNow(), base: levelBase(hit.level) + piece.elev, wall: host?.wall ?? null, off: at ? [piece.x - at[0], piece.y - at[1]] : [0, 0] };
       cam.enabled = false; session.select(hit.id);
       try { dom.setPointerCapture(e.pointerId); } catch {}
     }, true);
@@ -490,6 +490,15 @@ try {
     };
     dom.addEventListener('pointerup', (e) => finish(e, false), true);
     dom.addEventListener('pointercancel', (e) => finish(e, true), true);
+    // The click of a touch tap goes to whatever is under the finger when it lifts. A tap on a piece (or on a floor) selects at once and the sheet of the panel opens over
+    // that part of the picture, so the click can land on a colour swatch, a size field or the header of a sheet that was not under the finger when it went down. A click that
+    // follows the lift of a pointer that went down on the picture, close to where it lifted, and is not for the picture itself, is dropped (strayClick in shell.js).
+    let lift = null;
+    dom.addEventListener('pointerup', (e) => { lift = { x: e.clientX, y: e.clientY, t: performance.now(), type: e.pointerType }; }, true);
+    addEventListener('click', (e) => {
+      if (!strayClick(lift, { x: e.clientX, y: e.clientY, onPicture: e.target === dom }, performance.now())) return;
+      lift = null; e.stopPropagation(); e.preventDefault();
+    }, true);
     // keys (not while a form field has the focus): Delete or Backspace removes, R turns, Ctrl or Cmd + Z undoes, with Shift (or Ctrl + Y) redoes, Escape clears the selection.
     // This listener comes before the shell's (onShellKey below): an Escape that cleared a selection is marked as taken, so the open shell stays open until the next one.
     addEventListener('keydown', (e) => {

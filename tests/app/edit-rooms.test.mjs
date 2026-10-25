@@ -30,6 +30,37 @@ for (const p of plans) {
     assert.equal(s.selectRoom(level, 'no-such-room'), false); assert.equal(s.selectRoom('no-level', room.id), false);
   });
 
+  test(`${p.name}: the selection can be taken and put back, the room that was picked before a piece was picked comes back too`, () => {
+    const { s, events } = make(p);
+    const { level, room } = firstRoom(p);
+    const piece = floorPiece(s.state.layout), other = s.state.layout.levels.flatMap((l) => l.pieces).find((x) => x.id !== piece.id && !x.on);
+    assert.deepEqual(s.selectionNow(), { piece: null, room: null });
+    // a room is picked, then a finger goes down on a piece (it picks the piece and clears the room) and a second finger takes that back
+    s.selectRoom(level, room.id);
+    const snap = s.selectionNow();
+    assert.deepEqual(snap, { piece: null, room: { level, id: room.id } });
+    s.select(piece.id); assert.equal(s.selectedRoom(), null);
+    assert.equal(s.restoreSelection(snap), true);
+    assert.equal(s.selected(), null); assert.equal(s.selectedRoom()?.id, room.id); assert.equal(s.selectedRoom().level, level);
+    // a piece was selected before: it comes back and no room is picked
+    s.select(other.id); const snap2 = s.selectionNow();
+    assert.deepEqual(snap2, { piece: other.id, room: null });
+    s.select(piece.id); s.restoreSelection(snap2);
+    assert.equal(s.state.selection, other.id); assert.equal(s.selectedRoom(), null);
+    // nothing was selected: nothing is after the restore, whichever of the two the finger picked
+    s.select(null); const none = s.selectionNow();
+    s.select(piece.id); s.restoreSelection(none); assert.equal(s.state.selection, null); assert.equal(s.selectedRoom(), null);
+    s.selectRoom(level, room.id); s.restoreSelection(none); assert.equal(s.state.selection, null); assert.equal(s.selectedRoom(), null);
+    assert.equal(s.restoreSelection(undefined), true); assert.equal(s.restoreSelection(null), true);
+    // a piece or a room that is gone leaves nothing selected rather than what the finger picked
+    s.select(piece.id);
+    assert.equal(s.restoreSelection({ piece: 'no-such-piece', room: null }), true); assert.equal(s.state.selection, null);
+    s.select(piece.id);
+    assert.equal(s.restoreSelection({ piece: null, room: { level, id: 'no-such-room' } }), true); assert.equal(s.state.selection, null); assert.equal(s.selectedRoom(), null);
+    assert.ok(events.includes('select'));
+    assert.equal(JSON.stringify(s.state.layout), JSON.stringify(make(p).s.state.layout), 'selecting is never a change of the layout');
+  });
+
   test(`${p.name}: recolouring a room is one undo step per run, undo and redo bring the colours back, other rooms are untouched`, () => {
     const { s } = make(p);
     const { level, room } = firstRoom(p);

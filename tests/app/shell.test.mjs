@@ -1,7 +1,7 @@
 // The decisions of the page shell (shell.js): start options, the failure card, which parts are built, and the order in which a loaded plan is built.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { NO_WEBGL2, hasWebgl2, failureDetail, planChoice, startState, partsOf, buildPlanParts, isFormTarget, shellOn } from '../../src/app/shell.js';
+import { NO_WEBGL2, hasWebgl2, failureDetail, planChoice, startState, partsOf, buildPlanParts, isFormTarget, shellOn, strayClick, STRAY_CLICK } from '../../src/app/shell.js';
 import { parseParams } from '../../src/app/params.js';
 import { analyzePlan, modelOf } from '../../src/core/validate.js';
 import { buildModel, modelExtent } from '../../src/model/geometry.js';
@@ -130,4 +130,32 @@ test('both key listeners of the page (the editor keys and the mood and time keys
   assert.equal(listeners.length, 2, 'main.js has two key listeners');
   for (const body of listeners) assert.match(body.slice(0, 260), /isFormTarget\(e\.target\)/);
   assert.match(listeners[1].slice(0, 260), /e\.ctrlKey \|\| e\.metaKey \|\| e\.altKey/, 'the mood keys ignore Ctrl, Cmd and Alt');
+});
+
+test('strayClick: the click of a touch tap that lands on something other than the picture, near where the finger lifted and soon after, is stray', () => {
+  const lift = { x: 310, y: 335, t: 1000, type: 'touch' };
+  assert.equal(strayClick(lift, { x: 310, y: 334, onPicture: false }, 1001), true, 'the swatch that the sheet put under the finger');
+  assert.equal(strayClick(lift, { x: 322, y: 345, onPicture: false }, 1000 + STRAY_CLICK.ms), true, 'still within the window and the radius');
+  assert.equal(strayClick({ ...lift, type: 'pen' }, { x: 310, y: 335, onPicture: false }, 1100), true, 'a pen lands the same way');
+  assert.equal(strayClick(lift, { x: 310, y: 334, onPicture: true }, 1001), false, 'a click for the picture itself is the tap');
+  assert.equal(strayClick(lift, { x: 310, y: 334, onPicture: false }, 1000 + STRAY_CLICK.ms + 1), false, 'too late: a new tap');
+  assert.equal(strayClick(lift, { x: 310 + STRAY_CLICK.px + 1, y: 335, onPicture: false }, 1100), false, 'too far from the lift: a tap on a button elsewhere');
+  assert.equal(strayClick(lift, { x: 310, y: 334, onPicture: false }, 999), false, 'a click before the lift is not its click');
+  assert.equal(strayClick({ ...lift, type: 'mouse' }, { x: 310, y: 334, onPicture: false }, 1001), false, 'a mouse holds the pointer on the picture for the click too');
+  assert.equal(strayClick(null, { x: 310, y: 334, onPicture: false }, 1001), false, 'no lift yet');
+  assert.equal(strayClick(lift, null, 1001), false);
+  assert.equal(strayClick(lift, { x: NaN, y: 334, onPicture: false }, 1001), false);
+  assert.equal(strayClick(lift, { x: 310, y: 334, onPicture: false }, NaN), false);
+});
+
+test('main.js drops the stray click of a tap on the picture in the editor, through strayClick, before the controls see it', () => {
+  const src = readFileSync(new URL('../../src/app/main.js', import.meta.url), 'utf8');
+  assert.match(src, /import \{[^}]*\bstrayClick\b[^}]*\} from '\.\/shell\.js'/);
+  assert.match(src, /dom\.addEventListener\('pointerup', \(e\) => \{ lift = \{ x: e\.clientX, y: e\.clientY, t: performance\.now\(\), type: e\.pointerType \}; \}, true\)/, 'the lift of every pointer that went down on the picture is noted');
+  const at = src.indexOf("addEventListener('click', (e) => {");
+  assert.ok(at > 0, 'a click listener exists');
+  const body = src.slice(at, at + 420);
+  assert.match(body, /strayClick\(lift, \{ x: e\.clientX, y: e\.clientY, onPicture: e\.target === dom \}, performance\.now\(\)\)/);
+  assert.match(body, /e\.stopPropagation\(\); e\.preventDefault\(\);/, 'the click is stopped before the target sees it');
+  assert.match(body, /\}, true\);/, 'in the capture phase, so that it comes before the swatch or the field');
 });

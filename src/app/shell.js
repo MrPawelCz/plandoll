@@ -10,6 +10,19 @@ export function isFormTarget(target) {
   return tag === 'input' || tag === 'select' || tag === 'textarea' || target?.isContentEditable === true;
 }
 
+// A tap on the picture can change what lies under the finger before the finger lifts: the selection that the tap makes opens the sheet of the panel over that part of
+// the picture. The pointer events stay with the picture (it holds the pointer), but the browser sends the click of a touch tap to whatever is under the finger when it
+// lifts, so the click can land on a colour swatch, a size field or the header of a sheet that was not there when the finger went down (a piece recoloured by a tap that
+// only meant to select it). strayClick says whether a click is such a one: it comes within STRAY_CLICK.ms of the lift of a touch or pen pointer that went down on the
+// picture, within STRAY_CLICK.px of where it lifted, and it is not for the picture itself. The page drops it. lift: { x, y, t, type } of that pointer (type as
+// PointerEvent.pointerType, t in ms) or null; click: { x, y, onPicture }; now in the same ms. A mouse never gets here: it holds the pointer on the picture for the click too.
+export const STRAY_CLICK = Object.freeze({ ms: 500, px: 24 });
+export function strayClick(lift, click, now) {
+  if (!lift || !click || click.onPicture || lift.type === 'mouse') return false;
+  const age = now - lift.t;
+  return Number.isFinite(age) && age >= 0 && age <= STRAY_CLICK.ms && Math.hypot(click.x - lift.x, click.y - lift.y) <= STRAY_CLICK.px;
+}
+
 // Whether the page builds the open shell: when its button is on (shell=0 takes it away). The editor does not matter: the shell opens and closes while editing
 // too, and every piece can still be picked, moved and changed with the walls down.
 export function shellOn(params) {

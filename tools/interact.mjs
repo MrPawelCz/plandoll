@@ -289,9 +289,11 @@ async function cameraBlock(tag) {
 // The editor's camera steps (--edit): a gesture of two or three fingers (or the right button, or Shift with the left one) that starts on a piece moves the
 // picture and touches no piece and no selection; one finger on a piece still drags it (the steps above), one finger beside the pieces still turns.
 async function editCameraBlock(pieceId) {
-  { // while editing the shell is off and the board is the old one: the bounds of the closed model with a margin of 9 percent (at least 0.5 m)
-    const e = JSON.parse(await ev('JSON.stringify(window.__planInfo().extent)')), w = e[1] - e[0], d = e[3] - e[2], margin = Math.max(0.5, 0.09 * Math.max(w, d)), b = JSON.parse(await ev('JSON.stringify(window.__stats.board)'));
-    record('edit: the board is the old one (the shell is off while editing): the closed model plus a margin of 9 percent', Math.abs(b.width - (w + 2 * margin)) < 0.03 && Math.abs(b.depth - (d + 2 * margin)) < 0.03, { board: `${b.width} x ${b.depth} m`, model: `${w.toFixed(2)} x ${d.toFixed(2)} m`, margin: +margin.toFixed(2) });
+  { // the shell is built while editing too, so the board is the one that hugs the closed house, as outside the editor (boardRect in src/look/board.js): the closed model grown
+    // by the outer faces of its exterior walls (half of the default thickness of 0.3 m on every side), then by a rim of max(0.35 m, 6 percent of the larger side of that). The
+    // old board (the model plus a margin of 9 percent, at least 0.5 m: the board of shell=0) is 0.14 to 0.2 m wider on these plans, so it does not pass this check.
+    const e = JSON.parse(await ev('JSON.stringify(window.__planInfo().extent)')), w = e[1] - e[0], d = e[3] - e[2], wall = 0.3, rim = Math.max(0.35, 0.06 * (Math.max(w, d) + wall)), b = JSON.parse(await ev('JSON.stringify(window.__stats.board)'));
+    record('edit: the board hugs the closed house, as outside the editor (the shell is built while editing): the closed model, the outer faces of its walls and a rim of max(0.35 m, 6 percent of the larger side)', Math.abs(b.width - (w + wall + 2 * rim)) < 0.03 && Math.abs(b.depth - (d + wall + 2 * rim)) < 0.03, { board: `${b.width} x ${b.depth} m`, model: `${w.toFixed(2)} x ${d.toFixed(2)} m`, rim: +rim.toFixed(3), expected: `${(w + wall + 2 * rim).toFixed(3)} x ${(d + wall + 2 * rim).toFixed(3)} m` });
   }
   await ev('window.__edit.session.select(null)'); await homeAgain(); await sleep(300);
   const layoutNow = () => ev('JSON.stringify(window.__edit.session.state.layout)');
@@ -859,7 +861,10 @@ try {
         let fq = await frames(), picBefore = await scenePicture(`52-${kind}-before`);
         await tap(c.pt.x, c.pt.y); await sleep(400); await redrawn(fq);
         const picSel = await scenePicture(`53-${kind}-selected`), gapSel = await gapOf(id);
-        record(N('a tap selects it and the outline is within 4 px of the piece as drawn'), (await selected()) === id && gapSel !== null && gapSel <= 4 && picSel !== picBefore, { piece: `${id} ${c.type}`, outlineGapPx: gapSel, pictureChanged: picSel !== picBefore });
+        // A tap only selects. The selection opens the sheet of the panel over the picture, perhaps under the finger (on a phone the details of the sheet stay unfolded from the pass before), and
+        // the browser sends the click of a touch tap to whatever is under the finger when it lifts: a colour swatch there would recolour the piece. The layout must be what it was.
+        const layoutSel = await layoutJson();
+        record(N('a tap selects it, changes nothing, and the outline is within 4 px of the piece as drawn'), (await selected()) === id && layoutSel === layoutStart && gapSel !== null && gapSel <= 4 && picSel !== picBefore, { piece: `${id} ${c.type}`, layoutSame: layoutSel === layoutStart, outlineGapPx: gapSel, pictureChanged: picSel !== picBefore });
         if ((await selected()) !== id) return;
         await foldSheet(); // a phone: the sheet must not cover the piece when the finger goes down on it again
 
