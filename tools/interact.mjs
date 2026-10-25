@@ -7,7 +7,7 @@
 // opens it. --settle is how many seconds to wait for a redraw when the page does not report its frame count (older builds).
 // --edit opens the page with edit=1 and adds the steps of the layout editor (select, drag, turn, undo, redo, delete, automatic layout);
 // without it the page is tested as a visitor sees it and the check is that there is no edit bar.
-// --btn opens the page with btn=1 and tests the extra buttons: saving the picture (a PNG), the frame hook, the Edit button and leaving the editor again.
+// --btn opens the page with btn=1 and tests the extra buttons: the example plans, the open shell, saving the picture (a PNG), the frame hook, the Edit button (with the shell open) and leaving the editor again.
 // Exits 1 when a step fails, the page reports an error, writes to storage or asks for anything outside its own address.
 // On a small machine run only one browser at a time (tools/chrome-lock.sh).
 import { spawn } from 'node:child_process';
@@ -517,9 +517,41 @@ try {
 
   // 10d. the extra buttons (--btn): saving the picture, the frame hook, the Edit button and leaving the editor again
   if (opt.btn && !opt.edit) {
-    const toolInfo = JSON.parse(await ev(`JSON.stringify([...document.querySelectorAll('#ps-ui button.tool')].map((b) => { const r = b.getBoundingClientRect(); return { name: b.dataset.tool, x: r.left, y: r.top, w: r.width, h: r.height, text: b.textContent }; }))`));
+    const toolInfo = JSON.parse(await ev(`JSON.stringify([...document.querySelectorAll('#ps-ui button.tool')].map((b) => { const r = b.getBoundingClientRect(); return { name: b.dataset.tool ?? 'plan:' + b.dataset.plan, x: r.left, y: r.top, w: r.width, h: r.height, text: b.textContent }; }))`));
     await picture('30-buttons');
-    record('buttons: Edit, Save image and Load plan are on screen, at least 44 px', toolInfo.length === 3 && toolInfo.every((b) => b.w >= 43.5 && b.h >= 43.5 && b.x >= -1 && b.x + b.w <= W + 1 && b.y >= 0 && b.y + b.h <= H + 1), { buttons: toolInfo.map((b) => `${b.text} ${Math.round(b.w)}x${Math.round(b.h)} at ${Math.round(b.x)},${Math.round(b.y)}`) });
+    const onScreen = (b) => b.w >= 43.5 && b.h >= 43.5 && b.x >= -1 && b.x + b.w <= W + 1 && b.y >= 0 && b.y + b.h <= H + 1;
+    const classic = toolInfo.filter((b) => ['edit', 'saveImage', 'loadPlan'].includes(b.name)), extra = toolInfo.filter((b) => !['edit', 'saveImage', 'loadPlan'].includes(b.name));
+    record('buttons: Edit, Save image and Load plan are on screen, at least 44 px', classic.length === 3 && classic.every(onScreen), { buttons: classic.map((b) => `${b.text} ${Math.round(b.w)}x${Math.round(b.h)} at ${Math.round(b.x)},${Math.round(b.y)}`) });
+    record('buttons: the example plans and the open shell are on screen, at least 44 px', extra.length === 3 && extra.every(onScreen), { buttons: extra.map((b) => `${b.text} ${Math.round(b.w)}x${Math.round(b.h)} at ${Math.round(b.x)},${Math.round(b.y)}`) });
+
+    // the example plans: Duplex builds the two-storey plan in place (a second level, another picture, plan=duplex-1 in the address, its button pressed), Flat goes back
+    const planNow = async () => JSON.parse(await ev(`JSON.stringify({ levels: window.__planInfo().levels, pieces: window.__planInfo().pieces, pressed: [...document.querySelectorAll('#ps-ui button[data-plan]')].filter((b) => b.getAttribute('aria-pressed') === 'true').map((b) => b.dataset.plan), hash: location.hash, fail: window.__fail || null })`));
+    const planBefore = await planNow(), picPlanFlat = await picture('35-plan-flat');
+    let fpl = await frames();
+    await tapAt('#ps-ui button[data-plan="duplex-1"]'); await redrawn(fpl);
+    const planDup = await planNow(), picPlanDup = await picture('36-plan-duplex');
+    record('example plans: Duplex builds the two-storey plan in place', planBefore.levels === 1 && planBefore.pressed.join() === 'flat-1' && planDup.levels === 2 && planDup.pressed.join() === 'duplex-1' && /plan=duplex-1/.test(planDup.hash) && picPlanDup !== picPlanFlat && !planDup.fail, { before: planBefore, after: planDup, pictureChanged: picPlanDup !== picPlanFlat });
+    fpl = await frames();
+    await tapAt('#ps-ui button[data-plan="flat-1"]'); await redrawn(fpl);
+    const planFlat2 = await planNow(), picPlanFlat2 = await picture('37-plan-flat-again');
+    record('example plans: Flat goes back and takes plan= out of the address', planFlat2.levels === 1 && planFlat2.pieces === planBefore.pieces && planFlat2.pressed.join() === 'flat-1' && !/plan=/.test(planFlat2.hash) && picPlanFlat2 !== picPlanDup && !planFlat2.fail, { after: planFlat2, pictureChanged: picPlanFlat2 !== picPlanDup });
+
+    // the open shell: the button opens it (every wall lies flat, the camera stays where it was) and the same button folds it back
+    const shellSel = '#ps-ui button.tool[data-tool="shell"]';
+    const shellNow = async () => JSON.parse(await ev(`JSON.stringify({ mode: window.__shell.mode, clock: window.__shell.clock, deg: window.__shell.state().map((w) => Math.round(w.deg)), view: window.__shell.view().position.map((v) => +v.toFixed(4)), label: document.querySelector(${JSON.stringify(shellSel)}).textContent })`));
+    const sh0 = await shellNow(), picSh0 = await picture('38-shell-closed');
+    let fsh = await frames();
+    await tapAt(shellSel);
+    const openedOk = await waitFor('window.__shell.mode === "open"', 20);
+    await redrawn(fsh); await sleep(300);
+    const sh1 = await shellNow(), picSh1 = await picture('39-shell-open');
+    record('open shell: the button opens it, every wall lies flat, the camera stays', sh0.mode === 'closed' && openedOk && sh1.deg.length > 0 && sh1.deg.every((d) => Math.abs(d - 90) <= 1) && JSON.stringify(sh0.view) === JSON.stringify(sh1.view) && picSh1 !== picSh0 && /Close|Złóż/.test(sh1.label), { before: sh0, after: sh1, pictureChanged: picSh1 !== picSh0 });
+    fsh = await frames();
+    await tapAt(shellSel);
+    const closedOk = await waitFor('window.__shell.mode === "closed"', 20);
+    await redrawn(fsh); await sleep(300);
+    const sh2 = await shellNow(), picSh2 = await picture('40-shell-closed-again');
+    record('open shell: the same button folds it back', closedOk && sh2.clock === 0 && sh2.deg.every((d) => d === 0) && JSON.stringify(sh2.view) === JSON.stringify(sh0.view) && picSh2 !== picSh1 && /Open|Otwórz/.test(sh2.label), { after: sh2, pictureChanged: picSh2 !== picSh1 });
 
     // saving the picture: the file handed over is a PNG
     await ev(`(() => { window.__png = []; const orig = URL.createObjectURL.bind(URL); URL.createObjectURL = (b) => { window.__png.push(b); return orig(b); }; })()`);
@@ -539,6 +571,9 @@ try {
       record('frame hook: one frame per call, two views, nothing drawn at rest', a.frames === 1 && b2.frames === 1 && a.drawCalls > 0 && picA !== picB && g2 === g1 && bad.frames === 1 && canvas.w === 320 && canvas.h === 180, { first: a, second: b2, framesAtRest: g2 - g1, pictureChanged: picA !== picB, afterBadInput: bad, canvas });
     } else record('frame hook: one frame per call, two views, nothing drawn at rest', false, { error: 'window.__frame is missing' });
 
+    // the shell is opened once more and left open on purpose: the Edit button below must reload into a closed shell
+    await tapAt(shellSel); await waitFor('window.__shell.mode === "open"', 20); await sleep(300);
+
     // the Edit button turns the editor on (the page reloads with edit=1) and Done leaves it; unsaved changes need a second tap
     const editSel = '#ps-ui button.tool[data-tool="edit"]';
     await tapAt(editSel);
@@ -546,8 +581,15 @@ try {
     await sleep(800);
     const label1 = await ev(`document.querySelector(${JSON.stringify(editSel)})?.textContent ?? null`), btn1 = await rectOf(editSel), bar1 = await rectOf('#ps-edit'), ui1 = await rectOf('#ps-ui');
     await picture('33-edit-entered');
+    const shellGone = (await ev('typeof window.__shell')) === 'undefined';
     record('Edit button opens the editor and turns into Done', entered && !!bar1 && !!btn1 && btn1.h >= 43.5 && btn1.x >= -1 && btn1.x + btn1.w <= W + 1 && /Done|Zakończ/.test(label1 ?? ''), { label: label1, button: btn1, hash: await ev('location.hash'), uiBar: ui1 });
+    record('Edit with the shell open reloads into a closed shell', entered && shellGone, { shellApi: await ev('typeof window.__shell') });
     if (entered) {
+      // while editing the shell stays closed: its button is dimmed, a tap says why, and there is no shell to open
+      const shBtn = JSON.parse(await ev(`JSON.stringify((() => { const b = document.querySelector(${JSON.stringify(shellSel)}); if (!b) return null; const r = b.getBoundingClientRect(); return { disabled: b.getAttribute('aria-disabled'), title: b.title, shown: r.width > 0 && getComputedStyle(b).display !== 'none', api: typeof window.__shell }; })())`));
+      await tapAt(shellSel); await sleep(500);
+      const shMsg = await ev(`document.querySelector('#ps-edit-msg')?.textContent ?? ''`);
+      record('editing: the shell button is dimmed, a tap says why and nothing opens', !!shBtn && shBtn.shown && shBtn.disabled === 'true' && shBtn.api === 'undefined' && /Finish editing|Zakończ edycję/.test(shMsg) && !(await ev('window.__fail')), { button: shBtn, message: shMsg });
       const firstId = await ev('window.__edit.session.state.layout.levels[0].pieces[0].id');
       await ev(`window.__edit.session.select(${JSON.stringify(firstId)}); window.__edit.session.turn(90)`); await sleep(400);
       await tapAt(editSel); await sleep(700);
