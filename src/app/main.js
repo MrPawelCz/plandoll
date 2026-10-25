@@ -18,7 +18,7 @@ import { readPlanText } from './planfile.js';
 import { pickPiece, floorHit } from './pick.js';
 import { createOutline, createRoomOutline, outlineKind } from '../render/outline.js';
 import { createPanel } from './panel.js';
-import { saveTextFile, saveBlobFile, readTextFile, askForText, LAYOUT_FILENAME, IMAGE_FILENAME } from './files.js';
+import { saveTextFile, saveBlobFile, readTextFile, askForText, refusalText, LAYOUT_FILENAME, IMAGE_FILENAME } from './files.js';
 import { roomAt } from '../editor/index.js';
 import { autoFurnish } from '../layout/index.js';
 import { piecesImplemented } from '../furniture/index.js';
@@ -154,7 +154,7 @@ try {
     redraw();
   }
   let editBar = null, panel = null;
-  const sayLine = (text) => (editBar ? editBar.say(text) : ui?.say(text)); // one short result line: above the edit bar, or above the controls on the plain page
+  const sayLine = (text, detail) => (editBar ? editBar.say(text, undefined, detail) : ui?.say(text, undefined, detail)); // one short result line: above the edit bar, or above the controls on the plain page
   // The extra buttons of the control bar (btn=1): edit mode on or off (the page reloads with edit=1 added or removed, the mood, the time of day, the
   // quality and the language kept), and the picture of the current view as a PNG. Leaving the editor with unsaved changes needs a second tap.
   let dirty = false, leaveWarned = false, leaveTimer = 0;
@@ -202,7 +202,7 @@ try {
     askForText(document, S.lang, { kind: 'plan' }).then((text) => {
       if (text == null) return;
       const r = readPlanText(text, S.lang);
-      if (!r.ok) { sayLine(r.message); return; }
+      if (!r.ok) { sayLine(r.message, r.detail); return; }
       sayLine(applyPlan(r.plan) ? T('Wczytano plan', 'Plan loaded') : T('Nie udało się zbudować modelu z tego planu', 'Could not build a model from this plan'));
     });
   }
@@ -279,17 +279,19 @@ try {
     const makeSession = () => createEditSession({ layout, model, allowedTypes: piecesImplemented(), onChange: onEdit, viewPoint });
     session = makeSession();
     // layout files and the "More" menu: one short line tells how a load went
+    const LARGE_LAYOUT = 600; // pieces; a bigger layout is accepted, with a warning
     const plItems = (n) => (n === 1 ? 'pozycję' : n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 12 || n % 100 > 14) ? 'pozycje' : 'pozycji');
     const say = (text) => editBar?.say(text);
     function loaded(res) {
       if (!res.ok) { const why = String(res.errors?.[0] ?? '').slice(0, 90); say(T('Nie wczytano układu', 'Could not load the layout') + (why ? `: ${why}` : '')); return; }
-      const n = res.warnings?.length ?? 0;
+      const n = res.warnings?.length ?? 0, pieces = session.state.layout.levels.reduce((k, l) => k + (l.pieces?.length ?? 0), 0);
+      if (pieces > LARGE_LAYOUT) { say(T('Wczytano. Duży układ może działać wolno na telefonie', 'Loaded. A large layout may run slowly on a phone'), 9000); return; }
       say(n ? T(`Wczytano, pominięto ${n} ${plItems(n)}`, `Loaded, skipped ${n} ${n === 1 ? 'item' : 'items'}`) : T('Wczytano układ', 'Layout loaded'));
     }
     const fileHandlers = {
       onDuplicate: () => { const r = session.duplicate(); if (!r.ok) say(T('Nie można powielić', 'Cannot duplicate')); },
       onSave: () => { const ok = saveTextFile(document, LAYOUT_FILENAME, session.exportText()); if (ok) dirty = false; say(ok ? T('Zapisano układ do pliku', 'Layout saved to a file') : T('Nie udało się zapisać pliku', 'Could not save the file')); },
-      onLoad: () => { readTextFile(document).then((r) => { if (r.ok) loaded(session.importText(r.text)); else if (r.error !== 'cancelled') say(T('Nie udało się odczytać pliku', 'Could not read the file')); }); },
+      onLoad: () => { readTextFile(document).then((r) => { if (r.ok) loaded(session.importText(r.text)); else if (r.error !== 'cancelled') say(refusalText(S.lang, r.error === 'too-large' ? 'fileTooLarge' : 'fileFailed')); }); },
       onPaste: () => { askForText(document, S.lang).then((t) => { if (t != null) loaded(session.importText(t)); }); },
     };
     if (params.ui) editBar = createEditBar({ onTurn: () => session.turn(90), onRemove: () => session.remove(), onUndo: () => session.undo(), onRedo: () => session.redo(), onAuto: () => session.reset(), onSaveImage: saveImage, onLoadPlan: loadPlan, ...fileHandlers }, { lang: S.lang }, document, ui);
@@ -348,6 +350,7 @@ try {
         cam.enabled = true;
         try { dom.releasePointerCapture(e.pointerId); } catch {}
         if (g.dragging) { if (cancelled) session.cancelDrag(); else session.endDrag(); }
+        if (g.dragging && !cancelled && window.innerWidth <= 760) panel?.collapse?.(); // on a phone the sheet folds to its header after a drop
         showPanel(true);
       } else if (!cancelled && Math.hypot(e.clientX - g.x0, e.clientY - g.y0) < 6 && performance.now() - g.t0 < 350) {
         if (g.room) session.selectRoom(g.room.level, g.room.id); else session.select(null); // a tap on a floor picks the room, a tap beside the plan clears

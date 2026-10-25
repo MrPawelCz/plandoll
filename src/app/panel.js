@@ -411,10 +411,14 @@ export function createPanel({ doc = document, host, lang = 'en', session } = {})
   const unsubscribe = typeof session.subscribe === 'function' ? session.subscribe(() => refresh()) : null;
   texts(); renderGroups(); refresh();
 
+  // Folds the details of the selected piece and room to their headers and closes the list of pieces to add (after a drop, so the sheet does not cover the model).
+  function collapse() { if (disposed) return; selOpen = false; roomOpen = false; open = false; refresh(); }
+
   return {
     element: root,
     refresh,
     setLang,
+    collapse,
     dispose() {
       if (disposed) return;
       disposed = true;

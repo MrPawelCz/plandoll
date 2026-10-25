@@ -61,7 +61,7 @@ const table = rows.map((r) => [r.plan, r.q, r.drawCalls, r.triangles, r.textures
 const widths = head.map((h, i) => Math.max(h.length, ...table.map((row) => String(row[i]).length)));
 console.log(head.map((h, i) => (i < 2 ? h.padEnd(widths[i]) : pad(h, widths[i]))).join('  '));
 for (const row of table) console.log(row.map((v, i) => (i < 2 ? String(v).padEnd(widths[i]) : pad(v, widths[i]))).join('  '));
-console.log('note: frame times come from software rendering (SwiftShader), not a GPU.');
+console.log(process.env.PS_ANGLE === 'metal' ? 'note: frame times come from this machine\'s GPU (PS_ANGLE=metal).' : 'note: frame times come from software rendering (SwiftShader), not a GPU.');
 
 const worst = (q) => Math.max(0, ...rows.filter((r) => r.q === q).map((r) => r.drawCalls));
 const bytes = statSync(resolve(opt.html)).size;

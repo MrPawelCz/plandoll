@@ -38,6 +38,7 @@ The address hash sets the view, for example `dist/planstage.html#lamplit&plan=du
 | `merge` | `0` draws every piece as its own mesh (default: pieces are merged by material; a debugging aid) |
 | `seed` | 1 to 999999, changes colours only |
 | `lang` | `en`, `pl` |
+| `frames`, `live` | for the test tools: `frames` is how many frames the page draws in a row at the start (1 to 60, default 4), and `live=1` makes even the first frame wait until something asks for it |
 
 ## Build and test
 

@@ -1,9 +1,14 @@
 // File helpers: save text as a download, read a text file the visitor picks, and a small paste dialog.
 // Everything goes through the document passed in, so it can run against stubs. Nothing is stored or sent anywhere.
 
+import { MAX_PLAN_CHARS } from '../core/limits.js';
+
 export const LAYOUT_FILENAME = 'planstage-layout.json';
 export const IMAGE_FILENAME = 'planstage-view.png';
-export const MAX_FILE_BYTES = 2 * 1024 * 1024;
+// One limit everywhere (core/limits.js): the longest pasted text, chosen file or plan, in characters.
+export const MAX_FILE_BYTES = MAX_PLAN_CHARS;
+// How long the address of a download stays valid after the click (the browser may start saving a moment later).
+export const REVOKE_DELAY_MS = 10000;
 
 // A browser API from the document's own view when it has one, else the global one.
 const api = (doc, name) => doc?.defaultView?.[name] ?? globalThis[name];
@@ -14,7 +19,7 @@ function detach(node) {
   try { if (typeof node?.remove === 'function') node.remove(); else node?.parentNode?.removeChild(node); } catch { /* already gone */ }
 }
 
-// Frees an object URL right away, or after a delay when the caller asks for one.
+// Frees an object URL right away (no delay), or after the delay.
 function release(doc, urls, url, delayMs) {
   if (!url || typeof urls?.revokeObjectURL !== 'function') return;
   const revoke = () => { try { urls.revokeObjectURL(url); } catch { /* nothing to free */ } };
@@ -26,7 +31,7 @@ function release(doc, urls, url, delayMs) {
 }
 
 // Offers a Blob as a download called `filename` through a temporary hidden link. `make(BlobType)` builds the Blob (or returns null).
-// Returns true once the link was clicked, false (never throws) when it could not be done. opts: { revokeDelayMs } (default 0 = at once).
+// Returns true once the link was clicked, false (never throws) when it could not be done. opts: { revokeDelayMs } (default 10000; a click that failed frees the address at once).
 function offerDownload(doc, filename, make, opts = {}) {
   if (!isText(filename)) return false;
   let link = null, url = null, urls = null, ok = false;
@@ -46,12 +51,12 @@ function offerDownload(doc, filename, make, opts = {}) {
     }
   } catch { ok = false; }
   detach(link);
-  release(doc, urls, url, opts?.revokeDelayMs);
+  release(doc, urls, url, ok ? (opts?.revokeDelayMs ?? REVOKE_DELAY_MS) : 0);
   return ok;
 }
 
 // Offers `text` as a download called `filename` through a temporary hidden link.
-// Returns true once the link was clicked, false (never throws) when it could not be done. opts: { revokeDelayMs } (default 0 = at once).
+// Returns true once the link was clicked, false (never throws) when it could not be done. opts: { revokeDelayMs } (default 10000; a click that failed frees the address at once).
 export function saveTextFile(doc, filename, text, opts = {}) {
   if (!isText(text)) return false;
   return offerDownload(doc, filename, (BlobType) => new BlobType([text], { type: 'application/json' }), opts);
@@ -67,13 +72,26 @@ const fail = (error) => ({ ok: false, error });
 
 // Opens the file picker and resolves with { ok: true, text } or { ok: false, error }, error being one of
 // 'cancelled' | 'read-failed' | 'too-large' | 'unsupported'. Never rejects. Call it from a click handler.
+const pickers = new WeakMap(); // document -> how to close the picker that is open now (only one at a time)
+
 export function readTextFile(doc) {
   return new Promise((resolve) => {
     let input = null, done = false, started = false;
-    const finish = (result) => { if (done) return; done = true; detach(input); resolve(result); };
+    const win = doc?.defaultView;
+    const onFocus = () => { // a browser without a cancel event: the window gets the focus back and no file arrives
+      const later = typeof win?.setTimeout === 'function' ? win.setTimeout.bind(win) : setTimeout;
+      later(() => { if (!done && !started && !(input?.files && input.files.length)) finish(fail('cancelled')); }, 1500);
+    };
+    const finish = (result) => {
+      if (done) return; done = true;
+      win?.removeEventListener?.('focus', onFocus);
+      if (pickers.get(doc) === finish) pickers.delete(doc);
+      detach(input); resolve(result);
+    };
     try {
       const Reader = api(doc, 'FileReader');
       if (typeof Reader !== 'function' || typeof doc?.createElement !== 'function') return finish(fail('unsupported'));
+      pickers.get(doc)?.(fail('cancelled')); // an older picker that never answered is closed first
       input = doc.createElement('input');
       if (typeof input.click !== 'function') return finish(fail('unsupported'));
       input.type = 'file'; input.accept = '.json,application/json'; input.style.display = 'none';
@@ -97,10 +115,18 @@ export function readTextFile(doc) {
         } catch { finish(fail('read-failed')); }
       });
       doc.body?.appendChild(input); // kept in the page while the picker is open, removed when finished
+      pickers.set(doc, finish); win?.addEventListener?.('focus', onFocus);
       input.click();
     } catch { finish(fail('read-failed')); }
   });
 }
+
+// Why a text or a file was refused, shown in the dialog and by the page (PL and EN).
+const REASON = {
+  en: { empty: 'There is nothing to load: the field is empty.', tooLong: 'The text is too long (2 MB at most).', fileTooLarge: 'The file is too large (2 MB at most).', fileFailed: 'The file could not be read.' },
+  pl: { empty: 'Nie ma czego wczytać: pole jest puste.', tooLong: 'Tekst jest za długi (najwyżej 2 MB).', fileTooLarge: 'Plik jest za duży (najwyżej 2 MB).', fileFailed: 'Nie udało się odczytać pliku.' },
+};
+export const refusalText = (lang, key) => (REASON[lang === 'pl' ? 'pl' : 'en'][key] ?? REASON.en.fileFailed);
 
 const STR = {
   en: { title: 'Paste a layout', hint: 'Paste the text of a saved layout and press Load.', field: 'Layout text', load: 'Load', cancel: 'Cancel' },
@@ -117,6 +143,8 @@ const CSS = `
 #ps-files-overlay h2{margin:0 0 6px;font-size:18px;line-height:1.25;font-weight:700}
 #ps-files-overlay p{margin:0 0 12px;opacity:.8}
 #ps-files-overlay textarea{display:block;width:100%;height:40vh;min-height:140px;box-sizing:border-box;resize:vertical;padding:10px 12px;border-radius:12px;border:1px solid rgba(255,255,255,.18);background:rgba(0,0,0,.35);color:inherit;-webkit-user-select:text;user-select:text;font:13px/1.45 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+#ps-files-overlay .ps-files-error{margin:10px 0 0;color:#ffb680;font-weight:600;opacity:1}
+#ps-files-overlay .ps-files-error:empty{display:none}
 #ps-files-overlay .ps-files-actions{display:flex;flex-wrap:wrap;gap:10px;margin-top:14px}
 #ps-files-overlay button{flex:1 1 130px;min-height:44px;padding:8px 16px;border-radius:12px;border:1px solid rgba(255,255,255,.2);background:rgba(255,255,255,.08);color:inherit;font:inherit;font-weight:600;cursor:pointer}
 #ps-files-overlay button.ps-files-load{background:#c8793a;border-color:#c8793a;color:#1c130a}
@@ -133,7 +161,8 @@ function ensureStyle(doc) {
 const el = (doc, tag, props) => Object.assign(doc.createElement(tag), props);
 const showing = new WeakMap(); // document -> close function of the dialog that is showing
 
-// Modal for pasting layout text (opts.kind 'plan': the words of loading a plan, plus a button that fills the field from a file). Resolves with the text, or null when cancelled, blank, too long, or the dialog could not be built.
+// Modal for pasting layout text (opts.kind 'plan': the words of loading a plan, plus a button that fills the field from a file). Resolves with the text, or null when cancelled or the dialog could not be built;
+// a blank or too long text keeps the dialog open and shows the reason.
 // Escape or a click on the dim background cancels; Ctrl or Cmd + Enter loads. Only one dialog per document at a time.
 export function askForText(doc, lang, opts = {}) {
   return new Promise((resolve) => {
@@ -159,12 +188,18 @@ export function askForText(doc, lang, opts = {}) {
       const hint = el(doc, 'p', { id: 'ps-files-hint', textContent: L.hint });
       const area = el(doc, 'textarea', { id: 'ps-files-text', spellcheck: false });
       area.setAttribute('aria-label', L.field);
+      const R = REASON[lang === 'pl' ? 'pl' : 'en'];
+      const err = el(doc, 'p', { id: 'ps-files-error', className: 'ps-files-error' }); err.setAttribute('role', 'alert');
+      const showError = (text) => { err.textContent = text; };
+      area.addEventListener('input', () => showError(''));
       const row = el(doc, 'div', { className: 'ps-files-actions' });
       const load = el(doc, 'button', { type: 'button', className: 'ps-files-load', textContent: L.load });
       const cancel = el(doc, 'button', { type: 'button', className: 'ps-files-cancel', textContent: L.cancel });
       const submit = () => {
         const text = area.value;
-        finish(typeof text !== 'string' || text.trim() === '' || text.length > MAX_FILE_BYTES ? null : text);
+        if (typeof text !== 'string' || text.trim() === '') { showError(R.empty); area.focus?.(); return; }
+        if (text.length > MAX_FILE_BYTES) { showError(R.tooLong); return; }
+        showError(''); finish(text);
       };
       load.addEventListener('click', submit);
       cancel.addEventListener('click', () => finish(null));
@@ -172,7 +207,12 @@ export function askForText(doc, lang, opts = {}) {
       let pick = null; // a plan can also come from a file: its text goes into the field, so it can be looked at before it is loaded
       if (plan) {
         pick = el(doc, 'button', { type: 'button', className: 'ps-files-pick', textContent: L.pick });
-        pick.addEventListener('click', () => { readTextFile(doc).then((r) => { if (r.ok && !settled) area.value = r.text; }); });
+        pick.addEventListener('click', () => {
+          readTextFile(doc).then((r) => {
+            if (settled) return;
+            if (r.ok) { area.value = r.text; showError(''); } else if (r.error !== 'cancelled') showError(r.error === 'too-large' ? R.fileTooLarge : R.fileFailed);
+          });
+        });
         order.splice(2, 0, pick);
       }
       overlay.addEventListener('keydown', (e) => {
@@ -187,7 +227,7 @@ export function askForText(doc, lang, opts = {}) {
       let pressedInside = false; // a text selection that ends on the dim background must not close the dialog
       overlay.addEventListener('pointerdown', (e) => { pressedInside = e.target !== overlay; });
       overlay.addEventListener('click', (e) => { const inside = pressedInside; pressedInside = false; if (e.target === overlay && !inside) finish(null); });
-      row.append(...(pick ? [load, pick, cancel] : [load, cancel])); dialog.append(title, hint, area, row); overlay.append(dialog);
+      row.append(...(pick ? [load, pick, cancel] : [load, cancel])); dialog.append(title, hint, area, err, row); overlay.append(dialog);
       doc.body.appendChild(overlay);
       showing.set(doc, finish);
       before = doc.activeElement ?? null;

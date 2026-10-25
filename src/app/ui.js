@@ -14,12 +14,12 @@ const STR = {
 };
 // Texts of the edit bar (shown with edit=1): the visible word, and the longer label for screen readers and tooltips.
 export const EDIT_STR = {
-  en: { turn: 'Turn', turnLabel: 'Turn the selected piece by 90 degrees', remove: 'Delete', removeLabel: 'Delete the selected piece', undo: 'Undo', undoLabel: 'Undo the last change', redo: 'Redo', redoLabel: 'Redo the change you undid',
-    auto: 'Auto', autoLabel: 'Go back to the automatic layout', more: 'More', moreLabel: 'More: duplicate, save and load the layout', group: 'Edit the layout',
-    duplicate: 'Duplicate', save: 'Save layout', load: 'Load from file', paste: 'Paste layout', image: 'Save image', plan: 'Load plan', menu: 'More actions' },
-  pl: { turn: 'Obróć', turnLabel: 'Obróć zaznaczoną sztukę o 90 stopni', remove: 'Usuń', removeLabel: 'Usuń zaznaczoną sztukę', undo: 'Cofnij', undoLabel: 'Cofnij ostatnią zmianę', redo: 'Ponów', redoLabel: 'Ponów cofniętą zmianę',
-    auto: 'Auto', autoLabel: 'Wróć do układu automatycznego', more: 'Więcej', moreLabel: 'Więcej: powiel, zapisz i wczytaj układ', group: 'Edycja układu',
-    duplicate: 'Powiel', save: 'Zapisz układ', load: 'Wczytaj z pliku', paste: 'Wklej układ', image: 'Zapisz obraz', plan: 'Wczytaj plan', menu: 'Więcej działań' },
+  en: { turn: 'Rotate piece', turnLabel: 'Rotate the selected piece by 90 degrees', remove: 'Delete', removeLabel: 'Delete the selected piece', undo: 'Undo', undoLabel: 'Undo the last change', redo: 'Redo', redoLabel: 'Redo the change you undid',
+    auto: 'Reset layout', autoLabel: 'Reset the layout: all furniture goes back to the automatic arrangement', more: 'File', moreLabel: 'File: save, load and paste a layout, save the picture, load a plan', group: 'Edit the layout',
+    duplicate: 'Duplicate piece', save: 'Save layout', load: 'Load from file', paste: 'Paste layout', image: 'Save image', plan: 'Load plan', menu: 'File actions', hint: 'Tap a piece to select it, drag to move it' },
+  pl: { turn: 'Obróć mebel', turnLabel: 'Obróć zaznaczony mebel o 90 stopni', remove: 'Usuń', removeLabel: 'Usuń zaznaczony mebel', undo: 'Cofnij', undoLabel: 'Cofnij ostatnią zmianę', redo: 'Ponów', redoLabel: 'Ponów cofniętą zmianę',
+    auto: 'Układ od nowa', autoLabel: 'Układ od nowa: wszystkie meble wracają do układu automatycznego', more: 'Plik', moreLabel: 'Plik: zapisz, wczytaj i wklej układ, zapisz obraz, wczytaj plan', group: 'Edycja układu',
+    duplicate: 'Powiel mebel', save: 'Zapisz układ', load: 'Wczytaj z pliku', paste: 'Wklej układ', image: 'Zapisz obraz', plan: 'Wczytaj plan', menu: 'Działania na plikach', hint: 'Dotknij mebla, żeby go zaznaczyć, przeciągnij, żeby przesunąć' },
 };
 export const ERROR_TEXT = {
   en: { title: 'This page needs WebGL 2', body: 'Your browser or device did not give us a WebGL 2 context. Try a current Chrome, Edge, Firefox or Safari and make sure hardware acceleration is on.' },
@@ -37,11 +37,16 @@ const CSS = `
 #ps-ui button.mood:focus-visible,#ps-ui select:focus-visible,#ps-ui input:focus-visible,#ps-ui button.lang:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 #ps-ui .dot{width:18px;height:18px;border-radius:6px;box-shadow:0 0 0 1px rgba(0,0,0,.12) inset}
 #ps-ui .sep{width:1px;align-self:stretch;background:var(--line)}
-#ps-ui label.time{display:flex;align-items:center;gap:10px;min-width:260px}
-#ps-ui .clock{font-variant-numeric:tabular-nums;font-weight:700;min-width:3.4em;text-align:right}
-#ps-ui input[type=range]{-webkit-appearance:none;appearance:none;flex:1;height:8px;border-radius:6px;background:linear-gradient(90deg,#ffb48a 0%,#e8eefc 18%,#f6f2e8 40%,#ffc88a 62%,#ff9a44 73%,#6e5f94 83%,#1d2a4e 100%);box-shadow:0 0 0 1px rgba(60,40,10,.18) inset}
-#ps-ui input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:18px;height:18px;border-radius:50%;background:#fffaf0;border:2px solid var(--ink);box-shadow:0 2px 6px rgba(0,0,0,.3)}
-#ps-ui input[type=range]::-moz-range-thumb{width:14px;height:14px;border-radius:50%;background:#fffaf0;border:2px solid var(--ink)}
+#ps-ui label.time{display:grid;grid-template-columns:1fr auto;grid-template-areas:"name clock" "slider slider";align-items:end;gap:0 10px;min-width:260px}
+#ps-ui .tname{grid-area:name;font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;opacity:.75}
+#ps-ui .clock{grid-area:clock;font-variant-numeric:tabular-nums;font-weight:700;font-size:16px;text-align:right}
+#ps-ui input[type=range]{grid-area:slider;-webkit-appearance:none;appearance:none;width:100%;height:44px;margin:0;background:transparent;cursor:pointer}
+@media (pointer:fine) and (min-width:761px){#ps-ui input[type=range]{height:30px}}
+#ps-ui input[type=range]::-webkit-slider-runnable-track{height:6px;border-radius:3px;background:linear-gradient(90deg,var(--accent) 0 var(--fill,50%),rgba(120,96,64,.26) var(--fill,50%) 100%)}
+#ps-ui input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;box-sizing:border-box;width:16px;height:30px;margin-top:-12px;border-radius:6px;background:#fffaf0;border:2px solid var(--accent);box-shadow:0 2px 6px rgba(0,0,0,.28)}
+#ps-ui input[type=range]::-moz-range-track{height:6px;border-radius:3px;background:rgba(120,96,64,.26)}
+#ps-ui input[type=range]::-moz-range-progress{height:6px;border-radius:3px;background:var(--accent)}
+#ps-ui input[type=range]::-moz-range-thumb{box-sizing:border-box;width:16px;height:30px;border-radius:6px;background:#fffaf0;border:2px solid var(--accent);box-shadow:0 2px 6px rgba(0,0,0,.28)}
 #ps-ui select{font:inherit;color:inherit;background:#fffaf0;border:1px solid var(--line);border-radius:10px;padding:5px 8px}
 #ps-ui button.lang{all:unset;cursor:pointer;font-weight:700;font-size:11px;letter-spacing:.08em;padding:5px 8px;border-radius:8px;border:1px solid var(--line)}
 #ps-ui .blurb{position:absolute;left:50%;transform:translateX(-50%);bottom:100%;margin-bottom:8px;white-space:nowrap;max-width:calc(100vw - 24px);overflow:hidden;text-overflow:ellipsis;text-align:center;font-size:12px;color:var(--ink);background:var(--paper);padding:3px 12px;border-radius:12px;border:1px solid var(--line);pointer-events:none}
@@ -59,12 +64,16 @@ const CSS = `
 #ps-hint{position:fixed;left:50%;top:14px;transform:translateX(-50%);font:600 13px/1.3 ui-rounded,"SF Pro Rounded","Avenir Next","Segoe UI",system-ui,sans-serif;color:var(--ink);background:var(--paper);padding:6px 14px;border-radius:16px;border:1px solid var(--line);box-shadow:0 6px 18px rgba(40,28,12,.22);-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px);pointer-events:none;max-width:calc(100vw - 24px);box-sizing:border-box;text-align:center}
 @media (min-width:761px) and (max-width:1380px){#ps-ui{flex-wrap:wrap;justify-content:center}#ps-ui .tools{flex-basis:100%}#ps-ui .sep{display:none}}
 @media (max-width:760px){#ps-ui{flex-wrap:wrap;justify-content:center;gap:8px}#ps-ui label.time{min-width:100%}#ps-ui label.quality{flex-direction:column;align-items:flex-start;gap:2px}#ps-ui select{padding:4px 6px}}
+@media (max-width:760px),(pointer:coarse){#ps-ui button.mood{min-height:44px;box-sizing:border-box}#ps-ui select{min-height:44px;box-sizing:border-box}#ps-ui button.reset,#ps-ui button.lang{min-height:44px;min-width:44px;box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center}}
+@media (max-width:760px){#ps-ui.editing label.quality,#ps-ui.editing .sep{display:none}}
 #ps-edit{position:fixed;z-index:40;left:50%;bottom:96px;transform:translateX(-50%);display:flex;gap:6px;padding:6px 8px;border-radius:18px;background:var(--paper);border:1px solid var(--line);box-shadow:0 8px 24px rgba(40,28,12,.26);-webkit-backdrop-filter:blur(12px);backdrop-filter:blur(12px);max-width:calc(100vw - 12px);box-sizing:border-box;font:600 12px/1.2 ui-rounded,"SF Pro Rounded","Avenir Next","Segoe UI",system-ui,sans-serif;color:var(--ink)}
 #ps-edit button{all:unset;cursor:pointer;box-sizing:border-box;min-width:44px;min-height:44px;padding:0 9px;display:flex;align-items:center;justify-content:center;text-align:center;border-radius:12px;border:1px solid var(--line);background:#fffaf0;font-weight:600;touch-action:manipulation;white-space:nowrap}
 #ps-edit button:hover:not([disabled]){background:rgba(200,121,58,.14)}
 #ps-edit button[disabled]{opacity:.36;cursor:default}
 #ps-edit button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
-@media (max-width:430px){#ps-edit{gap:4px;padding:6px}#ps-edit button{padding:0 7px}}
+@media (max-width:560px){#ps-edit{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:4px;padding:6px;width:calc(100vw - 12px)}#ps-edit button{padding:0 2px;font-size:11px;line-height:1.1;white-space:normal;overflow-wrap:anywhere}}
+#ps-edit-hint{position:absolute;left:50%;bottom:calc(100% + 8px);transform:translateX(-50%);width:max-content;max-width:calc(100vw - 24px);box-sizing:border-box;padding:6px 12px;border-radius:12px;background:var(--paper);border:1px solid var(--line);box-shadow:0 6px 18px rgba(40,28,12,.22);font-weight:600;text-align:center;pointer-events:none}
+#ps-edit-hint:empty,#ps-edit-msg:not(:empty)~#ps-edit-hint{display:none}
 #ps-edit-menu{position:absolute;right:0;bottom:calc(100% + 8px);min-width:180px;display:grid;gap:4px;padding:6px;border-radius:16px;background:var(--paper);border:1px solid var(--line);box-shadow:0 8px 24px rgba(40,28,12,.26);-webkit-backdrop-filter:blur(12px);backdrop-filter:blur(12px)}
 #ps-edit-menu[hidden]{display:none}
 #ps-edit-menu button{justify-content:flex-start;padding:0 14px}
@@ -116,7 +125,7 @@ export function createUI(handlers, state, doc = document) {
   }
   const sep1 = doc.createElement('div'); sep1.className = 'sep';
   const timeLabel = doc.createElement('label'); timeLabel.className = 'time';
-  const timeName = doc.createElement('span');
+  const timeName = doc.createElement('span'); timeName.className = 'tname';
   const slider = doc.createElement('input'); slider.type = 'range'; slider.min = '0'; slider.max = '1'; slider.step = '0.005';
   const clk = doc.createElement('span'); clk.className = 'clock';
   slider.addEventListener('input', () => handlers.onTime(Number(slider.value)));
@@ -151,7 +160,7 @@ export function createUI(handlers, state, doc = document) {
     const L = STR[state.lang] ?? STR.en;
     for (const name of PRESET_NAMES) { buttons[name].label.textContent = presetLabel(name, state.lang); buttons[name].b.setAttribute('aria-pressed', String(name === state.preset)); }
     blurb.textContent = presetBlurb(state.preset, state.lang);
-    timeName.textContent = L.time; slider.value = String(state.t); slider.setAttribute('aria-label', L.time); clk.textContent = clock(state.t).text;
+    timeName.textContent = L.time; slider.value = String(state.t); slider.style?.setProperty?.('--fill', `calc(8px + (100% - 16px) * ${Math.min(1, Math.max(0, Number(state.t) || 0))})`); slider.setAttribute('aria-label', L.time); clk.textContent = clock(state.t).text;
     qName.textContent = L.quality; qHelp.textContent = L.qualityHelp; qLabel.title = L.qualityHelp; qSel.title = L.qualityHelp;
     const autoPick = state.autoLevel ?? state.level; // the level that Auto stands for on this device
     for (const o of qSel.options) o.textContent = o.value === 'auto' && L[autoPick] ? `${L.auto}: ${L[autoPick].toLowerCase()}` : L[o.value];
@@ -166,19 +175,20 @@ export function createUI(handlers, state, doc = document) {
     toolBtns.saveImage.style.display = state.editing ? 'none' : '';
     toolBtns.loadPlan.textContent = L.loadPlan; toolBtns.loadPlan.title = L.loadPlanTitle; toolBtns.loadPlan.setAttribute('aria-label', L.loadPlanTitle);
     toolBtns.loadPlan.style.display = state.editing ? 'none' : '';
+    root.className = state.editing ? 'editing' : '';
     doc.documentElement.lang = state.lang;
   }
   update(state);
   let msgTimer = null; // one short line above the bar (a result of saving a picture or loading a plan)
-  const say = (text, ms = 6000) => { msg.textContent = String(text ?? ''); if (msgTimer !== null) clearTimeout(msgTimer); msgTimer = text ? setTimeout(() => { msg.textContent = ''; msgTimer = null; }, ms) : null; };
+  const say = (text, ms = 6000, title = '') => { msg.textContent = String(text ?? ''); msg.title = title || ''; if (msg.style) msg.style.pointerEvents = title ? 'auto' : ''; if (msgTimer !== null) clearTimeout(msgTimer); msgTimer = text ? setTimeout(() => { msg.textContent = ''; msgTimer = null; }, ms) : null; };
   return { root, update, say, hideHint: () => { if (hint) { hint.remove(); hint = null; } }, setVisible: (v) => { root.style.display = v ? '' : 'none'; if (hint) hint.style.display = v ? '' : 'none'; }, dispose: () => { root.remove(); hint?.remove(); } };
 }
 
-// The edit bar (edit=1): Turn, Delete, Undo, Redo, Auto layout and More, one row above the controls, every button at least 44 px; More opens a
-// small menu above the bar (Duplicate, Save layout, Load from file, Paste layout, Save image, Load plan) that closes on a tap outside or Escape; plus the empty
+// The edit bar (edit=1): Rotate piece, Delete, Undo, Redo, Reset layout and File, one row above the controls, every button at least 44 px; File opens a
+// small menu above the bar (Duplicate piece, Save layout, Load from file, Paste layout, Save image, Load plan) that closes on a tap outside or Escape; plus the empty
 // container #ps-edit-panel that other parts of the page fill. handlers: { onTurn(), onRemove(), onUndo(), onRedo(), onAuto(), onDuplicate(),
 // onSave(), onLoad(), onPaste(), onSaveImage(), onLoadPlan() }. update({ lang, selected, canUndo, canRedo }) sets the language and which buttons are enabled; `anchor` is the
-// control bar that the edit bar sits above. say(text) shows one short line above the bar for a few seconds. The height of everything stacked at
+// control bar that the edit bar sits above. say(text, ms, title) shows one short line above the bar for a few seconds (title: the longer original shown on hover). The height of everything stacked at
 // the bottom (this bar, the mood caption, the controls) is published as the CSS variable --ps-stack-h on the root element.
 export function createEditBar(handlers, state = {}, doc = document, anchor = null) {
   injectStyles(doc);
@@ -203,13 +213,15 @@ export function createEditBar(handlers, state = {}, doc = document, anchor = nul
   }
   more.addEventListener('click', () => setOpen(menu.hidden));
   const msg = doc.createElement('div'); msg.id = 'ps-edit-msg'; msg.setAttribute('role', 'status');
-  root.append(menu, msg);
+  const hint = doc.createElement('div'); hint.id = 'ps-edit-hint'; hint.setAttribute('role', 'status');
+  let hintDone = false; // the one-time hint goes away at the first selection
+  root.append(menu, msg, hint);
   const panel = doc.createElement('div'); panel.id = 'ps-edit-panel';
   doc.body.append(root, panel);
   let msgTimer = null;
   const timers = doc.defaultView ?? (typeof window !== 'undefined' ? window : globalThis);
-  function say(text, ms = 6000) {
-    msg.textContent = String(text ?? '');
+  function say(text, ms = 6000, title = '') {
+    msg.textContent = String(text ?? ''); msg.title = title || ''; if (msg.style) msg.style.pointerEvents = title ? 'auto' : '';
     if (msgTimer !== null) timers.clearTimeout?.(msgTimer);
     msgTimer = text ? (timers.setTimeout?.(() => { msg.textContent = ''; msgTimer = null; }, ms) ?? null) : null;
   }
@@ -230,6 +242,8 @@ export function createEditBar(handlers, state = {}, doc = document, anchor = nul
     for (const [key] of defs) { buttons[key].textContent = L[key]; buttons[key].title = L[`${key}Label`]; buttons[key].setAttribute('aria-label', L[`${key}Label`]); }
     more.textContent = L.more; more.title = L.moreLabel; more.setAttribute('aria-label', L.moreLabel);
     for (const [key] of itemDefs) items[key].textContent = L[key];
+    if (state.selected) hintDone = true;
+    hint.textContent = hintDone ? '' : L.hint;
     buttons.turn.disabled = !state.selected; buttons.remove.disabled = !state.selected; items.duplicate.disabled = !state.selected;
     buttons.undo.disabled = !state.canUndo; buttons.redo.disabled = !state.canRedo; buttons.auto.disabled = false;
     place();

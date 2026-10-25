@@ -81,6 +81,17 @@ test('on a narrow screen the details of a selected piece start folded and open f
   }
 });
 
+test('collapse folds the details of the piece to its header, which opens them again, and is harmless after dispose', () => {
+  const doc = makeDoc(), session = makeSession(), panel = createPanel({ doc, host: doc.body, lang: 'en', session }), root = panel.element;
+  session.select({ ...sofa });
+  const body = find(root, cls('psp-sel-body')), head = find(root, cls('psp-sel-head'));
+  assert.equal(body.hidden, false);
+  panel.collapse();
+  assert.equal(body.hidden, true); assert.equal(head.attrs['aria-expanded'], 'false'); assert.equal(find(root, cls('psp-sel')).hidden, false, 'the header stays');
+  head.fire('click'); assert.equal(body.hidden, false);
+  panel.dispose(); panel.collapse();
+});
+
 test('the list holds every type of the catalogue once, in groups, with names in both languages', () => {
   for (const lang of ['en', 'pl']) {
     const { root } = setup(lang);

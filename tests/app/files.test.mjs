@@ -3,7 +3,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { LAYOUT_FILENAME, IMAGE_FILENAME, MAX_FILE_BYTES, saveTextFile, saveBlobFile, readTextFile, askForText } from '../../src/app/files.js';
+import { MAX_PLAN_CHARS } from '../../src/core/limits.js';
+import { LAYOUT_FILENAME, IMAGE_FILENAME, MAX_FILE_BYTES, REVOKE_DELAY_MS, refusalText, saveTextFile, saveBlobFile, readTextFile, askForText } from '../../src/app/files.js';
 
 // Matches an en dash or an em dash; built from char codes so the file itself holds neither.
 const LONG_DASH = new RegExp("[" + String.fromCharCode(0x2013, 0x2014) + "]");
@@ -47,13 +48,15 @@ function fire(node, type, props = {}) {
 
 test('constants: the default file name and the size limit', () => {
   assert.equal(LAYOUT_FILENAME, 'planstage-layout.json');
-  assert.equal(MAX_FILE_BYTES, 2 * 1024 * 1024);
+  assert.equal(MAX_FILE_BYTES, MAX_PLAN_CHARS); assert.equal(MAX_PLAN_CHARS, 2000000); assert.equal(REVOKE_DELAY_MS, 10000);
 });
 
 test('saveTextFile: downloads through a hidden temporary link, then cleans up', () => {
   const doc = makeDoc(); const win = doc.defaultView;
   doc.clickHook = () => win.urlLog.push(['click']);
   assert.equal(saveTextFile(doc, LAYOUT_FILENAME, '{"a":1}'), true);
+  assert.deepEqual(win.urlLog.map((e) => e[0]), ['create', 'click']); // the address stays valid for a while
+  assert.equal(win.timers.length, 1); assert.equal(win.timers[0].ms, 10000); win.timers[0].fn();
   assert.deepEqual(win.urlLog.map((e) => e[0]), ['create', 'click', 'revoke']);
   const blob = win.urlLog[0][1];
   assert.ok(blob instanceof StubBlob); assert.equal(blob.type, 'application/json'); assert.deepEqual(blob.parts, ['{"a":1}']);
@@ -267,11 +270,15 @@ test('askForText: Escape cancels, from the textarea, the dialog or the overlay',
   }
 });
 
-test('askForText: blank or oversized text gives null, text of exactly the limit passes', async () => {
-  for (const text of ['', '   \n\t ', 'x'.repeat(MAX_FILE_BYTES + 1)]) {
-    const doc = makeDoc(); const p = askForText(doc, 'en'); const u = parts(doc);
-    u.area.value = text; fire(u.load, 'click');
-    assert.equal(await p, null); assert.equal(doc.body.children.length, 0);
+test('askForText: blank or oversized text keeps the dialog open and says why, text of exactly the limit passes', async () => {
+  for (const lang of ['en', 'pl']) {
+    for (const [text, key] of [['', 'empty'], ['   \n\t ', 'empty'], ['x'.repeat(MAX_FILE_BYTES + 1), 'tooLong']]) {
+      const doc = makeDoc(); const p = askForText(doc, lang); const u = parts(doc);
+      u.area.value = text; fire(u.load, 'click');
+      const err = u.nodes.find((n) => n.id === 'ps-files-error');
+      assert.equal(err.textContent, refusalText(lang, key)); assert.ok(err.textContent.length > 10); assert.equal(doc.body.children.length, 1, 'the dialog stays');
+      fire(u.cancel, 'click'); assert.equal(await p, null); assert.equal(doc.body.children.length, 0);
+    }
   }
   const doc = makeDoc(); const p = askForText(doc, 'en'); const u = parts(doc);
   u.area.value = 'x'.repeat(MAX_FILE_BYTES); fire(u.load, 'click');
@@ -365,6 +372,8 @@ test('saveBlobFile: offers a picture Blob through the same hidden link, and refu
   const picture = { size: 1234, type: 'image/png' };
   assert.equal(IMAGE_FILENAME, 'planstage-view.png');
   assert.equal(saveBlobFile(doc, IMAGE_FILENAME, picture), true);
+  assert.deepEqual(win.urlLog.map((e) => e[0]), ['create', 'click']);
+  win.timers[0].fn();
   assert.deepEqual(win.urlLog.map((e) => e[0]), ['create', 'click', 'revoke']);
   assert.equal(win.urlLog[0][1], picture, 'the Blob itself is handed over, not a copy');
   assert.equal(doc.clicks[0].download, 'planstage-view.png'); assert.ok(doc.clicks[0].node.removed);

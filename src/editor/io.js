@@ -2,13 +2,14 @@
 // back into a layout and checks everything: limits, known types, finite numbers, sizes inside their ranges, colours, unique ids,
 // supports without cycles, pieces inside the plan. Text only: nothing here touches the network, files or browser storage.
 import { specOf } from '../furniture/specs.js';
+import { MAX_PLAN_CHARS } from '../core/limits.js';
 import { LIMITS } from '../layout/engine.js';
 import { roomInterior, boxInsidePolygon, obb, pointInPolygon } from '../layout/geometry.js';
 import { sizeFrom, validRoomId, ROOM_PARTS, ROOM_LIMIT } from './state.js';
 import { readColor, cleanColor, cleanRoomColor } from './colors.js';
 import { normRot } from './rules.js';
 
-export const IO_LIMITS = Object.freeze({ chars: 2000000, levels: 20, warnings: 60 });
+export const IO_LIMITS = Object.freeze({ chars: MAX_PLAN_CHARS, levels: 20, warnings: 60 });
 const ID_RE = /^[A-Za-z0-9_.:-]{1,40}$/;
 const r3 = (v) => Math.round(v * 1000) / 1000;
 const fin = (v) => typeof v === 'number' && Number.isFinite(v);
