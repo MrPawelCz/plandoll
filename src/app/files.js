@@ -2,6 +2,7 @@
 // Everything goes through the document passed in, so it can run against stubs. Nothing is stored or sent anywhere.
 
 export const LAYOUT_FILENAME = 'planstage-layout.json';
+export const IMAGE_FILENAME = 'planstage-view.png';
 export const MAX_FILE_BYTES = 2 * 1024 * 1024;
 
 // A browser API from the document's own view when it has one, else the global one.
@@ -24,26 +25,42 @@ function release(doc, urls, url, delayMs) {
   } catch { revoke(); }
 }
 
-// Offers `text` as a download called `filename` through a temporary hidden link.
+// Offers a Blob as a download called `filename` through a temporary hidden link. `make(BlobType)` builds the Blob (or returns null).
 // Returns true once the link was clicked, false (never throws) when it could not be done. opts: { revokeDelayMs } (default 0 = at once).
-export function saveTextFile(doc, filename, text, opts = {}) {
-  if (!isText(text) || !isText(filename)) return false;
+function offerDownload(doc, filename, make, opts = {}) {
+  if (!isText(filename)) return false;
   let link = null, url = null, urls = null, ok = false;
   try {
     const BlobType = api(doc, 'Blob');
     urls = api(doc, 'URL');
     if (typeof BlobType === 'function' && typeof urls?.createObjectURL === 'function' && doc?.body) {
-      url = urls.createObjectURL(new BlobType([text], { type: 'application/json' }));
-      link = doc.createElement('a');
-      link.href = url; link.download = filename; link.style.display = 'none';
-      doc.body.appendChild(link);
-      link.click();
-      ok = true;
+      const blob = make(BlobType);
+      if (blob) {
+        url = urls.createObjectURL(blob);
+        link = doc.createElement('a');
+        link.href = url; link.download = filename; link.style.display = 'none';
+        doc.body.appendChild(link);
+        link.click();
+        ok = true;
+      }
     }
   } catch { ok = false; }
   detach(link);
   release(doc, urls, url, opts?.revokeDelayMs);
   return ok;
+}
+
+// Offers `text` as a download called `filename` through a temporary hidden link.
+// Returns true once the link was clicked, false (never throws) when it could not be done. opts: { revokeDelayMs } (default 0 = at once).
+export function saveTextFile(doc, filename, text, opts = {}) {
+  if (!isText(text)) return false;
+  return offerDownload(doc, filename, (BlobType) => new BlobType([text], { type: 'application/json' }), opts);
+}
+
+// Offers an existing Blob (a picture, say) as a download called `filename`; true once the link was clicked, false (never throws) otherwise.
+export function saveBlobFile(doc, filename, blob, opts = {}) {
+  if (!blob || typeof blob !== 'object' || !(blob.size > 0)) return false;
+  return offerDownload(doc, filename, () => blob, opts);
 }
 
 const fail = (error) => ({ ok: false, error });

@@ -1,5 +1,5 @@
 // Page shell: reads the address parameters, builds the plan scene, the stage (light, base, backdrop) and the post chain, draws.
-// Parameters: #preset&t=&q=&cam=&az=&pol=&plan=&frames=&lang=&ui=&live=&edit= (see params.js). No network, no storage, no external files.
+// Parameters: #preset&t=&q=&cam=&az=&pol=&plan=&frames=&lang=&ui=&live=&edit=&btn= (see params.js). No network, no storage, no external files.
 // With edit=1 a piece can be selected, dragged over the floor, turned and deleted, with undo and redo (edit.js, pick.js, render/outline.js).
 // The model can be turned round (camera.js): the outer walls that face the camera are cut low (render/cutaway.js).
 import * as THREE from 'three';
@@ -9,14 +9,15 @@ import { PlanScene } from '../render/scene.js';
 import { createStage } from '../look/stage.js';
 import { createPost } from '../look/post.js';
 import { resolveQuality } from '../look/quality.js';
-import { parseParams } from './params.js';
+import { parseParams, editHash } from './params.js';
+import { frameRequest } from './capture.js';
 import { createLoop } from './loop.js';
 import { createUI, createEditBar, showErrorCard } from './ui.js';
 import { createEditSession } from './edit.js';
 import { pickPiece, floorHit } from './pick.js';
 import { createOutline, createRoomOutline, outlineKind } from '../render/outline.js';
 import { createPanel } from './panel.js';
-import { saveTextFile, readTextFile, askForText, LAYOUT_FILENAME } from './files.js';
+import { saveTextFile, saveBlobFile, readTextFile, askForText, LAYOUT_FILENAME, IMAGE_FILENAME } from './files.js';
 import { roomAt } from '../editor/index.js';
 import { autoFurnish } from '../layout/index.js';
 import { piecesImplemented } from '../furniture/index.js';
@@ -50,7 +51,8 @@ try {
   if (!canvasProbe.getContext('webgl2')) throw new Error('WebGL2 is not available');
   const dpr = window.devicePixelRatio || 1;
   const env = { cores: navigator.hardwareConcurrency, touch: navigator.maxTouchPoints > 0, width: window.innerWidth, height: window.innerHeight, memory: navigator.deviceMemory };
-  const S = { preset: params.preset, t: params.t, q: params.q, lang: params.lang };
+  const S = { preset: params.preset, t: params.t, q: params.q, lang: params.lang, tools: params.btn, editing: params.edit };
+  const T = (pl, en) => (S.lang === 'pl' ? pl : en);
   let level = resolveQuality(S.q, env);
   S.level = level; S.autoLevel = resolveQuality('auto', env); // the controls show which level Auto would pick on this device
 
@@ -145,7 +147,27 @@ try {
     redraw();
   }
   let editBar = null, panel = null;
-  const ui = params.ui ? createUI({ onPreset: (n) => setPreset(n), onTime: setTime, onQuality: setQ, onLang: setLang, onReset: () => cam?.reset(true) }, S) : null;
+  // The extra buttons of the control bar (btn=1): edit mode on or off (the page reloads with edit=1 added or removed, the mood, the time of day, the
+  // quality and the language kept), and the picture of the current view as a PNG. Leaving the editor with unsaved changes needs a second tap.
+  let dirty = false, leaveWarned = false, leaveTimer = 0;
+  function toggleEdit() {
+    const leaving = params.edit;
+    if (leaving && dirty && session?.canUndo() && !leaveWarned) {
+      leaveWarned = true; clearTimeout(leaveTimer); leaveTimer = setTimeout(() => { leaveWarned = false; }, 6000);
+      editBar?.say(T('Masz niezapisane zmiany: zapisz układ albo dotknij jeszcze raz', 'You have unsaved changes: save the layout or tap again'));
+      return;
+    }
+    location.hash = editHash(location.hash, !leaving, S);
+    location.reload();
+  }
+  function saveImage() {
+    post.render(); // the view is drawn once more and read in the same turn, so the buffer still holds the picture
+    renderer.domElement.toBlob((blob) => {
+      const ok = !!blob && saveBlobFile(document, IMAGE_FILENAME, blob);
+      editBar?.say(ok ? T('Zapisano obraz do pliku', 'Picture saved to a file') : T('Nie udało się zapisać obrazu', 'Could not save the picture'));
+    }, 'image/png');
+  }
+  const ui = params.ui ? createUI({ onPreset: (n) => setPreset(n), onTime: setTime, onQuality: setQ, onLang: setLang, onReset: () => cam?.reset(true), onEdit: toggleEdit, onSaveImage: saveImage }, S) : null;
   cam = createCameraController({ element: renderer.domElement, home: home0, initial: { azimuth: params.az, polar: params.pol }, target: pose.target, fov: pose.fov, onChange: onCamera, onGesture: () => ui?.hideHint() });
   applyAll();
   // ---------- edit mode (edit=1): select a piece, drag it over the floor, turn, delete, undo and redo ----------
@@ -203,6 +225,7 @@ try {
     }
     function onEdit(e) {
       curLayout = session.state.layout;
+      if (e.type === 'structure' || e.type === 'dragend') dirty = true;
       if (e.type === 'structure') {
         const next = sigsOf(curLayout);
         if (next.size === sigs.size && [...next].every(([id, sg]) => sigs.get(id) === sg)) { syncGroups(); settle(); } // only places changed
@@ -214,7 +237,6 @@ try {
     }
     session = createEditSession({ layout, model, allowedTypes: piecesImplemented(), onChange: onEdit, viewPoint });
     // layout files and the "More" menu: one short line tells how a load went
-    const T = (pl, en) => (S.lang === 'pl' ? pl : en);
     const plItems = (n) => (n === 1 ? 'pozycję' : n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 12 || n % 100 > 14) ? 'pozycje' : 'pozycji');
     const say = (text) => editBar?.say(text);
     function loaded(res) {
@@ -224,11 +246,11 @@ try {
     }
     const fileHandlers = {
       onDuplicate: () => { const r = session.duplicate(); if (!r.ok) say(T('Nie można powielić', 'Cannot duplicate')); },
-      onSave: () => say(saveTextFile(document, LAYOUT_FILENAME, session.exportText()) ? T('Zapisano układ do pliku', 'Layout saved to a file') : T('Nie udało się zapisać pliku', 'Could not save the file')),
+      onSave: () => { const ok = saveTextFile(document, LAYOUT_FILENAME, session.exportText()); if (ok) dirty = false; say(ok ? T('Zapisano układ do pliku', 'Layout saved to a file') : T('Nie udało się zapisać pliku', 'Could not save the file')); },
       onLoad: () => { readTextFile(document).then((r) => { if (r.ok) loaded(session.importText(r.text)); else if (r.error !== 'cancelled') say(T('Nie udało się odczytać pliku', 'Could not read the file')); }); },
       onPaste: () => { askForText(document, S.lang).then((t) => { if (t != null) loaded(session.importText(t)); }); },
     };
-    if (params.ui) editBar = createEditBar({ onTurn: () => session.turn(90), onRemove: () => session.remove(), onUndo: () => session.undo(), onRedo: () => session.redo(), onAuto: () => session.reset(), ...fileHandlers }, { lang: S.lang }, document, ui);
+    if (params.ui) editBar = createEditBar({ onTurn: () => session.turn(90), onRemove: () => session.remove(), onUndo: () => session.undo(), onRedo: () => session.redo(), onAuto: () => session.reset(), onSaveImage: saveImage, ...fileHandlers }, { lang: S.lang }, document, ui);
     if (params.ui) panel = createPanel({ doc: document, host: document.body, lang: S.lang, session });
     refreshEdit();
 
@@ -321,6 +343,14 @@ try {
         }
         return null;
       },
+      // the plan point [x, z] under a client point on the floor of a level (or null), and the client point of a plan point on that floor
+      floorAt(x, y, levelId) { const fh = floorHit(cam.pointerToRay({ clientX: x, clientY: y }), levelBase(levelId)); return fh ? [fh[0], fh[2]] : null; },
+      pointOf(levelId, x, z) {
+        camera.updateMatrixWorld(true);
+        v3.set(x, levelBase(levelId), z).project(camera);
+        const r = dom.getBoundingClientRect();
+        return { x: r.left + (v3.x * 0.5 + 0.5) * r.width, y: r.top + (-v3.y * 0.5 + 0.5) * r.height };
+      },
       screenOf(id) {
         const f = session.pieceById(id); if (!f) return null;
         camera.updateMatrixWorld(true);
@@ -363,4 +393,17 @@ try {
   }
   loop = createLoop({ draw: frame, frames: params.frames, live: params.live });
   loop.start();
+  // Frame hook for screenshots and video capture: window.__frame({ preset, t, az, pol, dist, size }) sets the mood, the time of day (0 to 1), the view
+  // (azimuth and tilt in degrees, dist as a multiple of the default distance) and the size of the picture, draws exactly one new frame and resolves
+  // after the animation frame that drew it with { frames, drawCalls }. Every field is optional; values are checked in capture.js.
+  window.__frame = (args) => new Promise((resolve) => {
+    const r = frameRequest(args), before = loop.drawn;
+    if (r.preset) { const p = stage.setPreset(r.preset); S.preset = p.id; if (r.t === undefined) S.t = p.t; }
+    if (r.t !== undefined) S.t = r.t;
+    if (r.size) { W = r.size.w; H = r.size.h; frameCamera(); post.resize(W, H); }
+    cam.set({ azimuth: r.az ?? cam.state.azimuth, polar: r.pol ?? cam.state.polar, distance: r.dist !== undefined ? cam.state.base * r.dist : cam.state.distance });
+    applyAll(); ui?.update(S);
+    const wait = () => { if (loop.drawn > before) resolve({ frames: loop.drawn - before, drawCalls: renderer.info.render.calls }); else requestAnimationFrame(wait); };
+    loop.invalidate(); requestAnimationFrame(wait);
+  });
 } catch (e) { fail(e); }

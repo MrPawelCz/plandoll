@@ -3,7 +3,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { LAYOUT_FILENAME, MAX_FILE_BYTES, saveTextFile, readTextFile, askForText } from '../../src/app/files.js';
+import { LAYOUT_FILENAME, IMAGE_FILENAME, MAX_FILE_BYTES, saveTextFile, saveBlobFile, readTextFile, askForText } from '../../src/app/files.js';
 
 // Matches an en dash or an em dash; built from char codes so the file itself holds neither.
 const LONG_DASH = new RegExp("[" + String.fromCharCode(0x2013, 0x2014) + "]");
@@ -357,4 +357,19 @@ test('source: no storage, no network, no long dashes, no home paths', () => {
   }
   assert.ok(!LONG_DASH.test(src), 'no en or em dashes');
   assert.ok(!src.includes(['', 'Users', ''].join('/')));
+});
+
+test('saveBlobFile: offers a picture Blob through the same hidden link, and refuses an empty or missing one', () => {
+  const doc = makeDoc(); const win = doc.defaultView;
+  doc.clickHook = () => win.urlLog.push(['click']);
+  const picture = { size: 1234, type: 'image/png' };
+  assert.equal(IMAGE_FILENAME, 'planstage-view.png');
+  assert.equal(saveBlobFile(doc, IMAGE_FILENAME, picture), true);
+  assert.deepEqual(win.urlLog.map((e) => e[0]), ['create', 'click', 'revoke']);
+  assert.equal(win.urlLog[0][1], picture, 'the Blob itself is handed over, not a copy');
+  assert.equal(doc.clicks[0].download, 'planstage-view.png'); assert.ok(doc.clicks[0].node.removed);
+  const none = makeDoc();
+  for (const bad of [null, undefined, 'x', { size: 0 }, {}]) assert.equal(saveBlobFile(none, IMAGE_FILENAME, bad), false);
+  assert.equal(saveBlobFile(none, '', picture), false);
+  assert.equal(none.defaultView.urlLog.length, 0, 'nothing was created');
 });
