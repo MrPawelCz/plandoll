@@ -103,6 +103,14 @@ export function createEditSession({ layout, model, onChange = () => {}, allowedT
       if (!room) { roomSel = null; return null; }
       return { level: roomSel.level, id: roomSel.id, name: room.name || room.id, colors: roomColorsOf(state.layout, roomSel.level, roomSel.id) };
     },
+    // The selection now as something to put back later: { piece: id | null, room: { level, id } | null } (never both). restoreSelection(snap) puts it back; a pinch that
+    // starts on a piece takes the selection that its first finger made back, and the room that was picked before (picking the piece cleared it) comes back with it.
+    selectionNow() { return { piece: state.selection ?? null, room: roomSel ? { level: roomSel.level, id: roomSel.id } : null }; },
+    restoreSelection(snap) {
+      if (snap?.piece) return session.select(snap.piece) || session.select(null);
+      if (snap?.room) return session.selectRoom(snap.room.level, snap.room.id) || session.select(null);
+      return session.select(null);
+    },
     // part 'wall' | 'floor', color '#rrggbb' | 'lib:<key>' | null (back to the default look); a run of changes of one part is one undo step.
     recolorRoom(part, color) {
       if (!roomSel) return { ok: false, reason: 'no-room-selected' };

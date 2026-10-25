@@ -416,7 +416,7 @@ try {
         const first = gest; gest = null;
         if (first.dragging) session.cancelDrag();
         if (first.id) {
-          if (session.state.selection === first.id) session.select(first.before);
+          if (session.state.selection === first.id) session.restoreSelection(first.before); // the piece that was selected before, or the room (picking the piece cleared it)
           cam.enabled = true; showPanel(true);
           adopting = true; // the camera learns about the first finger too, so that the pinch starts at once
           try { dom.dispatchEvent(new PointerEvent('pointerdown', { pointerId: first.pointerId, pointerType: e.pointerType, clientX: first.lastX, clientY: first.lastY, button: 0, buttons: 1, isPrimary: true, bubbles: true, cancelable: true })); } catch {}
@@ -428,7 +428,7 @@ try {
       const hit = hitAt(e), base = { pointerId: e.pointerId, x0: e.clientX, y0: e.clientY, lastX: e.clientX, lastY: e.clientY, t0: performance.now(), moved: 0, id: null, dragging: false };
       if (!hit) { gest = { ...base, room: roomHitAt(e) }; return; }
       const piece = session.pieceById(hit.id), host = shell?.hostOf(hit.id) ?? null, at = surfaceAt(cam.pointerToRay(e), host, levelBase(hit.level) + piece.elev);
-      gest = { ...base, id: hit.id, level: hit.level, before: session.state.selection ?? null, base: levelBase(hit.level) + piece.elev, wall: host?.wall ?? null, off: at ? [piece.x - at[0], piece.y - at[1]] : [0, 0] };
+      gest = { ...base, id: hit.id, level: hit.level, before: session.selectionNow(), base: levelBase(hit.level) + piece.elev, wall: host?.wall ?? null, off: at ? [piece.x - at[0], piece.y - at[1]] : [0, 0] };
       cam.enabled = false; session.select(hit.id);
       try { dom.setPointerCapture(e.pointerId); } catch {}
     }, true);

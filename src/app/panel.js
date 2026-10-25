@@ -375,7 +375,8 @@ export function createPanel({ doc = document, host, lang = 'en', session } = {})
   selHead.addEventListener('click', () => { selOpen = !selOpen; refresh(); });
   roomHead.addEventListener('click', () => { roomOpen = !roomOpen; refresh(); });
   snapBtn.addEventListener('click', () => { if (typeof session.setSnapEdges === 'function') session.setSnapEdges(!session.snapEdges()); refresh(); });
-  root.addEventListener('keydown', (e) => { if (e.key === 'Escape' && open) { open = false; refresh(); toggle.focus?.(); } });
+  // Escape closes the list and is used up there: it must not reach the window, where the editor would clear the selection with it or, with nothing selected, fold the open shell
+  root.addEventListener('keydown', (e) => { if (e.key === 'Escape' && open) { open = false; refresh(); toggle.focus?.(); e.stopPropagation?.(); e.preventDefault?.(); } });
   const view = doc.defaultView;
   const onResize = () => syncStack();
   if (view && typeof view.addEventListener === 'function') view.addEventListener('resize', onResize);

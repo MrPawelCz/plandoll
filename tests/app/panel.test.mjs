@@ -163,6 +163,20 @@ test('Escape and the close button shut the list', () => {
   toggle.fire('click'); find(root, cls('psp-close')).fire('click'); assert.equal(addBox.hidden, true);
 });
 
+test('the Escape that closes the list is used up there: it does not go on to the window, where the editor would clear the selection or fold the open shell', () => {
+  const { root } = setup();
+  const toggle = find(root, cls('psp-toggle')), addBox = find(root, cls('psp-add'));
+  const press = () => { const seen = { stopped: 0, prevented: 0 }; root.fire('keydown', { key: 'Escape', stopPropagation() { seen.stopped++; }, preventDefault() { seen.prevented++; } }); return seen; };
+  toggle.fire('click'); assert.equal(addBox.hidden, false);
+  assert.deepEqual(press(), { stopped: 1, prevented: 1 }, 'the open list takes the key');
+  assert.equal(addBox.hidden, true);
+  assert.deepEqual(press(), { stopped: 0, prevented: 0 }, 'with the list closed the key belongs to the page (it clears the selection or folds the shell)');
+  toggle.fire('click');
+  const other = { stopped: 0 }; root.fire('keydown', { key: 'a', stopPropagation() { other.stopped++; } });
+  assert.equal(other.stopped, 0, 'other keys are left alone'); assert.equal(addBox.hidden, false);
+  root.fire('keydown', { key: 'Escape' }); assert.equal(addBox.hidden, true, 'an event without stopPropagation still closes the list');
+});
+
 test('a refused add keeps the list open and says why, in both languages', () => {
   for (const [lang, want] of [['en', PANEL_TEXT.en.fail['no-room']], ['pl', PANEL_TEXT.pl.fail['no-room']]]) {
     const { root, session, panel } = setup(lang);
