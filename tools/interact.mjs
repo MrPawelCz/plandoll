@@ -8,6 +8,10 @@
 // --edit opens the page with edit=1 and adds the steps of the layout editor (select, drag, turn, undo, redo, delete, automatic layout);
 // without it the page is tested as a visitor sees it and the check is that there is no edit bar.
 // --btn opens the page with btn=1 and tests the extra buttons: the example plans, the open shell, saving the picture (a PNG), the frame hook, the Edit button (with the shell open) and leaving the editor again.
+// --btn also drives the camera on the flat and on the duplex (cameraBlock): on a phone two fingers that move, a pinch about a point, three fingers, a long drag to the limit, one finger turning
+// while moved, the double tap and the touch hint; with the mouse the right and middle button, Shift with the left button, the wheel at the pointer, the nearest zoom and the double click; and the
+// card board (closed, half open, open, closed again, a loaded plan). --edit adds gestures that start on a piece: two or three fingers, the right button and Shift move the picture and no piece.
+// Each camera step reads the ground point under the fingers from the page (window.__camera.groundAt) and checks that it did not drift, besides the picture changing.
 // Exits 1 when a step fails, the page reports an error, writes to storage or asks for anything outside its own address.
 // On a small machine run only one browser at a time (tools/chrome-lock.sh).
 import { spawn } from 'node:child_process';
@@ -91,6 +95,28 @@ async function drag(x0, y0, x1, y1, hold = 0) {
     await send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
   }
 }
+// Several fingers at once (touch only): the fingers go down one after another, move together in small steps, rest a moment and go up together.
+const fingers = (pts) => pts.map((p, k) => ({ x: p.x, y: p.y, id: k + 1 }));
+async function multiDrag(from, to, steps = 12) {
+  for (let i = 0; i < from.length; i++) { await send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: fingers(from.slice(0, i + 1)) }); await sleep(35); }
+  for (let s = 1; s <= steps; s++) {
+    const k = s / steps;
+    await send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: fingers(from.map((p, i) => ({ x: p.x + (to[i].x - p.x) * k, y: p.y + (to[i].y - p.y) * k }))) });
+    await sleep(30);
+  }
+  await sleep(150);
+  await send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+}
+// The mouse with a chosen button (left, right or middle) and modifier keys (Shift is 8), a drag from (x0, y0) to (x1, y1).
+async function mouseDrag(button, x0, y0, x1, y1, modifiers = 0) {
+  const mask = { left: 1, right: 2, middle: 4 }[button], n = 12;
+  await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: x0, y: y0, modifiers });
+  await send('Input.dispatchMouseEvent', { type: 'mousePressed', x: x0, y: y0, button, buttons: mask, clickCount: 1, modifiers });
+  for (let k = 1; k <= n; k++) { await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: x0 + ((x1 - x0) * k) / n, y: y0 + ((y1 - y0) * k) / n, button, buttons: mask, modifiers }); await sleep(30); }
+  await sleep(150);
+  await send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: x1, y: y1, button, buttons: 0, clickCount: 1, modifiers });
+}
+const wheelAt = (x, y, deltaY) => send('Input.dispatchMouseEvent', { type: 'mouseWheel', x, y, deltaX: 0, deltaY });
 const rectOf = (sel) => ev(`(() => { const e = document.querySelector(${JSON.stringify(sel)}); if (!e) return null; const r = e.getBoundingClientRect(); return { x: r.left, y: r.top, w: r.width, h: r.height }; })()`);
 // The part of the screen above the controls: only the 3D picture is there, so equal bytes mean an unchanged picture.
 async function picture(label) {
@@ -112,6 +138,196 @@ async function redrawn(before) {
 const frames = () => ev('typeof window.__frames === "number" ? window.__frames : -1');
 const tapAt = async (sel) => { const r = await rectOf(sel); if (!r || r.w < 1 || r.h < 1) return false; await tap(r.x + r.w / 2, r.y + r.h / 2); return true; };
 const mood = (name) => `#ps-ui button.mood[data-preset="${name}"]`;
+
+// ---- the camera: pan, pinch, wheel and the double tap, with real touch and mouse events ----
+// The page reports where the camera stands (window.__camera: turn, distance, pan in metres) and the ground point under a client point (groundAt), so a step can
+// check that the ground under the fingers stays under them, besides the picture changing.
+const camNow = async () => JSON.parse(await ev(`JSON.stringify({ az: window.__camera.azimuth, d: window.__camera.distance, base: window.__camera.base, pan: window.__camera.pan, target: window.__camera.target, near: window.__camera.nearPlane })`));
+const groundAt = async (x, y) => JSON.parse(await ev(`JSON.stringify(window.__camera.groundAt(${x}, ${y}))`));
+const gap = (a, b) => (a && b ? Math.hypot(a[0] - b[0], a[1] - b[1]) : Infinity);
+const panLen = (c) => Math.hypot(c.pan[0], c.pan[1]);
+const round2 = (v) => +Number(v).toFixed(2);
+const homeAgain = async () => { const f = await frames(); await ev('window.__camera.reset()'); await redrawn(f); await sleep(250); };
+// Runs an input action, waits for the page to draw, and returns the camera before and after.
+async function gesture(action) {
+  const f = await frames(), c0 = await camNow();
+  await action(); await redrawn(f); await sleep(250);
+  return { c0, c1: await camNow() };
+}
+// The part of the screen above the controls where fingers may go, and its middle.
+const pictureArea = async () => {
+  const top = await ev(`Math.floor(Math.min(...['#ps-ui', '#ps-ui .blurb', '#ps-edit'].map((s) => document.querySelector(s)?.getBoundingClientRect().top ?? innerHeight)) - 8)`);
+  return { top, cx: Math.round(W / 2), cy: Math.round(top * 0.5) };
+};
+
+// The window changes shape (a turned phone, bars that grow): the view is framed again, and the move the person made stays, now from the new home.
+async function resizeKeepsPan(tag) {
+  const f = await frames();
+  if (opt.desktop) await mouseDrag('right', Math.round(W / 2), 200, Math.round(W / 2) + 70, 240); else await multiDrag([{ x: 150, y: 220 }, { x: 240, y: 220 }], [{ x: 220, y: 260 }, { x: 310, y: 260 }]);
+  await redrawn(f); await sleep(200);
+  const before = await camNow(), home0 = JSON.parse(await ev('JSON.stringify(window.__camera.target)')), f1 = await frames();
+  await send('Emulation.setDeviceMetricsOverride', { width: W, height: H - 90, deviceScaleFactor: opt.desktop ? 1 : Number(opt.scale), mobile: !opt.desktop });
+  await waitFor(`window.__frames > ${f1}`, 30); await sleep(700);
+  const after = await camNow();
+  await send('Emulation.setDeviceMetricsOverride', { width: W, height: H, deviceScaleFactor: opt.desktop ? 1 : Number(opt.scale), mobile: !opt.desktop });
+  const f2 = await frames(); await waitFor(`window.__frames > ${f2}`, 30); await sleep(500);
+  record(`camera ${tag}: framing again after the window changed shape keeps the move`, panLen(before) > 0.3 && gap(before.pan, after.pan) < 1e-6 && Number.isFinite(after.d) && after.d > 0, { panBefore: before.pan.map(round2), panAfter: after.pan.map(round2), targetBefore: before.target.map(round2), targetAfter: after.target.map(round2), distance: `${round2(before.d)} -> ${round2(after.d)}` });
+  await homeAgain();
+}
+
+// The visitor's camera steps (no editor): on a phone two fingers move and zoom, three fingers move; with the mouse the right button, the middle button and
+// Shift with the left button move, the wheel zooms towards the pointer; a double tap or double click goes back to the start, the pan included.
+async function cameraBlock(tag) {
+  const { top, cx, cy } = await pictureArea();
+  await homeAgain();
+  const home = await camNow(), picHome = await picture(`${tag}-cam-0-home`);
+  const label = (s) => `camera ${tag}: ${s}`;
+  if (!opt.desktop) {
+    // two fingers move the picture: the ground under the middle of the fingers follows it
+    const [dx, dy] = [70, 40], g0 = await groundAt(cx, cy);
+    const a = await gesture(() => multiDrag([{ x: cx - 45, y: cy }, { x: cx + 45, y: cy }], [{ x: cx - 45 + dx, y: cy + dy }, { x: cx + 45 + dx, y: cy + dy }]));
+    const g1 = await groundAt(cx + dx, cy + dy), picA = await picture(`${tag}-cam-1-two-finger-move`);
+    record(label('two fingers move the picture and the ground stays under them'), panLen(a.c1) > 0.3 && gap(g0, g1) < 0.2 && Math.abs(a.c1.d / a.c0.d - 1) < 0.02 && Math.abs(a.c1.az - a.c0.az) < 0.5 && picA !== picHome,
+      { panMetres: a.c1.pan.map(round2), driftMetres: round2(gap(g0, g1)), distance: `${round2(a.c0.d)} -> ${round2(a.c1.d)}`, turned: round2(a.c1.az - a.c0.az), pictureChanged: picA !== picHome });
+    // a pinch around a point: the picture zooms in and the ground under that point stays under it
+    await homeAgain();
+    const P = { x: cx + 30, y: cy - 20 }, gp0 = await groundAt(P.x, P.y), picP0 = await picture(`${tag}-cam-2-before-pinch`);
+    const b = await gesture(() => multiDrag([{ x: P.x - 40, y: P.y }, { x: P.x + 40, y: P.y }], [{ x: P.x - 100, y: P.y }, { x: P.x + 100, y: P.y }]));
+    const gp1 = await groundAt(P.x, P.y), picP1 = await picture(`${tag}-cam-3-pinch-in`);
+    record(label('a pinch zooms in around the point between the fingers and keeps that point under them'), b.c1.d < 0.6 * b.c0.d && b.c1.d >= 0.2 * b.c0.base - 1e-6 && gap(gp0, gp1) < 0.15 && picP1 !== picP0,
+      { distance: `${round2(b.c0.d)} -> ${round2(b.c1.d)} (default ${round2(b.c0.base)})`, driftMetres: round2(gap(gp0, gp1)), nearPlane: round2(b.c1.near), pictureChanged: picP1 !== picP0 });
+    // a pinch the other way zooms out, again about the point
+    const out1 = await gesture(() => multiDrag([{ x: P.x - 100, y: P.y }, { x: P.x + 100, y: P.y }], [{ x: P.x - 60, y: P.y }, { x: P.x + 60, y: P.y }])); // a moderate zoom out: the target stays inside its box
+    const gp2 = await groundAt(P.x, P.y);
+    record(label('a pinch the other way zooms out about the same point'), out1.c1.d > out1.c0.d * 1.5 && gap(gp0, gp2) < 0.15, { distance: `${round2(out1.c0.d)} -> ${round2(out1.c1.d)}`, driftMetres: round2(gap(gp0, gp2)) });
+    // three fingers move the picture with their middle
+    await homeAgain();
+    const tri = [{ x: cx - 60, y: cy + 10 }, { x: cx, y: cy - 10 }, { x: cx + 60, y: cy + 10 }], mid0 = { x: cx, y: cy + 10 / 3 }, [tx, ty] = [-60, 50], gt0 = await groundAt(mid0.x, mid0.y);
+    const c = await gesture(() => multiDrag(tri, tri.map((p) => ({ x: p.x + tx, y: p.y + ty }))));
+    const gt1 = await groundAt(mid0.x + tx, mid0.y + ty), picT = await picture(`${tag}-cam-4-three-finger-move`);
+    record(label('three fingers move the picture and the ground stays under their middle'), panLen(c.c1) > 0.3 && gap(gt0, gt1) < 0.2 && Math.abs(c.c1.d / c.c0.d - 1) < 0.02 && picT !== picP0,
+      { panMetres: c.c1.pan.map(round2), driftMetres: round2(gap(gt0, gt1)), distance: `${round2(c.c0.d)} -> ${round2(c.c1.d)}`, pictureChanged: picT !== picP0 });
+    // one finger still turns the model while it is moved and zoomed in; the pan does not change by the turn
+    const dragPx = Math.round(0.35 * Math.min(W, H)), turn0 = await camNow();
+    await gesture(() => drag(Math.round(W * 0.2), cy, Math.round(W * 0.2) + dragPx, cy, 150));
+    await waitFor('window.__camera.busy === false', 60);
+    const turn1 = await camNow(), picTurn = await picture(`${tag}-cam-5-turned-while-moved`);
+    record(label('one finger still turns the model while it is moved'), Math.abs(turn1.az - turn0.az) > 15 && gap(turn0.pan, turn1.pan) < 1e-6 && picTurn !== picT, { turned: round2(turn1.az - turn0.az), panKept: gap(turn0.pan, turn1.pan) < 1e-6, pictureChanged: picTurn !== picT });
+    // a double tap goes back to the start: turn, zoom and pan
+    await gesture(() => multiDrag([{ x: cx - 45, y: cy }, { x: cx + 45, y: cy }], [{ x: cx - 85, y: cy + 20 }, { x: cx + 85, y: cy + 20 }])); // a pinch and a move on top
+    const before = await camNow(), f = await frames();
+    await tap(cx, cy); await sleep(90); await tap(cx, cy);
+    await waitFor('window.__camera.busy === false', 60); await redrawn(f); await sleep(200);
+    const after = await camNow(), picReset = await picture(`${tag}-cam-6-double-tap-reset`);
+    record(label('a double tap goes back to the start: turn, zoom and pan'), panLen(before) > 0.05 && panLen(after) < 0.005 && Math.abs(after.d - home.base) < 0.01 && Math.abs(((after.az - home.az + 540) % 360) - 180) < 1.5 && picReset !== picTurn,
+      { before: { pan: before.pan.map(round2), d: round2(before.d), az: round2(before.az) }, after: { pan: after.pan.map(round2), d: round2(after.d), az: round2(after.az) }, home: { d: round2(home.base), az: round2(home.az) }, sameAsStart: picReset === picHome });
+    // the move stops at the edge of the model grown by 15 percent: a long drag does not lose the model
+    for (let k = 0; k < 3; k++) await multiDrag([{ x: 10, y: cy }, { x: 60, y: cy }], [{ x: W - 40, y: cy }, { x: W - 10, y: cy }], 6);
+    await sleep(300);
+    const far = await camNow(), lim = JSON.parse(await ev('JSON.stringify(window.__shell ? window.__shell.extent() : window.__planInfo().extent)'));
+    const box = Array.isArray(lim) ? { minX: lim[0], maxX: lim[1], minZ: lim[2], maxZ: lim[3] } : lim, gx = (box.maxX - box.minX) * 0.15, gz = (box.maxZ - box.minZ) * 0.15;
+    record(label('a long drag stops at the edge of the model grown by 15 percent'), panLen(far) > 1 && far.target[0] >= box.minX - gx - 0.01 && far.target[0] <= box.maxX + gx + 0.01 && far.target[2] >= box.minZ - gz - 0.01 && far.target[2] <= box.maxZ + gz + 0.01,
+      { target: far.target.map(round2), box: [box.minX, box.maxX, box.minZ, box.maxZ].map(round2), pan: far.pan.map(round2) });
+    await homeAgain();
+    await resizeKeepsPan(tag);
+  } else {
+    // the right button moves the picture, and no menu opens
+    await ev(`window.__ctx = []; window.addEventListener('contextmenu', (e) => window.__ctx.push(e.defaultPrevented))`);
+    const [dx, dy] = [90, 50], g0 = await groundAt(cx, cy);
+    const a = await gesture(() => mouseDrag('right', cx, cy, cx + dx, cy + dy));
+    const g1 = await groundAt(cx + dx, cy + dy), picA = await picture(`${tag}-cam-1-right-button`), ctx = JSON.parse(await ev('JSON.stringify(window.__ctx)'));
+    record(label('the right button moves the picture, the ground stays under the pointer, no menu'), panLen(a.c1) > 0.3 && gap(g0, g1) < 0.2 && Math.abs(a.c1.az - a.c0.az) < 0.5 && Math.abs(a.c1.d / a.c0.d - 1) < 0.01 && picA !== picHome && ctx.every((x) => x === true),
+      { panMetres: a.c1.pan.map(round2), driftMetres: round2(gap(g0, g1)), turned: round2(a.c1.az - a.c0.az), contextMenuPrevented: ctx, pictureChanged: picA !== picHome });
+    // the middle button
+    await homeAgain();
+    const gm0 = await groundAt(cx, cy), m = await gesture(() => mouseDrag('middle', cx, cy, cx - dx, cy + dy)), gm1 = await groundAt(cx - dx, cy + dy);
+    record(label('the middle button moves the picture'), panLen(m.c1) > 0.3 && gap(gm0, gm1) < 0.2 && Math.abs(m.c1.az - m.c0.az) < 0.5, { panMetres: m.c1.pan.map(round2), driftMetres: round2(gap(gm0, gm1)) });
+    // Shift with the left button
+    await homeAgain();
+    const gs0 = await groundAt(cx, cy), s = await gesture(() => mouseDrag('left', cx, cy, cx + dx, cy - dy, 8)), gs1 = await groundAt(cx + dx, cy - dy), picS = await picture(`${tag}-cam-2-shift-left`);
+    record(label('Shift with the left button moves the picture'), panLen(s.c1) > 0.3 && gap(gs0, gs1) < 0.2 && Math.abs(s.c1.az - s.c0.az) < 0.5 && picS !== picA, { panMetres: s.c1.pan.map(round2), driftMetres: round2(gap(gs0, gs1)), pictureChanged: picS !== picA });
+    // the wheel zooms towards the pointer: the ground point under it stays under it
+    await homeAgain();
+    const P = { x: cx + 160, y: cy - 40 }, gw0 = await groundAt(P.x, P.y), picW0 = await picture(`${tag}-cam-3-before-wheel`);
+    const w = await gesture(async () => { for (let k = 0; k < 4; k++) { await wheelAt(P.x, P.y, -240); await sleep(70); } });
+    const gw1 = await groundAt(P.x, P.y), picW1 = await picture(`${tag}-cam-4-wheel-in`);
+    record(label('the wheel zooms towards the pointer and keeps the ground under it'), w.c1.d < 0.7 * w.c0.d && gap(gw0, gw1) < 0.15 && picW1 !== picW0 && panLen(w.c1) > 0.05,
+      { distance: `${round2(w.c0.d)} -> ${round2(w.c1.d)}`, driftMetres: round2(gap(gw0, gw1)), panMetres: w.c1.pan.map(round2), nearPlane: round2(w.c1.near), pictureChanged: picW1 !== picW0 });
+    const wo = await gesture(async () => { for (let k = 0; k < 6; k++) { await wheelAt(P.x, P.y, 300); await sleep(70); } });
+    const gw2 = await groundAt(P.x, P.y);
+    record(label('the wheel the other way zooms out about the same point, up to the far limit'), wo.c1.d > wo.c0.d * 1.4 && wo.c1.d <= 1.8 * wo.c1.base + 1e-6 && gap(gw0, gw2) < 0.3, { distance: `${round2(wo.c0.d)} -> ${round2(wo.c1.d)} (limit ${round2(1.8 * wo.c1.base)})`, driftMetres: round2(gap(gw0, gw2)) });
+    // zoom in to the near limit: the camera stays outside the walls and the near plane has shrunk
+    await homeAgain();
+    await gesture(async () => { for (let k = 0; k < 30; k++) { await wheelAt(cx, cy, -400); await sleep(25); } });
+    const nearest = await camNow(), picNear = await picture(`${tag}-cam-5-nearest`);
+    record(label('the nearest zoom is 0.2 times the default distance and the near plane shrinks with it'), Math.abs(nearest.d - 0.2 * nearest.base) < 0.02 && nearest.near < 0.5, { distance: round2(nearest.d), base: round2(nearest.base), nearPlane: round2(nearest.near) });
+    // a double click goes back to the start, the pan included
+    await gesture(() => mouseDrag('right', cx, cy, cx + 60, cy + 30));
+    const before = await camNow(), f = await frames();
+    await tap(cx, cy); await sleep(90); await tap(cx, cy);
+    await waitFor('window.__camera.busy === false', 60); await redrawn(f); await sleep(200);
+    const after = await camNow(), picReset = await picture(`${tag}-cam-6-double-click-reset`);
+    record(label('a double click goes back to the start: turn, zoom and pan'), panLen(before) > 0.05 && panLen(after) < 0.005 && Math.abs(after.d - home.base) < 0.01 && picReset !== picNear,
+      { before: { pan: before.pan.map(round2), d: round2(before.d) }, after: { pan: after.pan.map(round2), d: round2(after.d) }, sameAsStart: picReset === picHome });
+    // the left button still turns
+    const t0 = await camNow(), turn = await gesture(() => drag(Math.round(W * 0.2), cy, Math.round(W * 0.2) + Math.round(0.35 * Math.min(W, H)), cy, 150));
+    await waitFor('window.__camera.busy === false', 60);
+    record(label('the left button still turns the model'), Math.abs(turn.c1.az - t0.az) > 15 && gap(t0.pan, turn.c1.pan) < 1e-6, { turned: round2(turn.c1.az - t0.az) });
+    await homeAgain();
+    await resizeKeepsPan(tag);
+  }
+}
+
+// The editor's camera steps (--edit): a gesture of two or three fingers (or the right button, or Shift with the left one) that starts on a piece moves the
+// picture and touches no piece and no selection; one finger on a piece still drags it (the steps above), one finger beside the pieces still turns.
+async function editCameraBlock(pieceId) {
+  { // while editing the shell is off and the board is the old one: the bounds of the closed model with a margin of 9 percent (at least 0.5 m)
+    const e = JSON.parse(await ev('JSON.stringify(window.__planInfo().extent)')), w = e[1] - e[0], d = e[3] - e[2], margin = Math.max(0.5, 0.09 * Math.max(w, d)), b = JSON.parse(await ev('JSON.stringify(window.__stats.board)'));
+    record('edit: the board is the old one (the shell is off while editing): the closed model plus a margin of 9 percent', Math.abs(b.width - (w + 2 * margin)) < 0.03 && Math.abs(b.depth - (d + 2 * margin)) < 0.03, { board: `${b.width} x ${b.depth} m`, model: `${w.toFixed(2)} x ${d.toFixed(2)} m`, margin: +margin.toFixed(2) });
+  }
+  await ev('window.__edit.session.select(null)'); await homeAgain(); await sleep(300);
+  const layoutNow = () => ev('JSON.stringify(window.__edit.session.state.layout)');
+  const { top } = await pictureArea();
+  let pt = await ev(`window.__edit.screenOf(${JSON.stringify(pieceId)})`);
+  if (!pt || (await ev(`window.__edit.hit(${pt.x}, ${pt.y})`)) !== pieceId || pt.y > top - 40) pt = null;
+  if (!pt) { record('camera edit: a piece is on the picture to start the gestures on', false, { piece: pieceId }); return; }
+  const lay0 = await layoutNow(), cx = Math.round(pt.x), cy = Math.round(pt.y), pic0 = await picture('cam-edit-0');
+  const sel = () => ev('window.__edit.selectedId()');
+  if (!opt.desktop) {
+    const g0 = await groundAt(cx, cy);
+    const a = await gesture(() => multiDrag([{ x: cx, y: cy }, { x: Math.min(W - 20, cx + 90), y: cy }], [{ x: cx + 50, y: cy + 30 }, { x: Math.min(W - 20, cx + 90) + 50, y: cy + 30 }]));
+    const g1 = await groundAt(cx + 50 + (Math.min(W - 20, cx + 90) - cx) / 2, cy + 30), picA = await picture('cam-edit-1-two-fingers');
+    record('camera edit: two fingers that start on a piece move the picture, no piece moves, nothing is selected', panLen(a.c1) > 0.2 && (await layoutNow()) === lay0 && (await sel()) === null && picA !== pic0,
+      { panMetres: a.c1.pan.map(round2), layoutSame: (await layoutNow()) === lay0, selected: await sel(), pictureChanged: picA !== pic0 });
+    await homeAgain();
+    const tri = [{ x: cx, y: cy }, { x: Math.max(20, cx - 70), y: cy + 20 }, { x: Math.min(W - 20, cx + 70), y: cy + 20 }];
+    const c = await gesture(() => multiDrag(tri, tri.map((p) => ({ x: p.x - 40, y: p.y + 30 }))));
+    record('camera edit: three fingers that start on a piece move the picture, no piece moves, nothing is selected', panLen(c.c1) > 0.2 && (await layoutNow()) === lay0 && (await sel()) === null,
+      { panMetres: c.c1.pan.map(round2), layoutSame: (await layoutNow()) === lay0, selected: await sel() });
+    await homeAgain();
+    // one finger beside the pieces turns the model and moves no piece
+    const area = await pictureArea(); let spot = null;
+    search: for (const fy of [0.35, 0.2, 0.5, 0.1, 0.65]) for (const fx of [0.2, 0.1, 0.3, 0.05, 0.4]) {
+      const px = Math.round(W * fx), py = Math.round(area.top * fy);
+      if ((await ev(`window.__edit.hit(${px}, ${py})`)) === null) { spot = { x: px, y: py }; break search; }
+    }
+    const t0 = await camNow(), turn = spot ? await gesture(() => drag(spot.x, spot.y, Math.min(W - 10, spot.x + Math.round(0.35 * Math.min(W, H))), spot.y, 150)) : null;
+    if (turn) await waitFor('window.__camera.busy === false', 60);
+    record('camera edit: one finger beside the pieces still turns the model and moves no piece', !!turn && Math.abs(turn.c1.az - t0.az) > 15 && (await layoutNow()) === lay0, { turned: turn ? round2(turn.c1.az - t0.az) : null, layoutSame: (await layoutNow()) === lay0 });
+  } else {
+    const [dx, dy] = [80, 40], g0 = await groundAt(cx, cy);
+    const a = await gesture(() => mouseDrag('right', cx, cy, cx + dx, cy + dy)), g1 = await groundAt(cx + dx, cy + dy);
+    record('camera edit: the right button on a piece moves the picture, no piece moves, nothing is selected', panLen(a.c1) > 0.2 && gap(g0, g1) < 0.2 && (await layoutNow()) === lay0 && (await sel()) === null,
+      { panMetres: a.c1.pan.map(round2), driftMetres: round2(gap(g0, g1)), layoutSame: (await layoutNow()) === lay0, selected: await sel() });
+    await homeAgain();
+    const s = await gesture(() => mouseDrag('left', cx, cy, cx + dx, cy - dy, 8));
+    record('camera edit: Shift with the left button on a piece moves the picture and no piece', panLen(s.c1) > 0.2 && (await layoutNow()) === lay0 && (await sel()) === null, { panMetres: s.c1.pan.map(round2), layoutSame: (await layoutNow()) === lay0, selected: await sel() });
+    await homeAgain();
+    const gw0 = await groundAt(cx, cy), w = await gesture(async () => { for (let k = 0; k < 3; k++) { await wheelAt(cx, cy, -240); await sleep(70); } }), gw1 = await groundAt(cx, cy);
+    record('camera edit: the wheel zooms towards the pointer, the ground under it stays', w.c1.d < 0.8 * w.c0.d && gap(gw0, gw1) < 0.15 && (await layoutNow()) === lay0, { distance: `${round2(w.c0.d)} -> ${round2(w.c1.d)}`, driftMetres: round2(gap(gw0, gw1)) });
+  }
+  await homeAgain();
+}
 
 try {
   let list;
@@ -217,16 +433,28 @@ try {
       if ((await ev(`window.__edit.hit(${px}, ${py})`)) === null) { x0 = px; y = py; break search; }
     }
   }
-  const a0 = await turnAz(), f4 = await frames(), picBefore = pic;
+  const a0 = await turnAz(), f4 = await frames(), picBefore = pic, turnT0 = Date.now();
   await drag(x0, y, Math.min(W - 10, x0 + dragPx), y, 150);
   await waitFor('window.__camera && window.__camera.busy === false', 60);
   const r5 = await redrawn(f4);
   const a1 = await turnAz(), near1 = await ev('window.__camera.near');
   const hintGone = await ev('!document.querySelector("#ps-hint")');
+  const msgNow = await ev(`document.querySelector('#ps-ui-msg')?.textContent ?? ''`); // the one-line message above the bar: the touch hint is there right after the first turn
   const pic5 = await picture('5-turned');
   const turned = Math.abs(wrap(a1 - a0));
   record('turn the model', a0 >= 0 && turned > 45 && turned < 140 && pic5 !== picBefore && r5.ok !== false && hintGone, { azimuth: `${a0.toFixed(0)} -> ${a1.toFixed(0)}`, turned: Math.round(turned), nearEdges: near1, hintGone, redrawnFrames: r5.counts ? `${f4} -> ${await frames()}` : 'not reported', pictureChanged: pic5 !== picBefore });
   pic = pic5;
+
+  // the first one-finger turn on a touch screen says how to zoom and move, in one line that fits the screen and goes away by itself after about 6 seconds; with the mouse nothing is said
+  if (!opt.desktop) {
+    const fits = await ev(`(() => { const m = document.querySelector('#ps-ui-msg'); return !!m && m.scrollWidth <= m.clientWidth + 1; })()`);
+    const goneAfter = await waitFor(`!document.querySelector('#ps-ui-msg').textContent`, 14, 150), goneMs = Date.now() - turnT0;
+    const other = await ev(`(() => { const m = document.querySelector('#ps-ui-msg'), old = m.textContent, lang = document.documentElement.lang; m.textContent = lang === 'pl' ? '1 finger: turn, 2 fingers: zoom and move, double tap: back' : '1 palec: obrót, 2 palce: zoom i ruch, 2 dotknięcia: wróć'; const ok = m.scrollWidth <= m.clientWidth + 1; m.textContent = old; return ok; })()`);
+    record('touch hint: the first turn shows one line (zoom, move, double tap), it fits, it goes away after about 6 s', /palec|finger/.test(msgNow) && /zoom/.test(msgNow) && fits && other && goneAfter && goneMs > 5000 && goneMs < 11000, { line: msgNow, fitsOnOneLine: fits, otherLanguageFits: other, goneAfterMs: goneMs });
+    const f4b = await frames(); await drag(x0, y, Math.min(W - 10, x0 + Math.round(dragPx / 2)), y, 150); await waitFor('window.__camera && window.__camera.busy === false', 60); await redrawn(f4b);
+    record('touch hint: shown once per page load (a second turn says nothing)', (await ev(`document.querySelector('#ps-ui-msg')?.textContent ?? ''`)) === '', {});
+    pic = await picture('5b-turned-again');
+  } else record('no touch hint with the mouse', msgNow === '', { line: msgNow });
 
   // 9. a double tap on the picture goes back to the starting view
   const f5 = await frames();
@@ -351,6 +579,9 @@ try {
     await click('undo'); await sleep(400);
     const n2 = await count();
     record('edit: delete removes the piece, undo brings it back', n1 < n0 && selAfter === null && n2 === n0 && picDel !== picTurn, { count: `${n0} -> ${n1} -> ${n2}`, selectedAfter: selAfter, pictureChanged: picDel !== picTurn });
+
+    // the camera in the editor: gestures of several fingers, the right button and Shift start on a piece and touch no piece
+    await editCameraBlock(id);
 
     // automatic layout: the layout is the automatic one again
     f = await frames();
@@ -524,6 +755,9 @@ try {
     record('buttons: Edit, Save image and Load plan are on screen, at least 44 px', classic.length === 3 && classic.every(onScreen), { buttons: classic.map((b) => `${b.text} ${Math.round(b.w)}x${Math.round(b.h)} at ${Math.round(b.x)},${Math.round(b.y)}`) });
     record('buttons: the example plans and the open shell are on screen, at least 44 px', extra.length === 3 && extra.every(onScreen), { buttons: extra.map((b) => `${b.text} ${Math.round(b.w)}x${Math.round(b.h)} at ${Math.round(b.x)},${Math.round(b.y)}`) });
 
+    // the camera steps (pan, pinch, wheel, double tap) on the flat, then on the duplex below
+    await cameraBlock('flat-1');
+
     // the example plans: Duplex builds the two-storey plan in place (a second level, another picture, plan=duplex-1 in the address, its button pressed), Flat goes back
     const planNow = async () => JSON.parse(await ev(`JSON.stringify({ levels: window.__planInfo().levels, pieces: window.__planInfo().pieces, pressed: [...document.querySelectorAll('#ps-ui button[data-plan]')].filter((b) => b.getAttribute('aria-pressed') === 'true').map((b) => b.dataset.plan), hash: location.hash, fail: window.__fail || null })`));
     const planBefore = await planNow(), picPlanFlat = await picture('35-plan-flat');
@@ -531,6 +765,7 @@ try {
     await tapAt('#ps-ui button[data-plan="duplex-1"]'); await redrawn(fpl);
     const planDup = await planNow(), picPlanDup = await picture('36-plan-duplex');
     record('example plans: Duplex builds the two-storey plan in place', planBefore.levels === 1 && planBefore.pressed.join() === 'flat-1' && planDup.levels === 2 && planDup.pressed.join() === 'duplex-1' && /plan=duplex-1/.test(planDup.hash) && picPlanDup !== picPlanFlat && !planDup.fail, { before: planBefore, after: planDup, pictureChanged: picPlanDup !== picPlanFlat });
+    await cameraBlock('duplex-1');
     fpl = await frames();
     await tapAt('#ps-ui button[data-plan="flat-1"]'); await redrawn(fpl);
     const planFlat2 = await planNow(), picPlanFlat2 = await picture('37-plan-flat-again');
@@ -552,6 +787,18 @@ try {
     await redrawn(fsh); await sleep(300);
     const sh2 = await shellNow(), picSh2 = await picture('40-shell-closed-again');
     record('open shell: the same button folds it back', closedOk && sh2.clock === 0 && sh2.deg.every((d) => d === 0) && JSON.stringify(sh2.view) === JSON.stringify(sh0.view) && picSh2 !== picSh1 && /Open|Otwórz/.test(sh2.label), { after: sh2, pictureChanged: picSh2 !== picSh1 });
+
+    // the card board under the model: it hugs the closed model, holds every wall as the shell opens and shrinks back as it folds (asserted from the page)
+    {
+      const e = JSON.parse(await ev('JSON.stringify(window.__planInfo().extent)')), open = JSON.parse(await ev('JSON.stringify(window.__shell.extent())'));
+      const w = e[1] - e[0], d = e[3] - e[2], rim = Math.max(0.35, 0.06 * Math.max(w, d));
+      const boardAt = async (p) => { await ev(`window.__shell.seek(${p})`); return JSON.parse(await ev('JSON.stringify(window.__stats.board)')); };
+      const holds = (b, x) => b.minX <= x.minX + 1e-6 && b.maxX >= x.maxX - 1e-6 && b.minZ <= x.minZ + 1e-6 && b.maxZ >= x.maxZ - 1e-6;
+      const b0 = await boardAt(0), picBoard0 = await picture('38b-board-closed'), bMid = await boardAt(0.4), b1 = await boardAt(1), picBoard1 = await picture('39b-board-open'), b2 = await boardAt(0);
+      record('board: hugs the closed model (rim of 6 percent, at least 0.35 m), grows with the open shell, holds every wall, shrinks back',
+        b0.width >= w + 2 * rim - 0.04 && b0.width <= w + 2 * rim + 0.7 && b0.depth >= d + 2 * rim - 0.04 && b0.depth <= d + 2 * rim + 0.7 && b0.width < 0.8 * b1.width && b0.depth < 0.9 * b1.depth && b0.width < bMid.width && bMid.width < b1.width && holds(b1, open) && Math.abs(b2.width - b0.width) < 0.01 && Math.abs(b2.depth - b0.depth) < 0.01 && picBoard0 !== picBoard1,
+        { closedModel: `${w.toFixed(2)} x ${d.toFixed(2)} m`, rimMetres: +rim.toFixed(2), closedBoard: `${b0.width} x ${b0.depth} m`, halfOpenBoard: `${bMid.width} x ${bMid.depth} m`, openBoard: `${b1.width} x ${b1.depth} m`, backClosedBoard: `${b2.width} x ${b2.depth} m`, holdsOpenExtent: holds(b1, open), pictureChanged: picBoard0 !== picBoard1 });
+    }
 
     // saving the picture: the file handed over is a PNG
     await ev(`(() => { window.__png = []; const orig = URL.createObjectURL.bind(URL); URL.createObjectURL = (b) => { window.__png.push(b); return orig(b); }; })()`);
@@ -631,6 +878,11 @@ try {
     await waitFor(`window.__frames > ${f0}`, 30); await sleep(600);
     const okLine = await lineNow(), after = await infoNow(), picAfter = await picture('42-plan-loaded');
     record('Load plan: another plan is built in place, the picture and the pieces change', swapped && picAfter !== picBefore && after.pieces !== before.pieces && /Plan loaded|Wczytano plan/.test(okLine) && (await ev('!window.__fail')), { before, after, line: okLine.slice(0, 100) });
+    if (!opt.edit && (await ev('typeof window.__shell')) === 'object') { // a plan loaded at run time: the board hugs the closed model of the new plan, and grows with its shell
+      const e2 = JSON.parse(await ev('JSON.stringify(window.__planInfo().extent)')), open2 = JSON.parse(await ev('JSON.stringify(window.__shell.extent())')), w2 = e2[1] - e2[0], rim2 = Math.max(0.35, 0.06 * Math.max(w2, e2[3] - e2[2]));
+      const bc = JSON.parse(await ev('JSON.stringify(window.__stats.board)')); await ev('window.__shell.seek(1)'); const bo = JSON.parse(await ev('JSON.stringify(window.__stats.board)')); await ev('window.__shell.seek(0)');
+      record('Load plan: the board of the new plan hugs its closed model and grows to hold its open shell', bc.width >= w2 + 2 * rim2 - 0.04 && bc.width <= w2 + 2 * rim2 + 0.7 && bc.width < 0.8 * bo.width && bo.minX <= open2.minX + 1e-6 && bo.maxX >= open2.maxX - 1e-6 && bo.minZ <= open2.minZ + 1e-6 && bo.maxZ >= open2.maxZ - 1e-6, { closedBoardWidth: bc.width, openBoardWidth: bo.width, closedModelWidth: round2(w2), rim: round2(rim2) });
+    }
     if (opt.edit) {
       const n = await ev('window.__edit.count()'), undoable = await ev('window.__edit.session.canUndo()');
       const firstId = await ev('window.__edit.session.state.layout.levels[0].pieces[0]?.id ?? null');

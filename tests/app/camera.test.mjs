@@ -32,7 +32,8 @@ test('orbit keeps the polar angle inside its limits, wraps the azimuth and never
   assert.equal(makeState({ polar: 90 }).polar, POLAR_MAX);
 });
 
-test('zoom stays within 0.45 to 1.8 times the default distance and ignores bad factors', () => {
+test('zoom stays within 0.2 to 1.8 times the default distance and ignores bad factors', () => {
+  assert.equal(ZOOM_MIN, 0.2); assert.equal(ZOOM_MAX, 1.8);
   let s = makeState({ distance: 10 });
   for (let i = 0; i < 100; i++) s = zoom(s, 1.2);
   assert.ok(Math.abs(s.distance - 10 * ZOOM_MIN) < 1e-9);
