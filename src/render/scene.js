@@ -1,7 +1,8 @@
 // three.js scene graph for a model: named groups (level:, wall:, opening:, room:, stair:, furniture:). All names double as GLB node names.
 // The presentation scene (light, base, backdrop) is in src/look/stage.js.
 import * as THREE from 'three';
-import { mat, floorMat, floorName, texScale, paintMat, LOOKS } from './materials.js';
+import { mat, floorMat, floorName, texScale, paintMat, LOOKS, setWallFloors } from './materials.js';
+import { sunPatchMesh } from './sunpatch.js';
 import { MATERIAL_KEYS } from './library.js';
 import { buildFurniture, SCENE_MESHES } from '../furniture/legacy.js';
 import { levelOffsets } from '../model/geometry.js';
@@ -140,10 +141,14 @@ export class PlanScene {
     this.wallPieces = []; // every wall piece with its box and the level it stands on
     this.skins = new Map(); // painted skins on wall faces, by id
     this.roomColors = {};
+    this._panes = []; // every window pane with its level, for the window light on the floor
+    this.sunPatch = null;
     this.levelGroups = model.levels.map((lv) => this._level(lv));
     this.levelGroups.forEach((g) => this.group.add(g));
     this.setExplode(0);
     this.setMaterials(look);
+    this.sunPatch = sunPatchMesh(this._panes, this.group);
+    if (this.sunPatch) this.group.add(this.sunPatch);
   }
 
   _box(parent, b, drop) {
@@ -214,7 +219,10 @@ export class PlanScene {
       const og = new THREE.Group();
       og.name = `opening:${o.id}`;
       og.userData.type = o.type;
-      for (const b of o.parts) this._box(og, b, 0);
+      for (const b of o.parts) {
+        const bm = this._box(og, b, 0);
+        if (b.mat === 'glass') this._panes.push({ mesh: bm, floorY: lv.elevation, rooms: lv.rooms.filter((r) => r.polygon.length >= 3).map((r) => r.polygon) });
+      }
       g.add(og);
       if (o.arc) {
         const pts = [];
@@ -290,6 +298,8 @@ export class PlanScene {
   setExplode(e) {
     const off = levelOffsets(this.model, e);
     this.model.levels.forEach((lv, i) => { this.levelGroups[i].position.y = lv.elevation + off[i]; });
+    setWallFloors(this.model.levels.map((lv, i) => lv.elevation + off[i])); // the foot of every wall darkens a little above its floor
+    if (this.sunPatch) this.sunPatch.visible = e < 1e-3; // the window light stays on the floor, so it hides while the levels move apart
   }
 
   setCut(h) {

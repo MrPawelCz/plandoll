@@ -102,7 +102,7 @@ export function mirror(b) {
 export function curtain(b) {
   const { w, d, h } = b;
   const folds = clamp(Math.round(w / 0.15), 4, 24), amp = Math.min(0.045, (d - 0.04) / 2.4), top = h - 0.045;
-  b.add('fabric', pleated(w - 0.05, top, folds, amp, { rows: 6, seed: b.seed + 1, thick: 0.012 }), 'f:linen', M(0, 0, -0.012), { uv: 'keep' });
+  b.add('fabric', pleated(w - 0.05, top, folds, amp, { rows: 6, seed: b.seed + 1, thick: 0.012, uneven: true }), 'f:linen', M(0, 0, -0.012), { uv: 'keep' });
   b.cyl('rod', 'k:brass', [0, h - 0.025, 0.008], 0.011, 0.011, w, { seg: 10, rot: [0, 0, Math.PI / 2] });
   for (const s of [-1, 1]) b.add('rod', new THREE.SphereGeometry(0.02, 10, 8), 'k:brass', M(s * (w / 2 - 0.02), h - 0.025, 0.008), { uv: 'keep' });
   const rings = clamp(Math.round(w / 0.14), 4, 26);

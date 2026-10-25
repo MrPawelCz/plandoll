@@ -25,7 +25,10 @@ export function applyWallCut(ps, ext, near = NEAR_DEFAULT, { edge = 0.3 } = {}) 
     if (c.cast0 === undefined) c.cast0 = m.castShadow;
     const h = wallCutHeight(x, z, ext, edge, near), top = c.y0 >= h - 1e-4 ? null : Math.min(c.y1, h);
     const was = `${m.visible}|${m.scale.y.toFixed(5)}`;
-    if (top === null) m.visible = false; else { place(m, c.y0, top); m.visible = true; }
+    // a window pane that the cut leaves as a thin strip would glow like a light bar: it goes away with the wall above it
+    const strip = m.pw?.pane === true && top !== null && top < c.y1 - 1e-4;
+    if (top === null || strip) m.visible = false; else { place(m, c.y0, top); m.visible = true; }
+    if (m.pw?.pane === true) ps.sunPatch?.userData.show(m, m.visible); // the light of a window goes with the window
     if (was !== `${m.visible}|${m.scale.y.toFixed(5)}`) changed++;
     const sides = edgeSides(x, z, ext, edge), sunSide = sides.length > 0 && sides.every((s) => s === 'south' || s === 'east'); // corner pieces that also touch a north or west edge keep their shadow
     const longPartition = h === WALL_PART && Math.max(m.scale.x, m.scale.z) > 3.5;

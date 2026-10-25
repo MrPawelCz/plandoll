@@ -42,7 +42,7 @@ export function contactMaterial() {
 export function setContactLook(k) {
   const m = contactMaterial();
   m.color.set(k.gnd).multiplyScalar(0.2);
-  m.opacity = 0.56 + 0.12 * (1 - Math.min(1, Math.max(0, k.sunI / 3.3)));
+  m.opacity = 0.66 + 0.14 * (1 - Math.min(1, Math.max(0, k.sunI / 3.3)));
 }
 
 const _inv = new THREE.Matrix4(), _m = new THREE.Matrix4(), _b = new THREE.Box3();

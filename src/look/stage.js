@@ -10,6 +10,7 @@ import { backdropCrop } from './crop.js';
 import { mat } from '../render/materials.js';
 import { setTextureAnisotropy } from '../render/materials.js';
 import { setContactLook } from '../render/contact.js';
+import { setSunPatchLook } from '../render/sunpatch.js';
 
 // ---------- palette tints (they multiply the procedural textures of the material library) ----------
 export function applyPalette(P) {
@@ -161,7 +162,7 @@ export function createStage(options = {}) {
     const k = sample(t); state.t = k.t; state.look = k; state.clockText = clock(k.t).text;
     const res = rig.applyTime(k, k.t); state.lampK = res.lampK; state.sun = res.sun;
     if (scene && rig.environment) scene.environmentIntensity = k.envI;
-    setContactLook(k);
+    setContactLook(k); setSunPatchLook(k, res.sun.dir);
     glass.emissive.set(k.winC); glass.emissiveIntensity = k.winI; glass.color.set(k.winC).multiplyScalar(0.25);
     const sig = k.bgTop + k.bgBot + k.glow + k.glowA.toFixed(2);
     if (sig !== lastBg) { lastBg = sig; paintBackdrop(bg, k); bgTex.needsUpdate = true; }

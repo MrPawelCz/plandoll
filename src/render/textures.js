@@ -267,7 +267,7 @@ function genTile(size, seed, color, height, avg) {
       const g = lineCover(d, 3.0);
       const k = ((y + oy[t]) & m) * size + ((x + ox[t]) & m);
       const w = wn(x, y, seed + 11);
-      let lum = 1 + 0.025 * tone[t] + 0.006 * mott[k] + 0.007 * w;
+      let lum = 1 + 0.04 * tone[t] + 0.006 * mott[k] + 0.007 * w;
       // veins: thin wavy lines along the two diagonals (integer counts keep them periodic), faded in and out
       const pa = ((x + ox[t] + y + oy[t]) * 3) / size + 0.3 * warp[k];
       const pb = ((x + ox[t] - y - oy[t] + 2 * size) * 2) / size + 0.3 * warp2[k];
@@ -385,14 +385,15 @@ function genConcrete(size, seed, color, height, avg) {
   }
 }
 
-// Matt paint on plaster: a soft orange peel and a slow drift of tone, enough to read as a painted wall from the default view.
+// Matt paint on plaster: a soft orange peel and a very slow, wide drift of tone (two octaves, so no small blotches), enough to read
+// as a painted wall from the default view without looking stained.
 function genPlaster(size, seed, color, height, avg) {
   const peel = noiseField(size, size >> 2, size >> 2, 2, seed + 1);
-  const drift = noiseField(size, 3, 3, 3, seed + 2);
+  const drift = noiseField(size, 2, 2, 2, seed + 2);
   for (let y = 0; y < size; y++) {
     for (let x = 0; x < size; x++) {
       const i = y * size + x, w = wn(x, y, seed + 3);
-      const lum = 1 + 0.009 * peel[i] + 0.018 * drift[i] + 0.003 * w;
+      const lum = 1 + 0.0075 * peel[i] + 0.0085 * drift[i] + 0.003 * w;
       put(color, i * 4, avg[0] * lum * (1 + 0.0015 * drift[i]), avg[1] * lum, avg[2] * lum * (1 - 0.002 * drift[i]));
       height[i] = peel[i] + 0.5 * w;
     }

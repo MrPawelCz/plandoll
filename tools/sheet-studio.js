@@ -29,6 +29,8 @@ export function labelSprite(text, height = 0.3) {
   const x = c.getContext('2d');
   x.font = '600 44px ui-sans-serif, system-ui, sans-serif';
   x.textAlign = 'center'; x.textBaseline = 'middle';
+  const wide = x.measureText(text).width;
+  if (wide > 490) x.font = `600 ${Math.max(18, Math.floor((44 * 490) / wide))}px ui-sans-serif, system-ui, sans-serif`; // a long name shrinks to fit the label
   x.fillStyle = 'rgba(40,36,32,0.92)';
   x.fillText(text, 256, 48);
   const t = new THREE.CanvasTexture(c);
@@ -46,7 +48,7 @@ export function layoutGrid(parent, items, { cols = 6, cell = 2.4 } = {}) {
     const cx = ((i % cols) - (cols - 1) / 2) * cell, cz = (Math.floor(i / cols) - (rows - 1) / 2) * cell;
     it.object.position.set(cx, it.object.position.y, cz);
     parent.add(it.object);
-    if (it.label) { const s = labelSprite(it.label); s.position.set(cx, 0.02, cz + cell * 0.4); parent.add(s); }
+    if (it.label) { const s = labelSprite(it.label, Math.min(0.3, Math.max(0.08, 0.12 * cell))); s.position.set(cx, 0.02, cz + cell * 0.4); parent.add(s); } // small cells get small labels
   });
   return { width: cols * cell, depth: rows * cell };
 }
@@ -78,7 +80,16 @@ export function runSheet(build) {
     const az = (Number(opt.az ?? 35) * Math.PI) / 180, el = (Number(opt.el ?? 35) * Math.PI) / 180;
     key.position.set(Math.sin(az + 0.8) * 20, 18, Math.cos(az + 0.8) * 20);
     const camera = new THREE.PerspectiveCamera(Number(opt.fov ?? 24), W / H, 0.5, 200);
-    const dist = (Math.hypot(extent.width, extent.depth) * 0.5) / Math.tan((camera.fov * Math.PI) / 360) * 0.74;
+    let dist = (Math.hypot(extent.width, extent.depth) * 0.5) / Math.tan((camera.fov * Math.PI) / 360) * 0.74;
+    if (opt.fit === 'tight') { // fit the grid to the frame on both axes (a little air round it) instead of its diagonal
+      const tv = Math.tan((camera.fov * Math.PI) / 360), th = tv * (W / H), ca = Math.abs(Math.cos(az)), sa = Math.abs(Math.sin(az));
+      let top = 0.3;
+      scene.updateMatrixWorld(true); // the boxes below need the placed positions of the pieces
+      const box = new THREE.Box3();
+      scene.traverse((o) => { if (o.isMesh && o !== floor) { box.setFromObject(o); if (Number.isFinite(box.max.y)) top = Math.max(top, box.max.y); } });
+      const hHalf = (extent.width * ca + extent.depth * sa) / 2 + 0.15, vHalf = ((extent.width * sa + extent.depth * ca) / 2) * Math.sin(el) + Math.max(0.3, top - 0.3) * Math.cos(el) + 0.1;
+      dist = Math.max(hHalf / th, vHalf / tv) * 1.08;
+    }
     camera.position.set(Math.sin(az) * Math.cos(el) * dist, Math.sin(el) * dist, Math.cos(az) * Math.cos(el) * dist);
     camera.lookAt(0, 0.3, 0);
     const times = [];

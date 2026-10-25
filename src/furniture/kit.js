@@ -204,14 +204,25 @@ export function flipped(g) {
 // Returns a closed two-layer sheet (front and back), so it shows from both sides.
 export function pleated(w, h, folds, amp, o = {}) {
   const nx = Math.max(8, Math.round(folds * (o.perFold ?? 6))), ny = o.rows ?? 6, rng = mulberry32(o.seed ?? 3);
-  const sway = Array.from({ length: folds + 2 }, () => 0.8 + rng() * 0.4);
+  // uneven: every fold has its own width and depth, and the hang drifts slowly along the rail, so the cloth does not read as stripes
+  const uneven = o.uneven === true;
+  const sway = Array.from({ length: folds + 2 }, () => (uneven ? 0.35 + rng() * 1.15 : 0.8 + rng() * 0.4));
+  const edge = [0];
+  if (uneven) {
+    const wd = Array.from({ length: folds }, () => 0.4 + rng() * 1.4), sum = wd.reduce((a, b2) => a + b2, 0);
+    for (let k = 0; k < folds; k++) edge.push(edge[k] + (wd[k] / sum) * folds);
+  } else for (let k = 0; k <= folds; k++) edge.push(k);
+  const ph = rng() * 6.28, drift = Array.from({ length: folds + 1 }, (_, k) => Math.sin(ph + k * 0.9) * 0.12);
   const pos = [], uv = [], idx = [];
   for (let j = 0; j <= ny; j++) {
     const v = j / ny;
     for (let i = 0; i <= nx; i++) {
-      const u = i / nx, f = u * folds, k = Math.min(folds, Math.floor(f));
+      const u = i / nx, fu = u * folds;
+      let k = 0;
+      while (k < folds - 1 && fu >= edge[k + 1]) k++;
+      const f = k + (fu - edge[k]) / Math.max(1e-6, edge[k + 1] - edge[k]);
       const wave = 0.5 - 0.5 * Math.cos(f * Math.PI * 2);
-      pos.push((u - 0.5) * w, v * h, amp * wave * sway[k] * (0.75 + 0.25 * v) + (o.lean ?? 0) * (1 - v));
+      pos.push((u - 0.5) * w, v * h, amp * wave * sway[k] * (0.75 + 0.25 * v + (uneven ? 0.1 * Math.sin(v * 4.2 + k * 1.7) : 0)) + (o.lean ?? 0) * (1 - v) + (uneven ? amp * drift[k] * (1 - v) : 0));
       uv.push(u, v);
     }
   }

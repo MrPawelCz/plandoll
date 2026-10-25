@@ -99,11 +99,11 @@ const GLOW = { ceiling: 0.15 };
 // Per texture: surface roughness and the strength of its normal map.
 const SURFACE = {
   'floor-wood': { rough: 0.62, normal: 0.8 },
-  'floor-tile': { rough: 0.42, normal: 0.9 },
+  'floor-tile': { rough: 0.3, normal: 0.9 }, // a glazed sheen: the room light shows softly on the tiles
   'floor-carpet': { rough: 1, normal: 0.7 },
   'floor-stone': { rough: 0.72, normal: 0.8 },
   'floor-concrete': { rough: 0.7, normal: 0.6 },
-  'wall-plaster': { rough: 0.9, normal: 0.45 },
+  'wall-plaster': { rough: 0.93, normal: 0.28 },
   'wood-furniture': { rough: 0.6, normal: 0.6 },
   fabric: { rough: 1, normal: 0.8 },
   rug: { rough: 1, normal: 0.7 },
@@ -170,6 +170,29 @@ function tintOf(name, key) {
   return new THREE.Color(Math.min(1, want.r / avg.r), Math.min(1, want.g / avg.g), Math.min(1, want.b / avg.b));
 }
 
+// The foot of a wall is a little darker than the rest, the way a room dims towards its corners. `uFloors` holds the world height of the
+// floors (unused entries are far below); one uniform shared by every wall material, set by the scene.
+const FLOORS = { value: [-100, -100, -100, -100] };
+export function setWallFloors(list) { for (let i = 0; i < 4; i++) FLOORS.value[i] = Number.isFinite(list?.[i]) ? list[i] : -100; }
+function footShade(m) {
+  m.onBeforeCompile = (sh) => {
+    sh.uniforms.uFloors = FLOORS;
+    sh.vertexShader = sh.vertexShader
+      .replace('#include <common>', '#include <common>\nvarying float vFootY;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvFootY = (modelMatrix * vec4(transformed, 1.0)).y;');
+    sh.fragmentShader = sh.fragmentShader
+      .replace('#include <common>', '#include <common>\nvarying float vFootY;\nuniform float uFloors[4];')
+      .replace('#include <color_fragment>', `#include <color_fragment>
+{
+  float fh = 9.0;
+  for (int i = 0; i < 4; i++) { float d = vFootY - uFloors[i]; if (d > -0.05) fh = min(fh, d); }
+  diffuseColor.rgb *= mix(0.8, 1.0, smoothstep(0.0, 0.7, fh));
+}`);
+  };
+  m.customProgramCacheKey = () => 'wall-foot';
+  return m;
+}
+
 function build(name, look) {
   if (name === 'glass' || name === 'f:glass') {
     return new THREE.MeshStandardMaterial({ color: '#a9c6d8', roughness: 0.05, metalness: 0, transparent: true, opacity: 0.3, depthWrite: false, side: THREE.DoubleSide });
@@ -189,6 +212,7 @@ function build(name, look) {
     m = new THREE.MeshStandardMaterial({ color, roughness: ROUGH[name] ?? 0.92, metalness: name === 'f:steel' ? 0.4 : 0 });
   }
   if (name.startsWith('floor:')) { m.polygonOffset = true; m.polygonOffsetFactor = -1; m.polygonOffsetUnits = -1; }
+  if (name === 'wall') footShade(m);
   return m;
 }
 
@@ -222,6 +246,7 @@ export function paintMat(name, color, look = 'clay', offset = false) {
   const held = paints.get(id);
   if (held) { paints.delete(id); paints.set(id, held); return held; }
   const m = mat(name, look).clone();
+  if (name === 'wall') footShade(m); // a clone does not keep the shader hook
   if (hex) {
     const want = new THREE.Color(color), key = look === 'textured' && !name.startsWith(LIBRARY_PREFIX) ? TEXTURED[name] : undefined;
     if (key) {
