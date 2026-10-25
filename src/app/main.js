@@ -31,7 +31,8 @@ import { applyWallCut } from '../render/cutaway.js';
 import { createOpenShell } from '../render/openshell.js';
 import { stepClock, modeOf } from '../render/openmotion.js';
 import { openExtent, openPoints, flatFootprint } from '../model/foldwalls.js';
-import { createCameraController, stateFrom, positionOf, nearSides, sameSides, sidesKey, viewOf, fitView, wrapDegrees, fillBoost, lowestOnPicture } from './camera.js';
+import { createCameraController, stateFrom, positionOf, nearSides, sameSides, sidesKey, viewOf, fitView, wrapDegrees, fillBoost, lowestOnPicture, nearPlane } from './camera.js';
+import { boardRect } from '../look/board.js';
 import flat from '../../examples/flat-1.plan.json';
 import duplex from '../../examples/duplex-1.plan.json';
 
@@ -86,7 +87,10 @@ try {
   let shell = useShell ? createOpenShell(ps, model) : null, shellTarget = 0, shellRaf = 0, shellLast = 0; // shell: the hinges of the outer walls (null without the shell); shellTarget: 1 opening or open, 0 closing or closed
 
   // ---------- stage ----------
-  let stage = createStage({ renderer, scene, bounds: frameExt, quality: level, preset: S.preset, t: S.t });
+  // The card board hugs the closed model and follows the walls while the shell opens (look/board.js); the light and the table keep the bounds of the open extent.
+  // Without outer walls that open (or without the shell) the board is the old one: the bounds with a margin.
+  const boardOf = () => (shell?.walls.length ? boardRect(ext, shell.walls, shell.state().map((w) => w.deg)) : null);
+  let stage = createStage({ renderer, scene, bounds: frameExt, board: boardOf(), quality: level, preset: S.preset, t: S.t });
   // ---------- furniture: the engine lays the rooms out, compose builds the pieces (rebuilt when the quality changes) ----------
   let layout = autoFurnish(model, { seed: params.seed, allowedTypes: piecesImplemented() });
   let focus = focusRoom(model, layout);
@@ -159,9 +163,10 @@ try {
     cover = barsCover();
     pose = cameraFor(frameExt, W / H, params.cam, focus);
     pose = wantFit ? fitPose(pose) : liftPose(pose);
-    if (cam) { cam.setTarget(pose.target); cam.rehome(stateFrom(pose.pos, pose.target)); current = cam.state; }
-    camera.fov = pose.fov; camera.aspect = W / H;
-    camera.position.set(...positionOf(current, pose.target)); camera.lookAt(...pose.target); camera.updateProjectionMatrix(); stage.fitBackdrop(W / H);
+    if (cam) { cam.setLimits(frameExt); cam.setTarget(pose.target); cam.rehome(stateFrom(pose.pos, pose.target)); current = cam.state; } // the pan stays, now from the new home
+    const eye = cam ? cam.target : pose.target; // what the camera looks at: the home target and the pan
+    camera.fov = pose.fov; camera.aspect = W / H; camera.near = nearPlane(current.distance);
+    camera.position.set(...positionOf(current, eye)); camera.lookAt(...eye); camera.updateProjectionMatrix(); stage.fitBackdrop(W / H);
   }
   frameCamera();
   const post = createPost({ renderer, scene, camera, width: W, height: H, quality: level, devicePixelRatio: dpr });
@@ -179,7 +184,9 @@ try {
   // the camera reports every change of the view; a change in the set of near edges re-cuts the walls and the pieces (not every frame of a turn)
   function onCamera(s) {
     current = s;
-    camera.position.set(...positionOf(s, pose.target)); camera.lookAt(...pose.target);
+    const eye = cam.target, nr = nearPlane(s.distance); // the home target and the pan; a close view needs a nearer plane
+    if (Math.abs(nr - camera.near) > 1e-3) { camera.near = nr; camera.updateProjectionMatrix(); }
+    camera.position.set(...positionOf(s, eye)); camera.lookAt(...eye);
     stage.rig.setFillBoost(fillBoost(s.azimuth));
     const n = nearSides(s.azimuth, near);
     if (!sameSides(n, near)) { near = n; recut(); shell?.hidePatches(); settle(); }
@@ -224,10 +231,10 @@ try {
     model = built.model; ext = built.ext; frameExt = nextExt; framePts = nextPts; ps = built.scene; layout = built.layout; curLayout = layout; focus = focusRoom(model, layout);
     scene.add(ps.group);
     shell = nextShell; shellTarget = 0; S.shellOpen = false; ui?.update(S); // a new plan starts closed
-    stage = createStage({ renderer, scene, bounds: frameExt, quality: level, preset: S.preset, t: S.t });
+    stage = createStage({ renderer, scene, bounds: frameExt, board: boardOf(), quality: level, preset: S.preset, t: S.t }); // the board of the new plan hugs the closed model
     wantFit = useShell && params.cam !== 'close'; near = nearSides(current.azimuth); recut();
     furnish(); // the pieces first: the camera below may re-cut the walls and the pieces
-    frameCamera(); cam.reset(false); current = cam.state;
+    frameCamera(); cam.reset(false); current = cam.state; // the reset takes the turn, the zoom and the pan of the old plan away
     applyAll(); stage.rig.setFillBoost(fillBoost(current.azimuth));
  onPlanSwapped?.(); redraw();
     return true;
@@ -257,6 +264,7 @@ try {
     const was = shell.active;
     shell.pose(p); recut(); shell.hidePatches();
     if (was !== shell.active) settle();
+    const rect = boardOf(); if (rect) stage.setBoard(rect); // the board holds the walls as they stand now
     redraw();
   }
   function shellTick(ts) {
@@ -275,7 +283,15 @@ try {
   }
   const ui = parts.controls ? createUI({ onPreset: (n) => setPreset(n), onTime: setTime, onQuality: setQ, onLang: setLang, onReset: () => cam?.reset(true), onEdit: toggleEdit, onSaveImage: saveImage, onLoadPlan: loadPlan, onPlan: pickExample,
     onShell: () => { if (shell) shellGo(shellTarget !== 1); else sayLine(T('Zakończ edycję, żeby otworzyć bryłę', 'Finish editing to open the shell')); } }, S) : null;
-  cam = createCameraController({ element: renderer.domElement, home: home0, initial: { azimuth: params.az, polar: params.pol }, target: pose.target, fov: pose.fov, onChange: onCamera, onGesture: () => ui?.hideHint() });
+  // The first one-finger turn on a touch screen says how to zoom and move (one short line, about 6 seconds, once per page load).
+  let touchHinted = false;
+  const onGesture = (g) => {
+    ui?.hideHint();
+    if (touchHinted || g?.kind !== 'orbit' || g.pointerType !== 'touch') return;
+    touchHinted = true;
+    sayLine(T('1 palec: obrót, 2 palce: zoom i ruch, 2 dotknięcia: wróć', '1 finger: turn, 2 fingers: zoom and move, double tap: back')); // the line goes away by itself after 6 seconds
+  };
+  cam = createCameraController({ element: renderer.domElement, home: home0, initial: { azimuth: params.az, polar: params.pol }, target: pose.target, limits: frameExt, fov: pose.fov, onChange: onCamera, onGesture });
   applyAll();
   // ---------- edit mode (edit=1): select a piece, drag it over the floor, turn, delete, undo and redo ----------
   let session = null;
@@ -366,7 +382,7 @@ try {
     if (parts.sheet) panel = createPanel({ doc: document, host: document.body, lang: S.lang, session });
     refreshEdit();
     onPlanSwapped = () => { // a new plan: a new editing session with nothing selected, no undo history and no unsaved changes
-      gest = null; cam.enabled = true; dirty = false; leaveWarned = false; colorsKey = '{}';
+      gest = null; down.clear(); cam.enabled = true; dirty = false; leaveWarned = false; colorsKey = '{}';
       session = makeSession();
       if (panel) { panel.dispose(); panel = createPanel({ doc: document, host: document.body, lang: S.lang, session }); }
       refreshEdit();
@@ -377,13 +393,16 @@ try {
     const PAD = { mouse: 0.02, touch: 0.06, pen: 0.04 }; // metres of margin round every piece when picking: a fingertip is wider than a mouse pointer
     const hitAt = (e) => pickPiece(session.state.layout, cam.pointerToRay(e), { levelBase, pad: PAD[e.pointerType] ?? PAD.mouse, skip: (id) => furn.cutHidden ? furn.cutHidden.has(id) : !furn.pieces.get(id)?.visible });
     const showPanel = (on) => { if (panel) panel.element.hidden = !on; };
+    const down = new Set(); // the pointers that are down: a second or a third finger belongs to the camera (zoom and move), never to a piece
     dom.addEventListener('pointerdown', (e) => {
       if (adopting) return;
-      if (e.pointerType === 'mouse' && e.button !== 0) return;
-      if (gest) { // a second finger: the piece goes back and the camera takes over with both fingers
+      if (e.pointerType === 'mouse' && (e.button !== 0 || e.shiftKey)) return; // the right and the middle button, and Shift with the left one, move the view
+      down.add(e.pointerId);
+      if (gest) { // a second finger: the piece goes back, the selection that the first finger made is taken back, and the camera takes over with both fingers
         const first = gest; gest = null;
         if (first.dragging) session.cancelDrag();
         if (first.id) {
+          if (session.state.selection === first.id) session.select(first.before);
           cam.enabled = true; showPanel(true);
           adopting = true; // the camera learns about the first finger too, so that the pinch starts at once
           try { dom.dispatchEvent(new PointerEvent('pointerdown', { pointerId: first.pointerId, pointerType: e.pointerType, clientX: first.lastX, clientY: first.lastY, button: 0, buttons: 1, isPrimary: true, bubbles: true, cancelable: true })); } catch {}
@@ -391,10 +410,11 @@ try {
         }
         return;
       }
+      if (down.size > 1) return; // a finger that comes while others are down: the camera has it
       const hit = hitAt(e), base = { pointerId: e.pointerId, x0: e.clientX, y0: e.clientY, lastX: e.clientX, lastY: e.clientY, t0: performance.now(), moved: 0, id: null, dragging: false };
       if (!hit) { gest = { ...base, room: roomHitAt(e) }; return; }
       const piece = session.pieceById(hit.id), fh = floorHit(cam.pointerToRay(e), levelBase(hit.level) + piece.elev);
-      gest = { ...base, id: hit.id, level: hit.level, base: levelBase(hit.level) + piece.elev, off: fh ? [piece.x - fh[0], piece.y - fh[2]] : [0, 0] };
+      gest = { ...base, id: hit.id, level: hit.level, before: session.state.selection ?? null, base: levelBase(hit.level) + piece.elev, off: fh ? [piece.x - fh[0], piece.y - fh[2]] : [0, 0] };
       cam.enabled = false; session.select(hit.id);
       try { dom.setPointerCapture(e.pointerId); } catch {}
     }, true);
@@ -412,6 +432,7 @@ try {
       if (Math.abs(nb - g.base) > 1e-6) { g.base = nb; const f2 = floorHit(ray, nb); if (f2) session.dragTo(f2[0] + g.off[0], f2[2] + g.off[1]); }
     }, true);
     const finish = (e, cancelled) => {
+      down.delete(e.pointerId);
       const g = gest; if (!g || g.pointerId !== e.pointerId) return;
       gest = null;
       if (g.id) {
@@ -506,7 +527,9 @@ try {
   addEventListener('resize', () => { W = window.innerWidth; H = window.innerHeight; frameCamera(); coverSeen = cover; post.resize(W, H); redraw(); });
   window.__planInfo = () => ({ pieces: furn.pieces.size, levels: model.levels.length, rooms: model.levels.reduce((n, l) => n + (l.rooms?.length ?? 0), 0), extent: [ext.minX, ext.maxX, ext.minZ, ext.maxZ].map((v) => +v.toFixed(2)) }); // for test tools
   window.__setT = setTime; window.__setPreset = setPreset; window.__setQuality = setQ;
-  window.__camera = { get azimuth() { return cam.state.azimuth; }, get polar() { return cam.state.polar; }, get distance() { return cam.state.distance; }, get near() { return sidesKey(near); }, get busy() { return cam.busy; }, set: (azimuth, polar) => cam.set({ azimuth, polar }), reset: () => cam.reset(false) };
+  // For test tools: the view (turn, tilt, distance and its default), the pan in metres, what the camera looks at, the ground point under a client point, and the plane of the near cut
+  window.__camera = { get azimuth() { return cam.state.azimuth; }, get polar() { return cam.state.polar; }, get distance() { return cam.state.distance; }, get base() { return cam.state.base; }, get pan() { return cam.pan; }, get target() { return cam.target; },
+    get near() { return sidesKey(near); }, get nearPlane() { return camera.near; }, get busy() { return cam.busy; }, groundAt: (x, y) => cam.groundAt(x, y), set: (azimuth, polar) => cam.set({ azimuth, polar }), reset: () => cam.reset(false) };
   // For test tools and the film (there while the shell is built, not while editing): the clock (0 closed, 1 open), the target and the mode, open/close/toggle like the button, the pose of every wall,
   // the camera as three.js holds it, and seek(p) which puts the walls at clock p without any transition and resolves after the frame that shows it.
   if (useShell) {
@@ -514,6 +537,7 @@ try {
       get clock() { return shell.clock; }, get target() { return shellTarget; }, get mode() { return modeOf(shell.clock, shellTarget); }, get walls() { return shell.walls.length; },
       open: () => shellGo(true), close: () => shellGo(false), toggle: () => shellGo(shellTarget !== 1),
       state: () => shell.state(),
+      extent: () => ({ minX: frameExt.minX, maxX: frameExt.maxX, minZ: frameExt.minZ, maxZ: frameExt.maxZ }), // the closed model with every wall lying flat (the board of the open shell holds it)
       view: () => ({ position: camera.position.toArray(), quaternion: camera.quaternion.toArray(), fov: camera.fov, aspect: camera.aspect, target: cam.target }),
       // where the corners of the closed model and of every wall lying flat land in the picture (px), and the top of the control bar: the fit check
       project() {
@@ -566,7 +590,8 @@ try {
   function done() {
     const rest = times.slice(1), avg = rest.length ? rest.reduce((a, b) => a + b, 0) / rest.length : times[0];
     let meshes = 0, lights = 0; (function walk(o) { if (!o.visible) return; if (o.isMesh) meshes++; if (o.isLight) lights++; o.children.forEach(walk); })(scene);
-    window.__stats = { drawCalls: renderer.info.render.calls, triangles: renderer.info.render.triangles, textures: renderer.info.memory.textures, frameMs: Math.round(avg), quality: level, preset: S.preset, t: +S.t.toFixed(3),
+    window.__stats = { get board() { return stage.board(); }, // the card board now, in metres: { minX, maxX, minZ, maxZ, width, depth } (it follows the open shell)
+      drawCalls: renderer.info.render.calls, triangles: renderer.info.render.triangles, textures: renderer.info.memory.textures, frameMs: Math.round(avg), quality: level, preset: S.preset, t: +S.t.toFixed(3),
       luminance: luminance(), msFirst: Math.round(times[0]), frames: params.frames, geometries: renderer.info.memory.geometries, visibleMeshes: meshes, lights, rendererRenderCalls: renderCalls, shadowCasters: stage.state.casters, pieces: furn.pieces.size, hiddenPieces: furn.hidden, mergedMeshes: furn.merged?.meshes ?? 0, emitters: furn.emitters.length, azimuth: Math.round(current.azimuth), near: sidesKey(near), size: post.size, pixelRatio: post.pixelRatio, plan: params.plan.name };
     window.__done = true;
   }

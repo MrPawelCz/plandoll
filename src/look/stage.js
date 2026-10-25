@@ -126,23 +126,40 @@ export function createStage(options = {}) {
   const group = new THREE.Group(); group.name = 'stage';
   const rig = createRig({ group, renderer, quality, target: [cx, 0.8, cz], radius: R * 1.45 });
 
-  // layered card base: a paper-coloured top board and a narrower darker board under it
-  const margin = Math.max(0.5, 0.09 * Math.max(w, d)), top = b.minY - 0.004, h1 = 0.07, h2 = 0.05;
+  // layered card base: a paper-coloured top board and a narrower darker board under it. By default the board is the bounds plus a margin of 9 percent; with
+  // options.board ({ minX, maxX, minZ, maxZ, rim }, the outer rectangle) it is that rectangle, and setBoard moves and scales all of it (board, board under it
+  // and contact shadow) to another one later: the board grows with the open shell and shrinks back (look/board.js).
+  const B = options.board && ['minX', 'maxX', 'minZ', 'maxZ'].every((k) => Number.isFinite(options.board[k])) && options.board.maxX > options.board.minX && options.board.maxZ > options.board.minZ ? options.board : null;
+  const margin = B ? Math.max(0.1, Number(B.rim) || 0.35) : Math.max(0.5, 0.09 * Math.max(w, d)), top = b.minY - 0.004, h1 = 0.07, h2 = 0.05;
+  const bw = B ? B.maxX - B.minX : w + 2 * margin, bd = B ? B.maxZ - B.minZ : d + 2 * margin, bx = B ? (B.minX + B.maxX) / 2 : cx, bz = B ? (B.minZ + B.maxZ) / 2 : cz;
   const paper = new THREE.MeshStandardMaterial({ color: '#efe6d4', roughness: 0.92 });
   const card = new THREE.MeshStandardMaterial({ color: '#cdbfa6', roughness: 0.95 });
-  const board = new THREE.Mesh(new THREE.BoxGeometry(w + 2 * margin, h1, d + 2 * margin), paper);
-  board.position.set(cx, top - h1 / 2, cz); board.receiveShadow = true; board.castShadow = true; board.name = 'board';
-  const under = new THREE.Mesh(new THREE.BoxGeometry(w + 2 * margin - 0.28, h2, d + 2 * margin - 0.28), card);
-  under.position.set(cx, top - h1 - h2 / 2, cz); under.receiveShadow = true; under.name = 'board-under';
+  const board = new THREE.Mesh(new THREE.BoxGeometry(bw, h1, bd), paper);
+  board.position.set(bx, top - h1 / 2, bz); board.receiveShadow = true; board.castShadow = true; board.name = 'board';
+  const under = new THREE.Mesh(new THREE.BoxGeometry(Math.max(0.1, bw - 0.28), h2, Math.max(0.1, bd - 0.28)), card);
+  under.position.set(bx, top - h1 - h2 / 2, bz); under.receiveShadow = true; under.name = 'board-under';
   const tableY = top - h1 - h2 - 0.002;
   const tableMat = new THREE.MeshStandardMaterial({ color: '#d9cdb8', roughness: 0.95, transparent: true, alphaMap: poolAlphaTexture(), depthWrite: false });
   const table = new THREE.Mesh(new THREE.PlaneGeometry(R * 4.8, R * 4.8), tableMat);
   table.rotation.x = -Math.PI / 2; table.position.set(cx, tableY - 0.004, cz); table.receiveShadow = true; table.name = 'tabletop'; table.renderOrder = -2;
   const pen = Math.max(0.5, 0.35 * margin + 0.3);
-  const contactMat = new THREE.MeshBasicMaterial({ map: contactTexture(w + 2 * margin, d + 2 * margin, pen), transparent: true, depthWrite: false });
-  const contact = new THREE.Mesh(new THREE.PlaneGeometry(w + 2 * margin + 2 * pen, d + 2 * margin + 2 * pen), contactMat);
-  contact.rotation.x = -Math.PI / 2; contact.position.set(cx, tableY, cz); contact.name = 'contact-shadow'; contact.renderOrder = -1;
+  const contactMat = new THREE.MeshBasicMaterial({ map: contactTexture(bw, bd, pen), transparent: true, depthWrite: false });
+  const contact = new THREE.Mesh(new THREE.PlaneGeometry(bw + 2 * pen, bd + 2 * pen), contactMat);
+  contact.rotation.x = -Math.PI / 2; contact.position.set(bx, tableY, bz); contact.name = 'contact-shadow'; contact.renderOrder = -1;
   group.add(board, under, table, contact);
+  let boardNow = { minX: bx - bw / 2, maxX: bx + bw / 2, minZ: bz - bd / 2, maxZ: bz + bd / 2 };
+  // Moves and scales the board to the outer rectangle r = { minX, maxX, minZ, maxZ } (false for anything else). The contact shadow stretches with it.
+  function setBoard(r) {
+    if (!r || !['minX', 'maxX', 'minZ', 'maxZ'].every((k) => Number.isFinite(r[k])) || !(r.maxX - r.minX > 0.3) || !(r.maxZ - r.minZ > 0.3)) return false;
+    const rw = r.maxX - r.minX, rd = r.maxZ - r.minZ, x = (r.minX + r.maxX) / 2, z = (r.minZ + r.maxZ) / 2, sx = rw / bw, sz = rd / bd;
+    board.scale.set(sx, 1, sz); board.position.x = x; board.position.z = z;
+    under.scale.set(Math.max(0.1, rw - 0.28) / Math.max(0.1, bw - 0.28), 1, Math.max(0.1, rd - 0.28) / Math.max(0.1, bd - 0.28)); under.position.x = x; under.position.z = z;
+    contact.scale.set(sx, sz, 1); contact.position.x = x; contact.position.z = z; // the plane lies flat: its own y axis runs along z
+    boardNow = { minX: r.minX, maxX: r.maxX, minZ: r.minZ, maxZ: r.maxZ };
+    return true;
+  }
+  // The outer rectangle of the board now, in metres: { minX, maxX, minZ, maxZ, width, depth }.
+  const boardInfo = () => ({ ...boardNow, width: +(boardNow.maxX - boardNow.minX).toFixed(3), depth: +(boardNow.maxZ - boardNow.minZ).toFixed(3) });
 
   // backdrop: one canvas texture that is the scene background
   const bg = document.createElement('canvas'); bg.width = 768; bg.height = 432;
@@ -202,5 +219,5 @@ export function createStage(options = {}) {
 
   setPreset(options.preset);
   applyTime(options.t ?? getPreset(options.preset).t);
-  return { group, rig, state, background: bgTex, applyTime, fitBackdrop, setPreset, setQuality, setEmitters, refreshShadowCasters, dispose };
+  return { group, rig, state, background: bgTex, applyTime, fitBackdrop, setPreset, setQuality, setEmitters, refreshShadowCasters, setBoard, board: boardInfo, dispose };
 }

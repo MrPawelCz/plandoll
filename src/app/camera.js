@@ -1,12 +1,16 @@
-// Orbit camera for the page: the model can be looked at from every side. The first part is pure (state in degrees and metres,
-// tested in Node); the second part is the controller that listens to pointers, the wheel and the keyboard.
+// Orbit camera for the page: the model can be looked at from every side, zoomed and moved over the ground. The first part is pure
+// (state in degrees and metres, tested in Node); the second part is the controller that listens to pointers, the wheel and the keyboard.
 // State: { azimuth, polar, distance, base }. azimuth is the direction of the camera as seen from the target, in degrees: 0 is
 // south of the model (looking north), 90 east, 180 north, 270 west. polar is the angle from the vertical (small = from above),
 // distance is in metres and base is the default distance that the zoom limits are relative to.
+// The pan is not part of the state: it is an offset [x, z] in metres of the target over the ground plane (the height of the target never
+// changes), kept by the controller and added to the home target.
 export const POLAR_MIN = 12, POLAR_MAX = 80; // degrees from the vertical: never under the table, never straight down
-export const ZOOM_MIN = 0.45, ZOOM_MAX = 1.8; // times the default distance
+export const ZOOM_MIN = 0.2, ZOOM_MAX = 1.8; // times the default distance
+export const PAN_GROW = 0.15; // the target may leave the box of the model by this share of its size on every side
 export const HYSTERESIS = 10; // degrees: a wall changes sides only this far past the turning point, so it does not flicker
 export const RESET_MS = 400;
+export const NEAR_MIN = 0.12, NEAR_MAX = 0.5; // metres: the near plane of the camera shrinks with the distance so that a close view does not cut the model
 
 const RAD = Math.PI / 180;
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
@@ -80,6 +84,71 @@ export function rayFor(state, target, fovDegrees, aspect, x, y) {
   const d = [f[0] + r[0] * sx + u[0] * sy, f[1] + r[1] * sx + u[1] * sy, f[2] + r[2] * sx + u[2] * sy], dl = Math.hypot(...d) || 1;
   return { origin: o, direction: d.map((v) => v / dl) };
 }
+
+// ---------------------------------------------------------------------------------------------------------------------------
+// Pan and zoom at a point. Picture coordinates are x, y in -1..1 with up positive, as in rayFor.
+
+// The point [x, z] of the ground plane (the horizontal plane at the height of the target) under a point of the picture, or null when the ray
+// runs level or upward, or meets the plane more than 12 distances away (near the horizon).
+export function groundPoint(state, target, fovDegrees, aspect, x, y) {
+  const r = rayFor(state, target, fovDegrees, aspect, x, y), dy = r.direction[1];
+  if (!(dy < -1e-6)) return null;
+  const t = (target[1] - r.origin[1]) / dy;
+  if (!(t > 0) || !(t < 12 * Math.max(1, fin(state?.distance, 10)))) return null;
+  return [r.origin[0] + r.direction[0] * t, r.origin[2] + r.direction[2] * t];
+}
+
+// A client point as a point of the picture, for an element at rect { left, top, width, height }.
+export function toPicture(rect, clientX, clientY) {
+  const w = rect?.width || 1, h = rect?.height || 1;
+  return [((fin(clientX) - fin(rect?.left)) / w) * 2 - 1, 1 - ((fin(clientY) - fin(rect?.top)) / h) * 2];
+}
+
+// How far the target has to move over the ground, [dx, dz] in metres, so that the ground point that `before` showed at the picture point `from`
+// shows at the picture point `to` once the view is `after` (another distance, the same target). With before equal to after this is a plain pan.
+// Zero when either ray misses the ground.
+export function panShift(before, after, target, fovDegrees, aspect, from, to) {
+  const a = groundPoint(before, target, fovDegrees, aspect, from[0], from[1]), b = groundPoint(after, target, fovDegrees, aspect, to[0], to[1]);
+  return a && b ? [a[0] - b[0], a[1] - b[1]] : [0, 0];
+}
+
+// Drag by pixels: the ground under the finger at client point `from` follows it to `to`. rect: the element's { left, top, width, height }.
+// Returns the shift [dx, dz] of the target in metres.
+export function panByPixels(state, target, fovDegrees, rect, from, to) {
+  const aspect = (rect?.width || 1) / (rect?.height || 1);
+  return panShift(state, state, target, fovDegrees, aspect, toPicture(rect, from[0], from[1]), toPicture(rect, to[0], to[1]));
+}
+
+// Zoom by `factor` (above 1 is nearer) about the picture point `at`, which moves to `to` (the same point for a wheel, the next midpoint of the fingers
+// for a pinch). Returns { state, shift }: the zoomed state (inside the zoom limits) and the shift of the target that keeps the ground point under the fingers.
+export function zoomAt(state, target, fovDegrees, aspect, factor, at, to = at) {
+  const next = zoom(state, factor);
+  return { state: next, shift: panShift(state, next, target, fovDegrees, aspect, at, to) };
+}
+
+// The box that the target may move in: the box { minX, maxX, minZ, maxZ } of the model grown on every side by `grow` times its size.
+export function panLimits(box, grow = PAN_GROW) {
+  if (!box || !['minX', 'maxX', 'minZ', 'maxZ'].every((k) => Number.isFinite(box[k]))) return null;
+  const gx = Math.max(0, box.maxX - box.minX) * grow, gz = Math.max(0, box.maxZ - box.minZ) * grow;
+  return { minX: box.minX - gx, maxX: box.maxX + gx, minZ: box.minZ - gz, maxZ: box.maxZ + gz };
+}
+
+// The pan [x, z] limited so that home + pan stays inside `limits` (as panLimits gives them); a pan of zero is always allowed, so a home target outside the box
+// is not moved. Without limits the pan is only made finite.
+export function clampPan(pan, home, limits) {
+  const x = fin(pan?.[0]), z = fin(pan?.[1]);
+  if (!limits) return [x, z];
+  return [clamp(x, Math.min(0, limits.minX - home[0]), Math.max(0, limits.maxX - home[0])), clamp(z, Math.min(0, limits.minZ - home[2]), Math.max(0, limits.maxZ - home[2]))];
+}
+
+// The pan on the way between two pans, with the same ease as blend.
+export function blendPan(a, b, k) {
+  const e = ease(clamp(fin(k), 0, 1));
+  return [a[0] + (b[0] - a[0]) * e, a[1] + (b[1] - a[1]) * e];
+}
+
+// The near plane for a camera at this distance: a close view needs a nearer plane so that the model is not cut, a far one keeps the depth precision.
+export const nearPlane = (distance) => clamp(fin(distance, 10) * 0.04, NEAR_MIN, NEAR_MAX);
 
 // ---------------------------------------------------------------------------------------------------------------------------
 // Fit. The distance and target that bring a whole box into the picture for a given turn and tilt, so that every azimuth shows the
@@ -163,20 +232,26 @@ export function lowestOnPicture(state, target, bounds, fov = 27) {
 }
 
 // ---------------------------------------------------------------------------------------------------------------------------
-// Controller. One finger or the mouse turns, two fingers and the wheel zoom, a double tap or double click goes back to the home
-// view (400 ms), arrow keys turn by 15 degrees. A frame is asked for (onChange) only while something moves; at rest nothing is
-// queued. No storage, no network.
-//   options: { element, home, target, fov, initial: { azimuth, polar, distance }, onChange(state, source), onGesture(), request, now, keys }
+// Controller. Touch: one finger turns; two fingers zoom and move (the ground under the fingers stays under them); three fingers move. Mouse: the left
+// button turns; the right or middle button, or Shift with the left button, moves; the wheel zooms towards the pointer. A double tap or double click goes back
+// to the home view, the move included (400 ms); arrow keys turn by 15 degrees. A frame is asked for (onChange) only while something moves; at rest nothing is
+// queued. The move (pan) is an offset of the target over the ground, limited to the box of the model grown by PAN_GROW. No storage, no network.
+//   options: { element, home, target, fov, limits ({ minX, maxX, minZ, maxZ }), initial: { azimuth, polar, distance }, onChange(state, source),
+//   onGesture({ kind: 'orbit' | 'pinch' | 'pan' | 'wheel' | 'key', pointerType }), request, now, keys }
 export function createCameraController(options) {
   const { element, fov = 27, onChange = () => {}, onGesture = () => {}, request = (f) => requestAnimationFrame(f), now = () => performance.now() } = options;
-  let target = options.target; // the point the camera looks at; setTarget moves it
+  let target = options.target; // the home target: the point the camera looks at without a pan; setTarget moves it
   let home = makeState(options.home);
+  let limits = panLimits(options.limits); // where the target may be
+  let pan = [0, 0]; // metres over the ground, added to the home target
   const start = options.initial ?? {};
   let state = { ...home, azimuth: wrapDegrees(fin(start.azimuth, home.azimuth)), polar: clamp(fin(start.polar, home.polar), POLAR_MIN, POLAR_MAX),
     distance: clamp(fin(start.distance, home.distance), home.base * ZOOM_MIN, home.base * ZOOM_MAX) }; // the start distance obeys the zoom limits
   let enabled = true, queued = false, anim = null, spin = null, tap = null, gesture = null;
   const pointers = new Map();
   const perPixel = () => 200 / Math.max(240, Math.min(element.clientWidth || 800, element.clientHeight || 800)); // degrees of turn per pixel dragged
+  const eye = () => [target[0] + pan[0], target[1], target[2] + pan[1]]; // the point the camera looks at now: the home target and the pan
+  const aspectOf = (rect) => (rect.width || 1) / (rect.height || 1);
 
   const emit = (source) => onChange(state, source);
   function schedule() { if (!queued) { queued = true; request(frame); } }
@@ -185,7 +260,8 @@ export function createCameraController(options) {
     const t = Number.isFinite(ts) ? ts : now();
     if (anim) {
       const k = (t - anim.t0) / RESET_MS;
-      state = blend(anim.from, anim.to, k); if (k >= 1) { state = anim.to; anim = null; }
+      state = blend(anim.from, anim.to, k); pan = blendPan(anim.pan, [0, 0], k);
+      if (k >= 1) { state = anim.to; pan = [0, 0]; anim = null; }
       emit('animation');
     } else if (spin) {
       const dt = clamp(t - spin.last, 1, 50); spin.last = t;
@@ -198,10 +274,10 @@ export function createCameraController(options) {
   }
   const stopMotion = () => { anim = null; spin = null; };
 
-  function reset(animate = true) {
+  function reset(animate = true) { // back to the home view: the turn, the zoom and the pan
     stopMotion();
-    if (!animate) { state = home; emit('reset'); return; }
-    anim = { from: state, to: home, t0: now() }; schedule();
+    if (!animate) { state = home; pan = [0, 0]; emit('reset'); return; }
+    anim = { from: state, to: home, pan: pan.slice(), t0: now() }; schedule();
   }
   function set(next, source = 'api') {
     stopMotion();
@@ -213,58 +289,86 @@ export function createCameraController(options) {
   // frame: the caller redraws.
   function setTarget(next) {
     if (!next || next.length !== 3 || ![0, 1, 2].every((i) => Number.isFinite(next[i]))) return false;
-    target = [next[0], next[1], next[2]]; return true;
+    target = [next[0], next[1], next[2]]; pan = clampPan(pan, target, limits); return true;
   }
 
-  // A new default distance (the window changed shape): the turn stays, the zoom keeps its ratio to the default.
+  // The box of the model (the open extent): the target may go as far as this box grown by PAN_GROW on every side. Bad input takes the limit away.
+  function setLimits(box) { limits = panLimits(box); pan = clampPan(pan, target, limits); }
+
+  // A new default distance (the window changed shape): the turn stays, the zoom keeps its ratio to the default, the pan stays as it was from the new home.
   function rehome(next) {
     const h = makeState(next), ratio = h.base / state.base;
     home = h; state = { ...state, base: h.base, distance: clamp(state.distance * ratio, h.base * ZOOM_MIN, h.base * ZOOM_MAX) };
     if (anim) anim = { ...anim, to: home };
   }
 
-  // pointers
-  const onDown =(e) => {
-    if (!enabled || (e.pointerType === 'mouse' && e.button !== 0)) return;
+  // One step of a gesture: zoom by `factor` about the picture point `from`, which moves to `to`; the ground under it follows. Asks for a frame through onChange.
+  function view(factor, from, to, aspect, info) {
+    const next = factor !== 1 ? zoom(state, factor) : state;
+    const shift = panShift(state, next, eye(), fov, aspect, from, to);
+    pan = clampPan([pan[0] + shift[0], pan[1] + shift[1]], target, limits); state = next;
+    onGesture(info); emit('user');
+  }
+
+  // pointers: the reference of a multi-finger gesture (the middle of the fingers and the distance of two) is taken again whenever a finger goes down or up
+  const middle = () => { const a = [...pointers.values()]; return { x: a.reduce((s, p) => s + p.x, 0) / a.length, y: a.reduce((s, p) => s + p.y, 0) / a.length }; };
+  const refer = () => {
+    if (!gesture) return;
+    gesture.mid = middle();
+    const a = [...pointers.values()]; gesture.pinch = a.length === 2 ? Math.hypot(a[0].x - a[1].x, a[0].y - a[1].y) : 0;
+  };
+  const onDown = (e) => {
+    const mouse = e.pointerType === 'mouse';
+    if (!enabled || (mouse && e.button > 2)) return;
     stopMotion();
+    if (mouse && e.button !== 0) e.preventDefault?.(); // no autoscroll on the middle button
     pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
     try { element.setPointerCapture(e.pointerId); } catch {}
     const t = now();
-    if (pointers.size === 1) gesture = { t0: t, x0: e.clientX, y0: e.clientY, moved: 0, last: t, vx: 0, vy: 0, pinch: 0 };
-    else if (gesture) { const [a, b] = [...pointers.values()]; gesture.pinch = Math.hypot(a.x - b.x, a.y - b.y); gesture.moved = 99; }
+    if (pointers.size === 1) gesture = { t0: t, x0: e.clientX, y0: e.clientY, moved: 0, last: t, vx: 0, vy: 0, pinch: 0, mid: null, type: e.pointerType, pan: mouse && (e.button !== 0 || !!e.shiftKey) };
+    else if (gesture) gesture.moved = 99; // a second finger: never a tap
+    refer();
   };
   const onMove = (e) => {
     const p = pointers.get(e.pointerId); if (!p || !enabled || !gesture) return;
-    const dx = e.clientX - p.x, dy = e.clientY - p.y; p.x = e.clientX; p.y = e.clientY;
-    if (pointers.size >= 2) {
-      const [a, b] = [...pointers.values()], d = Math.hypot(a.x - b.x, a.y - b.y);
-      if (gesture.pinch > 0 && d > 0) { state = zoom(state, d / gesture.pinch); onGesture(); emit('user'); }
-      gesture.pinch = d; return;
+    const dx = e.clientX - p.x, dy = e.clientY - p.y, rect = element.getBoundingClientRect(), aspect = aspectOf(rect); p.x = e.clientX; p.y = e.clientY;
+    if (pointers.size >= 2) { // two fingers zoom and move, three or more move with their middle
+      const mid = middle(), a = [...pointers.values()], two = a.length === 2, d = two ? Math.hypot(a[0].x - a[1].x, a[0].y - a[1].y) : 0;
+      const factor = two && gesture.pinch > 0 && d > 0 ? d / gesture.pinch : 1, from = gesture.mid;
+      gesture.pinch = d; gesture.mid = mid;
+      if (factor !== 1 || mid.x !== from.x || mid.y !== from.y) view(factor, toPicture(rect, from.x, from.y), toPicture(rect, mid.x, mid.y), aspect, { kind: factor !== 1 ? 'pinch' : 'pan', pointerType: gesture.type });
+      return;
     }
     gesture.moved += Math.hypot(dx, dy);
+    if (gesture.pan) { // the mouse moves the model: the ground under the pointer follows it, from the first pixel (no click ever resets or turns)
+      view(1, toPicture(rect, e.clientX - dx, e.clientY - dy), toPicture(rect, e.clientX, e.clientY), aspect, { kind: 'pan', pointerType: gesture.type });
+      return;
+    }
     if (gesture.moved < 6) return; // a tap is not a drag
     const k = perPixel(), t = now(), dt = Math.max(1, t - gesture.last); gesture.last = t;
     state = orbit(state, dx * k, dy * k);
     gesture.vx = 0.6 * gesture.vx + 0.4 * ((dx * k) / dt); gesture.vy = 0.6 * gesture.vy + 0.4 * ((dy * k) / dt);
-    onGesture(); emit('user');
+    onGesture({ kind: 'orbit', pointerType: gesture.type }); emit('user');
   };
   const onUp = (e) => {
     if (!pointers.delete(e.pointerId)) return;
     try { element.releasePointerCapture(e.pointerId); } catch {}
     const g = gesture, t = now();
-    if (pointers.size > 0) { if (g) g.pinch = 0; return; }
-    gesture = null; if (!g || !enabled) return;
+    if (pointers.size > 0) { refer(); return; }
+    gesture = null; if (!g || !enabled || g.pan) return;
     if (g.moved < 6 && t - g.t0 < 350) { // a tap: two close taps are a double tap
       if (tap && t - tap.t < 350 && Math.hypot(e.clientX - tap.x, e.clientY - tap.y) < 30) { tap = null; reset(true); } else tap = { t, x: e.clientX, y: e.clientY };
     } else if (g.moved >= 6 && g.moved < 99 && t - g.last < 80 && Math.hypot(g.vx, g.vy) > 0.02) { spin = { vx: g.vx, vy: g.vy, last: t }; schedule(); }
   };
-  const onCancel = (e) => { pointers.delete(e.pointerId); if (!pointers.size) gesture = null; };
-  const onWheel = (e) => {
+  const onCancel = (e) => { pointers.delete(e.pointerId); if (!pointers.size) gesture = null; else refer(); };
+  const onWheel = (e) => { // zooms towards the pointer: the ground point under it stays under it
     if (!enabled) return;
     e.preventDefault();
     const dy = (e.deltaMode === 1 ? 16 : 1) * fin(e.deltaY), step = e.ctrlKey ? 0.01 : 0.0012; // a pinch on a trackpad arrives as ctrl + wheel
-    stopMotion(); state = zoom(state, Math.exp(-clamp(dy, -400, 400) * step)); onGesture(); emit('user');
+    const rect = element.getBoundingClientRect(), at = toPicture(rect, fin(e.clientX, rect.left + (rect.width || 0) / 2), fin(e.clientY, rect.top + (rect.height || 0) / 2));
+    stopMotion(); view(Math.exp(-clamp(dy, -400, 400) * step), at, at, aspectOf(rect), { kind: 'wheel', pointerType: 'mouse' });
   };
+  const onContext = (e) => { if (enabled) e.preventDefault?.(); }; // the right button moves the model: no menu over the picture
 
   // keys: arrows turn by 15 degrees (up and down tilt by 10), + and - zoom, 0 goes home; Shift + arrow is left to the page.
   const onKey = (e) => {
@@ -279,13 +383,13 @@ export function createCameraController(options) {
     else if (e.key === '+' || e.key === '=') next = zoom(state, 1.15); else if (e.key === '-' || e.key === '_') next = zoom(state, 1 / 1.15);
     else if (e.key === '0') { reset(true); e.preventDefault?.(); return true; }
     if (!next) return false;
-    stopMotion(); state = next; e.preventDefault?.(); onGesture(); emit('user'); return true;
+    stopMotion(); state = next; e.preventDefault?.(); onGesture({ kind: 'key' }); emit('user'); return true;
   };
 
   element.style.touchAction = 'none'; element.style.userSelect = 'none'; element.style.webkitUserSelect = 'none';
   element.addEventListener('pointerdown', onDown); element.addEventListener('pointermove', onMove);
   element.addEventListener('pointerup', onUp); element.addEventListener('pointercancel', onCancel);
-  element.addEventListener('wheel', onWheel, { passive: false });
+  element.addEventListener('wheel', onWheel, { passive: false }); element.addEventListener('contextmenu', onContext);
   const keyHost = options.keys ?? (typeof window !== 'undefined' ? window : null);
   keyHost?.addEventListener('keydown', onKey);
 
@@ -295,18 +399,26 @@ export function createCameraController(options) {
     get enabled() { return enabled; },
     set enabled(v) { enabled = !!v; if (!enabled) { stopMotion(); pointers.clear(); gesture = null; } },
     get busy() { return queued || !!anim || !!spin; },
-    get target() { return [...target]; },
-    position: () => positionOf(state, target),
-    reset, set, rehome, setTarget,
+    get target() { return eye(); }, // what the camera looks at now: the home target and the pan
+    get homeTarget() { return [...target]; },
+    get pan() { return [...pan]; }, // metres [x, z] over the ground
+    get limits() { return limits ? { ...limits } : null; },
+    position: () => positionOf(state, eye()),
+    reset, set, rehome, setTarget, setLimits,
     // The ray under a pointer event, for picking: { origin, direction } in world space.
     pointerToRay(event) {
       const r = element.getBoundingClientRect(), w = r.width || 1, h = r.height || 1;
-      return rayFor(state, target, fov, w / h, ((event.clientX - r.left) / w) * 2 - 1, 1 - ((event.clientY - r.top) / h) * 2);
+      return rayFor(state, eye(), fov, w / h, ((event.clientX - r.left) / w) * 2 - 1, 1 - ((event.clientY - r.top) / h) * 2);
+    },
+    // The ground point [x, z] under a client point (null near the horizon): for picking and for test tools.
+    groundAt(clientX, clientY) {
+      const r = element.getBoundingClientRect(), p = toPicture(r, clientX, clientY);
+      return groundPoint(state, eye(), fov, aspectOf(r), p[0], p[1]);
     },
     key: onKey,
     dispose() {
       stopMotion(); element.removeEventListener('pointerdown', onDown); element.removeEventListener('pointermove', onMove);
-      element.removeEventListener('pointerup', onUp); element.removeEventListener('pointercancel', onCancel); element.removeEventListener('wheel', onWheel);
+      element.removeEventListener('pointerup', onUp); element.removeEventListener('pointercancel', onCancel); element.removeEventListener('wheel', onWheel); element.removeEventListener('contextmenu', onContext);
       keyHost?.removeEventListener('keydown', onKey);
     },
   };
