@@ -1,8 +1,8 @@
 // Picking with a ray: oriented boxes, nearest hit, hung and stacked pieces, a second storey, hostile input, speed.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { pickPiece, floorHit, rayInFrame, planeHit } from '../../src/app/pick.js';
-import { hingeMatrix } from '../../src/model/foldwalls.js';
+import { pickPiece, floorHit, rayInFrame, planeHit, slidePoint } from '../../src/app/pick.js';
+import { hingeMatrix, innerFace } from '../../src/model/foldwalls.js';
 
 const piece = (id, x, y, rot, size, elev = 0) => ({ id, type: 'x', room: 'r', x, y, rot, size, elev, on: null, colors: {} });
 const layout = (...pieces) => ({ version: 1, seed: 1, levels: [{ id: 'L0', pieces }, { id: 'L1', pieces: [] }] });
@@ -161,4 +161,46 @@ test('the pieces of one wall share one turned ray, and the pad of a fingertip wo
   const near = { origin: [2.33, 5, -1.65], direction: [0, -1, 0] }; // 3 cm beside the lying picture (0.3 m half width)
   assert.equal(pickPiece(l, near, { frameOf: () => flat, pad: 0 }), null);
   assert.equal(pickPiece(l, near, { frameOf: () => flat, pad: 0.06 })?.id, 'pic', 'a fingertip margin still hits it');
+});
+
+// ---- dragging: where the finger is on the surface the piece slides over ----
+const mulPoint = (m, [x, y, z]) => [m[0] * x + m[4] * y + m[8] * z + m[12], m[1] * x + m[5] * y + m[9] * z + m[13], m[2] * x + m[6] * y + m[10] * z + m[14]];
+const unit = (v) => { const n = Math.hypot(...v); return v.map((c) => c / n); };
+
+test('slidePoint: the floor plane at the height of the piece when no wall holds it, null when the ray misses it', () => {
+  assert.deepEqual(slidePoint({ origin: [1, 5, 2], direction: [0, -1, 0] }, null, 0.4).map((v) => +v.toFixed(9)), [1, 2]);
+  assert.deepEqual(slidePoint({ origin: [0, 5, 0], direction: [1, -1, 0] }, undefined, 3).map((v) => +v.toFixed(9)), [2, 0]);
+  assert.equal(slidePoint({ origin: [0, 1, 0], direction: [1, 0, 0] }, null, 0), null, 'parallel to the floor');
+  assert.equal(slidePoint({ origin: [0, 1, 0], direction: [0, 1, 0] }, null, 0), null, 'the floor is behind');
+  assert.equal(slidePoint(null, null, 0), null);
+});
+
+test('slidePoint on a wall that has turned: the finger gives the place on the wall that it points at, along the wall, at any angle of the wall', () => {
+  const face = innerFace({ from: [0, 0], out: [0, -1], thickness: 0.15 }); // the wall of the tests above: rooms on +z, the inner face at z = 0.15
+  assert.deepEqual(face, { point: [0, 0, 0.15], normal: [0, 0, -1] });
+  for (const deg of [0, 20, 45, 70, 90, 94]) {
+    const m = hingeMatrix(fall, deg), host = { matrix: m, plane: face };
+    for (const [x, up] of [[0.5, 0.3], [2, 1.65], [3.4, 2.4]]) {
+      const p = mulPoint(m, [x, up, 0.15]); // the point of the inner face, x along the wall and `up` high in the closed place, as the turned wall carries it
+      for (const lean of [[0.7, 4, 0.5], [-1.2, 3, 0.2], [0.1, 5, -1]]) {
+        const ray = { origin: [p[0] + lean[0], p[1] + lean[1], p[2] + lean[2]], direction: unit(lean.map((c) => -c)) };
+        const at = slidePoint(ray, host, 0);
+        assert.ok(at && Math.abs(at[0] - x) < 1e-9 && Math.abs(at[1] - 0.15) < 1e-9, `${deg} degrees, x ${x}, up ${up}: ${at}`);
+      }
+    }
+  }
+  // moving the finger across the lying wall changes nothing in the plan (the piece stays on its wall); moving it along the wall changes the place by the same amount
+  const host = { matrix: flat, plane: face }, down = (x, z) => ({ origin: [x, 6, z], direction: [0, -1, 0] });
+  assert.deepEqual(slidePoint(down(2, -1.65), host, 0).map((v) => +v.toFixed(9)), [2, 0.15]);
+  assert.deepEqual(slidePoint(down(2, -1.2), host, 0).map((v) => +v.toFixed(9)), [2, 0.15], 'across the lying wall');
+  assert.deepEqual(slidePoint(down(2.8, -1.65), host, 0).map((v) => +v.toFixed(9)), [2.8, 0.15], 'along it');
+  assert.deepEqual(slidePoint(down(2, -1.65), host, 12).map((v) => +v.toFixed(9)), [2, 0.15], 'the height of the foot of the piece is not used for a wall');
+});
+
+test('slidePoint with a wall that cannot be used gives null instead of a wrong place', () => {
+  const face = innerFace({ from: [0, 0], out: [0, -1], thickness: 0.15 }), ray = { origin: [2, 6, -1.65], direction: [0, -1, 0] };
+  assert.equal(slidePoint(ray, { matrix: [1, 2, 3], plane: face }, 0), null, 'a matrix that is not valid');
+  assert.equal(slidePoint(ray, { matrix: flat }, 0), null, 'no plane');
+  assert.equal(slidePoint(ray, { matrix: flat, plane: { point: [0, 0, NaN], normal: [0, 0, -1] } }, 0), null);
+  assert.equal(slidePoint({ origin: [2, 0, -1.65], direction: [0, 0, 1] }, { matrix: flat, plane: face }, 0), null, 'a ray that meets the closed plane only behind the camera');
 });

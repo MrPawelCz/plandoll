@@ -663,6 +663,28 @@ try {
       if (floor) await pass('floor', floor); else record('edit with the shell open, floor piece: select, drag, turn, colour, size, delete', false, { error: 'no floor piece could be tapped' });
       if (wall) await pass('wall', wall); else record('edit with the shell open, wall piece: select, drag, turn, colour, size, delete', false, { error: 'no piece hanging on an outer wall could be tapped (the shell is open)' });
 
+      // 2b. a wall piece stays outlined while the walls move: with it selected, Space folds the shell and Space opens it again; the outline is on the piece in every sample
+      if (wall) {
+        await ev(`window.__edit.session.select(${JSON.stringify(wall.id)})`); await sleep(400);
+        const follow = async (want) => {
+          await ev('document.activeElement?.blur?.()');
+          await key(' ', 'Space', 32, 0, ' ');
+          const gaps = [], clocks = [], end = Date.now() + 12000;
+          while (Date.now() < end) {
+            const s = await shellNow(), g = await gapOf(wall.id);
+            clocks.push(s.clock); if (g !== null) gaps.push(g);
+            if (s.mode === want) break;
+            await sleep(60);
+          }
+          await sleep(300);
+          return { gaps, clocks, final: await shellNow() };
+        };
+        const closing = await follow('closed'), opening = await follow('open');
+        const midOf = (r) => r.clocks.filter((c) => c > 0.05 && c < 0.95).length, worst = Math.max(...closing.gaps, ...opening.gaps);
+        record('edit with the shell open: the outline of a wall piece stays on it while the walls fold and unfold', closing.final.mode === 'closed' && opening.final.mode === 'open' && midOf(closing) >= 3 && midOf(opening) >= 3 && worst <= 4 && (await selected()) === wall.id, { samples: [closing.gaps.length, opening.gaps.length], samplesWhileMoving: [midOf(closing), midOf(opening)], worstGapPx: worst });
+        await ev('window.__edit.session.select(null)'); await sleep(300);
+      }
+
       // 3. Escape: the first press clears the selection and leaves the shell open, the next one folds the shell
       const escId = (floor ?? wall)?.id;
       if (escId) {

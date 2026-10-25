@@ -20,7 +20,7 @@ import { createEditSession, placeCheck } from './edit.js';
 import { NO_WEBGL2, hasWebgl2, failureDetail, planChoice, startState, partsOf, buildPlanParts, isFormTarget, shellKey, shellOn } from './shell.js';
 import { coverShare, isNarrow } from './stack.js';
 import { readPlanText } from './planfile.js';
-import { pickPiece, floorHit, rayInFrame, planeHit } from './pick.js';
+import { pickPiece, floorHit, slidePoint } from './pick.js';
 import { createOutline, createOutlineFrame, createRoomOutline, outlineKind } from '../render/outline.js';
 import { createPanel } from './panel.js';
 import { saveTextFile, saveBlobFile, readTextFile, askForText, refusalText, LAYOUT_FILENAME, IMAGE_FILENAME } from './files.js';
@@ -387,14 +387,9 @@ try {
     // turned wall stays its own object, so its own flag is the live one (it shows once its wall has risen). Such a piece is picked where the wall has put it: frameOf.
     const hiddenNow = (id) => (shell?.hostMatrix(id) ? !furn.pieces.get(id)?.visible : furn.cutHidden ? furn.cutHidden.has(id) : !furn.pieces.get(id)?.visible);
     const hitAt = (e) => pickPiece(session.state.layout, cam.pointerToRay(e), { levelBase, pad: PAD[e.pointerType] ?? PAD.mouse, skip: hiddenNow, frameOf: (id) => shell?.hostMatrix(id) ?? null });
-    // Where a ray meets the surface that a piece slides over, as a plan point [x, y], or null. Normally the floor plane at the height of the piece. A piece that hangs on
-    // an outer wall that has turned slides over the inner face of that wall instead: the ray is taken back into the closed place of the wall (the inverse of its hinge)
-    // and meets the face there, so the piece moves along the wall wherever the wall lies and keeps its place on it. host: shell.hostOf(id) or null.
-    const surfaceAt = (ray, host, height) => {
-      if (host) { const back = rayInFrame(ray, host.matrix), q = back && planeHit(back, host.plane.point, host.plane.normal); return q ? [q[0], q[2]] : null; }
-      const fh = floorHit(ray, height);
-      return fh ? [fh[0], fh[2]] : null;
-    };
+    // Where a pointer is on the surface a piece slides over (slidePoint in pick.js): the floor at the height of the piece, or, for a piece that hangs on an outer wall
+    // that has turned, the inner face of that wall in the wall's closed place, so the piece moves along the wall wherever the wall lies. host: shell.hostOf(id) or null.
+    const surfaceAt = slidePoint;
     const showPanel = (on) => { if (panel) panel.element.hidden = !on; };
     dom.addEventListener('pointerdown', (e) => {
       if (adopting) return;

@@ -40,6 +40,19 @@ export function planeHit(ray, point, normal) {
   return [r.o[0] + r.d[0] * t, r.o[1] + r.d[1] * t, r.o[2] + r.d[2] * t];
 }
 
+// Where a ray meets the surface that a piece slides over while it is dragged, as a plan point [x, y], or null. Normally that is the floor plane at `height` (the
+// foot of the piece). A piece that hangs on an outer wall that has turned slides over the inner face of that wall instead: `host` is { matrix, plane } as
+// openshell.hostOf gives it (the hinge matrix of the wall and the plane of its inner face in the wall's closed place), the ray is taken back through the matrix and
+// meets the plane there, so for a finger on the fallen wall the result is the place on the wall (along it) that the finger points at, at any angle of the wall.
+export function slidePoint(ray, host, height) {
+  if (host) {
+    const back = rayInFrame(ray, host.matrix), q = back && planeHit(back, host.plane?.point, host.plane?.normal);
+    return q ? [q[0], q[2]] : null;
+  }
+  const fh = floorHit(ray, height);
+  return fh ? [fh[0], fh[2]] : null;
+}
+
 // Entry distance of a ray into the oriented box of one piece (slab method in the frame of the piece), or null.
 function boxT(r, p, base, pad) {
   const a = (p.rot * Math.PI) / 180, c = Math.cos(a), s = Math.sin(a);
