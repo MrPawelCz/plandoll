@@ -7,11 +7,14 @@ import { parseQualityParam } from '../look/quality.js';
 
 export const PLAN_NAMES = Object.freeze(['flat-1', 'duplex-1']);
 
+// A broken percent sequence (#t=%) keeps its raw text instead of stopping the page.
+const decode = (s) => { try { return decodeURIComponent(s); } catch { return s; } };
+
 export function splitHash(hash) {
   const out = { bare: [], kv: {} };
   for (const part of String(hash ?? '').replace(/^#/, '').split('&').filter(Boolean)) {
     const i = part.indexOf('=');
-    if (i < 0) out.bare.push(decodeURIComponent(part)); else out.kv[part.slice(0, i)] = decodeURIComponent(part.slice(i + 1));
+    if (i < 0) out.bare.push(decode(part)); else out.kv[part.slice(0, i)] = decode(part.slice(i + 1));
   }
   return out;
 }

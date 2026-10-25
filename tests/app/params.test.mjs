@@ -26,3 +26,13 @@ test('buildHash writes edit=1 only when the editor is on, and the hash reads bac
   assert.equal(parseParams(`#${buildHash(on)}`).edit, true);
   assert.equal(parseParams(`#${buildHash(plain)}`).edit, false);
 });
+
+test('a broken percent sequence in the address does not throw and the value is ignored', () => {
+  for (const hash of ['#t=%', '#%E0%A4%A', '#amber&q=%zz&seed=%', '#plan=%E0%A4%A&edit=1']) {
+    assert.doesNotThrow(() => parseParams(hash), hash);
+  }
+  assert.equal(parseParams('#t=%').tmSet, true, 'the key is seen');
+  assert.ok(Number.isFinite(parseParams('#t=%').t), 't falls back to a number');
+  assert.equal(parseParams('#amber&q=%zz&seed=%').preset, 'amber');
+  assert.equal(parseParams('#plan=%E0%A4%A&edit=1').edit, true);
+});
