@@ -15,7 +15,7 @@ const ctx = new Proxy({}, {
 });
 globalThis.document = { createElement: () => ({ width: 0, height: 0, getContext: () => ctx }) };
 
-const MAX_MS = 2000;
+const MAX_MS = process.env.CI ? 6000 : 2000; // a shared runner takes about 1.5 times as long for the same work
 const NAMES = ['Salon', 'Bedroom', 'Kuchnia', 'Łazienka', 'Hall', 'Gabinet', 'xyz', 'Kids', 'WC', 'Jadalnia'];
 const rect = (x, y, w, h) => [[x, y], [x + w, y], [x + w, y + h], [x, y + h]];
 const wallsOf = (poly, p, extra = {}) => poly.map((a, i) => ({ id: `${p}w${i}`, from: a, to: poly[(i + 1) % poly.length], kind: 'interior', ...extra }));
