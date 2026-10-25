@@ -118,7 +118,9 @@ const ROOM_DOT = { wall: '#ece6da', floor: '#bfa078' }; // the dot of the "Defau
 export function createPanel({ doc = document, host, lang = 'en', session } = {}) {
   injectStyle(doc);
   let L = langOf(lang), S = STR[L];
-  let open = false, selOpen = true, roomOpen = true, disposed = false, noteKey = null;
+  // On a phone the details of a selected piece start folded to their header: an open sheet would cover the model, and the piece could not be dragged.
+  const narrow = () => { const w = doc.defaultView?.innerWidth; return typeof w === 'number' && w <= 760; };
+  let open = false, selOpen = !narrow(), roomOpen = !narrow(), disposed = false, noteKey = null;
   const openGroups = new Set(); // ids of the expanded groups; the first one starts open
   let selSig = '', probSig = '', roomSig = '', snapOn = null, stackPx = null;
   let entries = new Map(); // catalogue entries by id, in the current language

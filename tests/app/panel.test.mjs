@@ -66,6 +66,21 @@ const setup = (lang = 'en') => {
 const items = (root) => findAll(root, cls('psp-item'));
 const sofa = { id: 'a1', type: 'sofa2', size: defaultSizeOf('sofa2'), colors: {} };
 
+test('on a narrow screen the details of a selected piece start folded and open from the header', () => {
+  for (const [width, folded] of [[390, true], [760, true], [761, false], [1100, false], [undefined, false]]) {
+    const doc = makeDoc(); if (width !== undefined) doc.defaultView = { innerWidth: width };
+    const session = makeSession(), panel = createPanel({ doc, host: doc.body, lang: 'en', session }), root = panel.element;
+    session.select({ ...sofa });
+    const body = find(root, cls('psp-sel-body')), head = find(root, cls('psp-sel-head'));
+    assert.equal(find(root, cls('psp-sel')).hidden, false, `${width}: the header of the selected piece shows`);
+    assert.equal(body.hidden, folded, `${width}: details folded: ${folded}`);
+    assert.equal(head.attrs['aria-expanded'], String(!folded));
+    head.fire('click');
+    assert.equal(body.hidden, !folded, `${width}: the header toggles the details`);
+    panel.dispose();
+  }
+});
+
 test('the list holds every type of the catalogue once, in groups, with names in both languages', () => {
   for (const lang of ['en', 'pl']) {
     const { root } = setup(lang);
