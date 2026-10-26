@@ -54,8 +54,8 @@ const shot = async (name) => { if (!out) return; const r = await send('Page.capt
 
 const example = JSON.parse(readFileSync(join(root, 'examples/flat-1.plan.json'), 'utf8'));
 const goodText = JSON.stringify(example);
-const badPlan = JSON.parse(goodText); // an opening that lies far past the end of its wall: the validator refuses it with a message
-{ const lv = badPlan.levels[0]; const op = lv.openings.find((o) => o.type === 'door') ?? lv.openings[0]; op.offset = 99; }
+const badPlan = JSON.parse(goodText); // openings that lie far past the end of their walls: the validator refuses the plan with a message
+{ const lv = badPlan.levels[0]; lv.openings[0].offset = 99; lv.openings[1].offset = 98; } // two openings far past their walls: two problems, listed one by one
 const badText = JSON.stringify(badPlan);
 
 const LANGS = {
@@ -72,6 +72,7 @@ const fits = () => ev(`(() => { const d = document.querySelector('.ps-files-dial
 
 async function run(lang) {
   const T = LANGS[lang];
+  await send('Page.navigate', { url: 'about:blank' }); await sleep(300); // a change of the part after # alone would not reload the page: the second language would keep the first
   await send('Page.navigate', { url: `${page}#lang=${lang}&q=low&live=1` });
   await waitFor(`document.readyState === 'complete' && !!document.querySelector('canvas')`, 60000, 'the page');
   await sleep(1500);
@@ -108,7 +109,7 @@ async function run(lang) {
 
   await setBox(badText); await click('.ps-files-load'); await sleep(500);
   const prob = await ev(`(() => ({ open: !!document.getElementById('ps-files-overlay'), text: document.getElementById('ps-files-error').textContent, row: document.querySelector('.ps-files-msgrow')?.style.display }))()`);
-  check(`${lang}: a plan that does not pass stays in the box with the reason`, prob.open && prob.text.startsWith(T.head) && prob.text.includes('\n') && prob.row !== 'none', prob.text.slice(0, 200));
+  check(`${lang}: a plan that does not pass stays in the box with the reason and every problem as a numbered line`, prob.open && prob.text.startsWith(T.head) && /\n1\. .+\n2\. /.test(prob.text) && prob.row !== 'none', prob.text.slice(0, 260));
   await ev(`document.querySelector('.ps-files-dialog').scrollTop = 0; document.getElementById('ps-files-error').scrollIntoView({ block: 'center' }); true`);
   await shot(`${lang}-4-problem`);
   await click('.ps-files-copymsg'); await sleep(300);

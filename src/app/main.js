@@ -391,7 +391,7 @@ try {
     // The box tells how to make a plan file from a picture (and copies the prompt for an AI chat), and keeps a plan that does not pass the validator open with the reason,
     // so the message can be copied and handed back to the chat; the text that passed is the one that is built.
     let checked = null;
-    const check = (text) => { const r = readPlanText(text, S.lang); checked = { text, r }; return r.ok ? null : { message: r.message, detail: r.detail }; };
+    const check = (text) => { const r = readPlanText(text, S.lang); checked = { text, r }; return r.ok ? null : { message: r.message, detail: r.list || r.detail }; };
     askForText(document, S.lang, { kind: 'plan', check, help: { prompt: promptFor(S.lang) } }).then((text) => {
       if (text == null) return;
       const r = checked && checked.text === text ? checked.r : readPlanText(text, S.lang);

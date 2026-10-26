@@ -138,7 +138,7 @@ const PLAN_STR = {
     helpSteps: [
       'Take a photo, a screenshot or a PDF page of your floor plan. Walls, doors and windows should be visible; sizes or room areas printed on it help to find the scale.',
       'Open an AI chat assistant that can read pictures, attach the picture and paste the prompt.',
-      'Copy the whole answer of the assistant, paste it into the box below and press Load. The page finds the plan in it.',
+      'Copy the whole answer of the assistant, paste it into the box below and press Load. The page finds the plan in it. Compare the model with your drawing: a weaker assistant may leave out windows or move a wall.',
       'If the page names a problem, copy its message and paste it back into the chat: ask for a corrected plan.',
     ],
     copyPrompt: 'Copy the prompt', promptCopied: 'Prompt copied. Paste it into the chat.', copyFailed: 'Could not copy. Open Show the prompt and copy the text by hand.',
@@ -150,7 +150,7 @@ const PLAN_STR = {
     helpSteps: [
       'Zrób zdjęcie, zrzut ekranu albo weź stronę PDF z rzutem mieszkania. Mają być widoczne ściany, drzwi i okna; wymiary lub powierzchnie pokoi na rysunku pomagają ustalić skalę.',
       'Otwórz asystenta AI do czatu, który czyta obrazy, dołącz obraz i wklej polecenie.',
-      'Skopiuj całą odpowiedź asystenta, wklej ją do pola poniżej i naciśnij Wczytaj. Strona sama znajdzie w niej plan.',
+      'Skopiuj całą odpowiedź asystenta, wklej ją do pola poniżej i naciśnij Wczytaj. Strona sama znajdzie w niej plan. Porównaj makietę z rysunkiem: słabszy asystent może pominąć okna albo przesunąć ścianę.',
       'Jeśli strona wskaże problem, skopiuj jej komunikat i wklej go z powrotem do czatu, prosząc o poprawiony plan.',
     ],
     copyPrompt: 'Kopiuj polecenie', promptCopied: 'Skopiowano polecenie. Wklej je do czatu.', copyFailed: 'Nie udało się skopiować. Otwórz Pokaż polecenie i skopiuj tekst ręcznie.',

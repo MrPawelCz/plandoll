@@ -42,3 +42,27 @@ test('hostile keys do not pollute anything, and the same input gives the same an
   assert.deepEqual(a, b);
   assert.equal({}.polluted, undefined); assert.equal(Object.prototype.polluted, undefined);
 });
+
+test('several problems come back as a numbered list, one sentence each, capped, and a single problem has no list', () => {
+  const two = JSON.parse(example('flat-1'));
+  const lv = two.levels[0]; lv.openings[0].offset = 99; lv.openings[1].offset = 98;
+  for (const lang of ['en', 'pl']) {
+    const r = readPlanText(JSON.stringify(two), lang);
+    assert.equal(r.ok, false); assert.ok(r.errors >= 2);
+    const lines = r.list.split('\n');
+    assert.equal(lines.length, Math.min(r.errors, 12) + (r.errors > 12 ? 1 : 0));
+    lines.slice(0, Math.min(r.errors, 12)).forEach((l, i) => assert.ok(l.startsWith(`${i + 1}. `) && l.length > 12 && l.length <= 230, l));
+    assert.ok(!LONG_DASH.test(r.list));
+  }
+  const one = JSON.parse(example('flat-1')); one.levels[0].openings[0].offset = 99;
+  const r1 = readPlanText(JSON.stringify(one), 'en');
+  if (r1.errors === 1) assert.equal(r1.list, ''); else assert.ok(r1.list.length > 0);
+  const many = JSON.parse(example('flat-1'));
+  many.levels[0].openings.forEach((o, i) => { o.offset = 90 + i; });
+  for (let i = 0; i < 6; i++) many.levels[0].openings.push(...many.levels[0].openings.slice(0, 3).map((o, k) => ({ ...o, id: `x${i}_${k}`, offset: 80 + i })));
+  const rm = readPlanText(JSON.stringify(many), 'en');
+  if (rm.errors > 12) assert.match(rm.list.split('\n').at(-1), /^\.\.\. and \d+ more$/);
+  assert.ok(rm.list.split('\n').length <= 13);
+  assert.equal(readPlanText(example('flat-1'), 'en').list, undefined, 'a plan that passes has no list');
+  assert.equal(readPlanText('', 'en').list, undefined);
+});
