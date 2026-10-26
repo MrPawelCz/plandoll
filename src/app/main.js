@@ -112,7 +112,9 @@ try {
   stage.setLift(floorLift(model, flags)); // only an upper floor on show: the base of the house comes up under it
   // ---------- furniture: the engine lays the rooms out, compose builds the pieces (rebuilt when the quality changes) ----------
   let layout = autoFurnish(model, { seed: params.seed, allowedTypes: piecesImplemented() });
-  let focus = focusRoom(model, layout);
+  // the room that the close view (cam=close) looks at: the best furnished one of the floors on show
+  const focusOf = () => (allShown(flags) ? focusRoom(model, layout) : focusRoom({ levels: model.levels.filter((_, i) => flags[i]) }, { levels: layout.levels.filter((lc) => flags[model.levels.findIndex((l) => l.id === lc.id)] !== false) }));
+  let focus = focusOf();
 
   // ---------- camera: turns round the model; the outer walls that face it are cut low, the others stay tall ----------
   let W = window.innerWidth, H = window.innerHeight;
@@ -195,15 +197,15 @@ try {
   // their own and the pieces hung on their walls (shell.setLevels), and their stretch of the merged meshes (the draw range only, nothing is merged again); the stage
   // gets the lamps of the floors on show only. Cheap enough for every tap of a floor button.
   function showFloors() {
-    const shown = new Set(model.levels.filter((_, i) => flags[i]).map((l) => l.id));
+    const all = allShown(flags), shown = new Set(model.levels.filter((_, i) => flags[i]).map((l) => l.id)); // with all floors on show nothing is left out, whatever a piece says about its level
     ps.setLevelVisible((i) => flags[i]);
-    shell?.setLevels(allShown(flags) ? null : flags);
-    if (furn.merged) showMergedLevels(furn.merged.group, allShown(flags) ? null : shown);
+    shell?.setLevels(all ? null : flags);
+    if (furn.merged) showMergedLevels(furn.merged.group, all ? null : shown);
     for (const id of furn.own) {
       const g = furn.pieces.get(id);
-      if (g && !shell?.hostMatrix(id)) g.visible = shown.has(g.userData.levelId) && !furn.cutOff.has(id); // the pieces hung on a turned wall follow the shell
+      if (g && !shell?.hostMatrix(id)) g.visible = (all || shown.has(g.userData.levelId)) && !furn.cutOff.has(id); // the pieces hung on a turned wall follow the shell
     }
-    furn.emitters = [...furn.lamps].filter(([lv]) => shown.has(lv)).flatMap(([, list]) => list);
+    furn.emitters = [...furn.lamps].filter(([lv]) => all || shown.has(lv)).flatMap(([, list]) => list);
     stage.setEmitters(furn.emitters);
   }
   furnish();
@@ -283,8 +285,8 @@ try {
     shell?.dispose();
     if (furn) { disposeComposed(furn.group, furn.merged?.group); furn = null; }
     scene.remove(ps.group); ps.dispose(); stage.dispose();
-    model = built.model; allExt = built.ext; ext = built.ext; frameExt = nextExt; framePts = nextPts; stageExt = nextExt; ps = built.scene; layout = built.layout; curLayout = layout; focus = focusRoom(model, layout);
-    floor = ALL; flags = visibleFlags(ALL, model.levels.length); S.floor = ALL; S.levels = model.levels.map((l) => ({ id: l.id, name: l.name })); // a new plan starts with all its floors on show
+    model = built.model; allExt = built.ext; ext = built.ext; frameExt = nextExt; framePts = nextPts; stageExt = nextExt; ps = built.scene; layout = built.layout; curLayout = layout;
+    floor = ALL; flags = visibleFlags(ALL, model.levels.length); focus = focusOf(); S.floor = ALL; S.levels = model.levels.map((l) => ({ id: l.id, name: l.name })); // a new plan starts with all its floors on show
     try { history.replaceState(null, '', `#${floorHash(location.hash, ALL)}`); } catch { /* an address that cannot change keeps its floor= */ }
     scene.add(ps.group);
     shell = nextShell; shellTarget = 0; S.shellOpen = false; ui?.update(S); // a new plan starts closed
@@ -325,7 +327,7 @@ try {
     if (want === floor) return floor;
     floor = want; flags = visibleFlags(floor, model.levels.length); S.floor = floor;
     const f = framing(model, allExt, flags), reground = !sameGround(f.ext, ext);
-    ext = f.ext; frameExt = f.frameExt; framePts = f.framePts;
+    ext = f.ext; frameExt = f.frameExt; framePts = f.framePts; focus = focusOf();
     stage.setLift(floorLift(model, flags));
     onFloorChange?.();
     if (reground) { recut(); shell?.hidePatches(); settle(); } else { showFloors(); stage.refreshShadowCasters(scene); } // other ground: other near walls and hung pieces

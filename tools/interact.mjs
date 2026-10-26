@@ -423,6 +423,21 @@ async function floorsBlock(tag) {
   // opening and closing the shell itself leaves four more calls than the start, with or without the floor buttons), under the limit of the page (1800 on high)
   const callsA = await floorCalls();
   record(label('draw calls: a single floor draws fewer calls than both, both again draw exactly as many as before, and the number stays under the limit'), callsG < calls0 && callsU < calls0 && callsA === calls0 && calls0 <= 1800, { both: calls0, ground: callsG, upper: callsU, bothAgain: callsA, limit: 1800 });
+  // Save image hands over the picture of the floors on show: three PNG files that differ from each other
+  const saveSel = '#ps-ui button.tool[data-tool="saveImage"]';
+  if (await rectOf(saveSel)) {
+    await ev(`(() => { window.__pngF = []; if (!window.__pngHook) { window.__pngHook = true; const orig = URL.createObjectURL.bind(URL); URL.createObjectURL = (b) => { window.__pngF.push(b); return orig(b); }; } })()`);
+    try { await send('Browser.setDownloadBehavior', { behavior: 'deny' }); } catch {}
+    const saved = {};
+    for (const [name, key] of [['both', 'all'], ['ground', '0'], ['upper', '1']]) {
+      await tapFloor(key); await ev('window.__pngF.length = 0'); await tapAt(saveSel);
+      await waitFor('window.__pngF.length > 0', 30);
+      saved[name] = await ev(`(async () => { const b = window.__pngF[0]; if (!b) return null; const u = new Uint8Array(await b.slice(0, 8).arrayBuffer()); return { png: [...u].map((x) => x.toString(16).padStart(2, '0')).join(' ').startsWith('89 50 4e 47'), size: b.size }; })()`);
+    }
+    const sizes = Object.values(saved).map((x) => x?.size);
+    record(label('Save image: the picture of the floors on show is handed over, a PNG for Both, for the ground floor and for the upper floor, all three different'), Object.values(saved).every((x) => x?.png && x.size > 5000) && new Set(sizes).size === 3, { saved });
+    await tapFloor('all');
+  }
   await tapFloor('1');
 
   // the open shell with only the upper floor on show: its walls lie flat on the board that came up, and everything stays in the picture

@@ -71,6 +71,7 @@ const CSS = `
 @media (min-width:761px) and (max-width:1380px){#ps-ui{flex-wrap:wrap;justify-content:center}#ps-ui .tools{flex-basis:100%}#ps-ui .sep{display:none}}
 @media (min-width:1381px){#ps-ui.has-tools{flex-wrap:wrap;justify-content:center}#ps-ui.has-tools .tools{flex-basis:100%}#ps-ui.has-tools .sep{display:none}}
 #ps-ui .plans,#ps-ui .floors{display:flex;gap:6px}
+@media (max-width:440px){#ps-ui .tools[data-floors] button.tool{padding:0 8px;font-size:11px}}
 #ps-ui button.tool[aria-pressed=true]{background:#fffaf0;box-shadow:0 2px 8px rgba(70,48,20,.14)}
 @media (max-width:760px){#ps-ui{flex-wrap:wrap;justify-content:center;gap:8px}#ps-ui label.time{min-width:100%}#ps-ui label.quality{flex-direction:column;align-items:flex-start;gap:2px}#ps-ui select{padding:4px 6px}}
 @media (max-width:760px),(pointer:coarse){#ps-ui button.mood{min-height:44px;box-sizing:border-box}#ps-ui select{min-height:44px;box-sizing:border-box}#ps-ui button.reset,#ps-ui button.lang{min-height:44px;min-width:44px;box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center}}
@@ -218,6 +219,7 @@ export function createUI(handlers, state, doc = document) {
       }
     }
     floors.style.display = choices.length ? '' : 'none'; floors.setAttribute('aria-label', L.floors);
+    if (choices.length) tools.dataset.floors = String(choices.length); else delete tools.dataset.floors; // a phone narrower than 440 px sets the tools a little tighter then, so that the plans and the floors share a line
     choices.forEach((c, i) => { const b = floorBtns[i]; b.textContent = c.label; b.title = c.title; b.setAttribute('aria-label', c.title); b.setAttribute('aria-pressed', String(String(c.key) === String(state.floor ?? 'all'))); });
     root.className = [state.editing ? 'editing' : '', state.tools ? 'has-tools' : ''].filter(Boolean).join(' ');
     doc.documentElement.lang = state.lang;
