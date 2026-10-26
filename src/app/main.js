@@ -152,7 +152,7 @@ try {
     const fit = fitView(st, frameExt, { fov: p.fov, aspect: W / H, bottom: cover, lift: true });
     return { ...p, target: fit.target, pos: positionOf({ azimuth: st.azimuth, polar: st.polar, distance: fit.distance }, fit.target), lifted: true };
   };
-  const fitNow = () => wantFit || !allShown(flags); // a view of some floors only is always fitted to them
+  const fitNow = () => wantFit || (!allShown(flags) && !(params.cam === 'close' && focus)); // a view of some floors only is fitted to them, except the close view, which looks at the room it found there
   if (fitNow()) pose = fitPose(pose);
   const home0 = stateFrom(pose.pos, pose.target);
   let current = { ...home0, azimuth: params.az ?? home0.azimuth, polar: params.pol ?? home0.polar }; // the view the controller reports
@@ -199,6 +199,7 @@ try {
   function showFloors() {
     const all = allShown(flags), shown = new Set(model.levels.filter((_, i) => flags[i]).map((l) => l.id)); // with all floors on show nothing is left out, whatever a piece says about its level
     ps.setLevelVisible((i) => flags[i]);
+    shell?.hidePatches(); // setLevelVisible lights the panes again: while the shell is not closed the window light stays off the floor
     shell?.setLevels(all ? null : flags);
     if (furn.merged) showMergedLevels(furn.merged.group, all ? null : shown);
     for (const id of furn.own) {
@@ -698,6 +699,7 @@ try {
       get clock() { return shell.clock; }, get target() { return shellTarget; }, get mode() { return modeOf(shell.clock, shellTarget); }, get walls() { return shell.walls.length; },
       open: () => shellGo(true), close: () => shellGo(false), toggle: () => shellGo(shellTarget !== 1),
       state: () => shell.state(),
+      patchesLit: () => { const a = ps.sunPatch?.geometry.attributes.aInfo, n = ps.sunPatch?.userData.patches ?? 0; let k = 0; for (let i = 0; i < n; i++) if (a.getW(i * 4) === 1) k++; return k; }, // panes whose window light lies on the floor now
       extent: () => ({ minX: frameExt.minX, maxX: frameExt.maxX, minZ: frameExt.minZ, maxZ: frameExt.maxZ }), // the closed model with every wall lying flat (the board of the open shell holds it)
       view: () => ({ position: camera.position.toArray(), quaternion: camera.quaternion.toArray(), fov: camera.fov, aspect: camera.aspect, target: cam.target, lift: cam.lift }), // lift: the centre of the projection sits this far above the middle of the picture (half pictures)
       // where the corners of the closed model and of every wall lying flat land in the picture (px), and the top of the control bar: the fit check

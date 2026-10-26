@@ -71,6 +71,7 @@ const CSS = `
 @media (min-width:761px) and (max-width:1380px){#ps-ui{flex-wrap:wrap;justify-content:center}#ps-ui .tools{flex-basis:100%}#ps-ui .sep{display:none}}
 @media (min-width:1381px){#ps-ui.has-tools{flex-wrap:wrap;justify-content:center}#ps-ui.has-tools .tools{flex-basis:100%}#ps-ui.has-tools .sep{display:none}}
 #ps-ui .plans,#ps-ui .floors{display:flex;gap:6px}
+#ps-ui .floors{flex-wrap:wrap;justify-content:center}
 @media (max-width:440px){#ps-ui .tools[data-floors] button.tool{padding:0 8px;font-size:11px}}
 #ps-ui button.tool[aria-pressed=true]{background:#fffaf0;box-shadow:0 2px 8px rgba(70,48,20,.14)}
 @media (max-width:760px){#ps-ui{flex-wrap:wrap;justify-content:center;gap:8px}#ps-ui label.time{min-width:100%}#ps-ui label.quality{flex-direction:column;align-items:flex-start;gap:2px}#ps-ui select{padding:4px 6px}}
