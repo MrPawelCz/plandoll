@@ -235,9 +235,9 @@ try {
   const fixtureText = readFileSync(join(root, 'tests/fixtures/duplex-min.plan.json'), 'utf8');
   const fx = readPlanText(fixtureText, 'en');
   const fixture = build(fixtureText);
-  const own = await encodeShare({ plan: planForLink(fx.plan), layout: packLayout(serializeLayout(fixture.layout)) });
-  record('a link with a plan of your own is made', own.ok, { chars: own.chars });
-  record('and it opens that plan with its layout; no example button is pressed', await load(`${html}#preset=amber&share=${own.value}`));
+  const ownLink = await encodeShare({ plan: planForLink(fx.plan), layout: packLayout(serializeLayout(fixture.layout)) }); // not `own`: that name is the origin of a live address, read by the request listener above
+  record('a link with a plan of your own is made', ownLink.ok, { chars: ownLink.chars });
+  record('and it opens that plan with its layout; no example button is pressed', await load(`${html}#preset=amber&share=${ownLink.value}`));
   const sO = await pageState();
   record('the plan has its levels and pieces, no note, no error', sO.levels === fx.plan.levels.length && sO.pieces === fixture.layout.levels.reduce((n, l) => n + l.pieces.length, 0) && sO.notes.length === 0 && sO.pressedPlans === 0, { levels: sO.levels, pieces: sO.pieces, pressed: sO.pressedPlans });
   await click('#ps-ui .tool[data-tool="share"]');
