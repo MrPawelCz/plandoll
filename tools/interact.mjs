@@ -16,7 +16,7 @@
 // After the camera steps of each plan (liftBlock) it checks that the centre of the projection is lifted over the part above the controls, that the model starts in the middle of that part and that three turns
 // of 45 degrees after a zoom to about half the distance keep it there (the camera looks at the middle of the model, not at a point below the floor).
 // With --btn on the duplex (floorsBlock) the floor buttons are tapped one by one: the ground floor, the upper floor (the base of the house comes up under it), with the shell open, in Polish, and back to
-// both; every tap checks the hooks, the address, that the turn and the tilt stay, that the floors on show fit above the controls and that the PICTURE changed, and the last tap that the first picture is back byte for byte.
+// both; every tap checks the hooks, the address, that the turn and the tilt stay, that the floors on show fit above the controls and that the PICTURE changed, and the last tap that the first picture is back (to within 3 levels of 255 of screen noise).
 // --edit on a plan with two or more levels adds floorsEditBlock: a piece is selected only on the floor on show, the selection of a floor that goes is cleared, a hidden piece cannot be hit, Add uses the floor on show.
 // --floors runs only those steps (plan=duplex-1 in --hash; with --edit the editor ones): the first frames, then the floor steps, then the check that nothing is drawn at rest.
 // Exits 1 when a step fails, the page reports an error, writes to storage or asks for anything outside its own address.
@@ -26,6 +26,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { pathToFileURL, fileURLToPath } from 'node:url';
+import { inflateSync } from 'node:zlib';
 
 const argv = process.argv.slice(2);
 const opt = { html: null, size: '390x844', scale: '3', hash: '', out: null, timeout: 240, settle: 12, desktop: false, edit: false, quick: false, btn: false, floors: false };
@@ -139,6 +140,46 @@ async function picture(label) {
     writeFileSync(join(out, `${label}-full.jpg`), Buffer.from(full.data, 'base64'));
   }
   return shot.data;
+}
+// A screenshot as raw pixels (Chrome writes 8-bit RGB or RGBA PNG files that are not interlaced), so that two pictures can be compared with a small tolerance.
+function decodePng(b64) {
+  const buf = Buffer.from(b64, 'base64');
+  let pos = 8, w = 0, h = 0, bpp = 4;
+  const idat = [];
+  while (pos < buf.length) {
+    const len = buf.readUInt32BE(pos), type = buf.toString('latin1', pos + 4, pos + 8), body = buf.subarray(pos + 8, pos + 8 + len);
+    if (type === 'IHDR') {
+      w = body.readUInt32BE(0); h = body.readUInt32BE(4); bpp = body[9] === 6 ? 4 : 3;
+      if (body[8] !== 8 || (body[9] !== 6 && body[9] !== 2) || body[12] !== 0) throw new Error('a PNG of a kind that is not handled');
+    } else if (type === 'IDAT') idat.push(body);
+    pos += 12 + len;
+  }
+  const raw = inflateSync(Buffer.concat(idat)), stride = w * bpp, px = Buffer.alloc(h * stride);
+  for (let y = 0; y < h; y++) {
+    const f = raw[y * (stride + 1)], src = raw.subarray(y * (stride + 1) + 1, (y + 1) * (stride + 1)), row = y * stride;
+    for (let x = 0; x < stride; x++) {
+      const a = x >= bpp ? px[row + x - bpp] : 0, b = y ? px[row - stride + x] : 0, c = x >= bpp && y ? px[row - stride + x - bpp] : 0;
+      let v = src[x];
+      if (f === 1) v += a; else if (f === 2) v += b; else if (f === 3) v += (a + b) >> 1;
+      else if (f === 4) { const q = a + b - c, pa = Math.abs(q - a), pb = Math.abs(q - b), pc = Math.abs(q - c); v += pa <= pb && pa <= pc ? a : pb <= pc ? b : c; }
+      px[row + x] = v & 255;
+    }
+  }
+  return { w, h, bpp, px };
+}
+// Two screenshots are the same picture when no colour channel of any pixel differs by more than tol of 255. The screen adds a level or two of noise at the soft edge of a hint or
+// a shadow (a phone run differed in one pixel by one level), while a floor that is left behind or a camera that moved changes thousands of pixels by much more.
+function nearPictures(a, b, tol = 3) {
+  const A = decodePng(a), B = decodePng(b);
+  if (A.w !== B.w || A.h !== B.h || A.bpp !== B.bpp) return { same: false, why: 'the size differs' };
+  let bad = 0, worst = 0;
+  for (let i = 0; i < A.px.length; i += A.bpp) {
+    let d = 0;
+    for (let k = 0; k < 3; k++) d = Math.max(d, Math.abs(A.px[i + k] - B.px[i + k]));
+    if (d > worst) worst = d;
+    if (d > tol) bad++;
+  }
+  return { same: bad === 0, bad, worst };
 }
 // After an action: wait for the page to draw again (it reports a frame count), then give the compositor a moment.
 async function redrawn(before) {
@@ -380,7 +421,7 @@ async function liftBlock(tag) {
 
 // ---- the floors on show (a plan with two or more levels): one button per floor and one for all of them ----
 // Every tap must change the PICTURE, not only the hooks: the other floors are not drawn, the camera keeps its turn and tilt and fits the floors on show above the controls, the
-// address follows without a reload, the language changes the words, and a tap on the last button brings the first picture back byte for byte.
+// address follows without a reload, the language changes the words, and a tap on the last button brings the first picture back, to within the noise of the screen.
 const floorBtns = async () => JSON.parse(await ev(`JSON.stringify([...document.querySelectorAll('#ps-ui button.floor')].map((b) => { const r = b.getBoundingClientRect(); return { key: b.dataset.floor, text: b.textContent, label: b.getAttribute('aria-label'), pressed: b.getAttribute('aria-pressed'), x: r.left, y: r.top, w: r.width, h: r.height }; }))`));
 const floorNow = async () => JSON.parse(await ev(`JSON.stringify({ floor: window.__floors.get(), visible: window.__floors.visible(), lift: window.__floors.lift(), count: window.__floors.count, hash: location.hash, fail: window.__fail || null, az: window.__camera.azimuth, pol: window.__camera.polar, dist: window.__camera.distance, pressed: [...document.querySelectorAll('#ps-ui button.floor')].map((b) => b.getAttribute('aria-pressed')).join(',') })`));
 // where the corners of the closed model and of every wall lying flat (the floors on show only) land: all of them must be inside the window and above the controls
@@ -458,10 +499,10 @@ async function floorsBlock(tag) {
   }
 
   await tapFloor('all');
-  const a = await floorNow(), picA = await picture(`${tag}-floor-6-both-again`);
-  record(label('Both brings the first picture back, byte for byte, with the camera where it was and floor= out of the address'),
-    a.floor === 'all' && a.visible.join() === '0,1' && a.lift === 0 && noFloor(a.hash) && a.pressed === 'false,false,true' && picA === pic0 && Math.abs(a.az - s0.az) < 1e-6 && Math.abs(a.pol - s0.pol) < 1e-6 && Math.abs(a.dist - s0.dist) < 1e-6 * Math.max(1, s0.dist) && !a.fail,
-    { state: a, first: { az: s0.az, pol: s0.pol, dist: s0.dist }, samePicture: picA === pic0 });
+  const a = await floorNow(), picA = await picture(`${tag}-floor-6-both-again`), back = nearPictures(picA, pic0);
+  record(label('Both brings the first picture back (to within 3 levels of 255 of screen noise), with the camera where it was and floor= out of the address'),
+    a.floor === 'all' && a.visible.join() === '0,1' && a.lift === 0 && noFloor(a.hash) && a.pressed === 'false,false,true' && back.same && Math.abs(a.az - s0.az) < 1e-6 && Math.abs(a.pol - s0.pol) < 1e-6 && Math.abs(a.dist - s0.dist) < 1e-6 * Math.max(1, s0.dist) && !a.fail,
+    { state: a, first: { az: s0.az, pol: s0.pol, dist: s0.dist }, samePicture: back });
 
 
   // another language: the buttons are translated (Polish: Parter, Piętro, Oba), the pressed one stays
