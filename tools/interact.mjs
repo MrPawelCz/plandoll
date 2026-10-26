@@ -446,6 +446,7 @@ async function floorsBlock(tag) {
 
   await tapFloor('0');
   const g = await floorNow(), picG = await picture(`${tag}-floor-2-ground`), fitG = await floorFit(), callsG = await floorCalls();
+  const litGround = await ev(`typeof window.__shell === 'object' ? window.__shell.patchesLit() : null`); // the window light on the ground floor while the shell is closed
   record(label('Ground floor: only that floor is drawn, the picture changes, the address follows, the turn and the tilt stay, the floor fits above the controls'),
     g.floor === 0 && g.visible.join() === '0' && g.lift === 0 && /floor=0/.test(g.hash) && g.pressed === 'true,false,false' && picG !== pic0 && Math.abs(g.az - s0.az) < 1e-6 && Math.abs(g.pol - s0.pol) < 1e-6 && fitG?.inside !== false && !g.fail,
     { state: g, fit: fitG, pictureChanged: picG !== pic0 });
@@ -487,12 +488,13 @@ async function floorsBlock(tag) {
   if ((await ev('typeof window.__shell')) === 'object' && (await rectOf(shellSel))) {
     const fsh = await frames();
     await tapAt(shellSel);
-    const opened = await waitFor('window.__shell.mode === "open"', 30);
+    const opened = await waitFor('window.__shell.mode === "open"', 240); // the shell moves a little with every frame, so a slow software renderer takes minutes
     await redrawn(fsh); await sleep(400);
     const picO = await picture(`${tag}-floor-4-upper-shell-open`), fitO = await floorFit(), litO = await ev('window.__shell.patchesLit()');
     const board = JSON.parse(await ev('JSON.stringify(window.__stats.board)')), open = JSON.parse(await ev('JSON.stringify(window.__shell.extent())'));
     const holds = board.minX <= open.minX + 1e-6 && board.maxX >= open.maxX - 1e-6 && board.minZ <= open.minZ + 1e-6 && board.maxZ >= open.maxZ - 1e-6;
-    record(label('Upper floor with the shell open: the walls lie flat, the board holds them, no window light lies on the floor, the picture changes and everything stays above the controls'), opened && picO !== picU && fitO?.inside !== false && holds && litO === 0 && (await floorNow()).floor === 1, { fit: fitO, boardHoldsOpenExtent: holds, pictureChanged: picO !== picU, windowLightOn: litO });
+    const floorO = (await floorNow()).floor;
+    record(label('Upper floor with the shell open: the walls lie flat, the board holds them, no window light lies on the floor, the picture changes and everything stays above the controls'), opened && picO !== picU && fitO?.inside !== false && holds && litO === 0 && floorO === 1, { opened, floor: floorO, fit: fitO, boardHoldsOpenExtent: holds, pictureChanged: picO !== picU, windowLightOn: litO });
     await tapFloor('0'); await sleep(300);
     const picO0 = await picture(`${tag}-floor-5-ground-shell-open`), fitO0 = await floorFit(), litG = await ev('window.__shell.patchesLit()');
     record(label('switching to the ground floor while the shell is open: the walls of the floor on show stay flat, no window light lies on the floor, the picture changes, nothing leaves the picture'), picO0 !== picO && fitO0?.inside !== false && litG === 0 && (await ev('window.__shell.mode')) === 'open' && (await floorNow()).floor === 0, { fit: fitO0, pictureChanged: picO0 !== picO, windowLightOn: litG });
@@ -502,9 +504,10 @@ async function floorsBlock(tag) {
     const litT = await ev('window.__shell.patchesLit()'), modeT = await ev('window.__shell.mode');
     record(label('turning the view while the shell is open keeps the window light off the floor and the shell open'), litT === 0 && modeT === 'open', { windowLightOn: litT, mode: modeT });
     await ev(`window.__camera.set(${az0}, ${pol0})`); await sleep(200);
-    const fsc = await frames(); await tapAt(shellSel); await waitFor('window.__shell.mode === "closed"', 30); await redrawn(fsc); await sleep(300);
-    const litC = await ev('window.__shell.patchesLit()');
-    record(label('closing the shell brings the window light of the floors on show back'), litC > 0, { windowLightOpen: litG, windowLightClosed: litC });
+    const fsc = await frames(); await tapAt(shellSel); const closed = await waitFor('window.__shell.mode === "closed"', 240); await redrawn(fsc); await sleep(300);
+    // the ground floor is on show again (the tap on it above), so the light that comes back is the one the ground floor had before the shell moved
+    const relit = await waitFor(`window.__shell.patchesLit() === ${litGround}`, 30), litC = await ev('window.__shell.patchesLit()');
+    record(label('closing the shell brings the window light of the floor on show back, as many panes as before it opened'), closed && litGround > 0 && relit, { windowLightBefore: litGround, windowLightOpen: litG, windowLightClosed: litC, closed });
   }
 
   await tapFloor('all');
