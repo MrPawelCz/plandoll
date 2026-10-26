@@ -350,16 +350,37 @@ export class PlanScene {
     floor.material = pw.paint ? paintMat(name, pw.paint.color, this.look, true) : mat(name, this.look);
   }
 
+  // The rooms of a level that have a polygon, with the box of each ([minX, maxX, minY, maxY]), found once per level.
+  _roomIndex(lv) {
+    this._roomIdx ??= new Map();
+    let index = this._roomIdx.get(lv);
+    if (!index) {
+      const rooms = lv.rooms.filter((r) => r.polygon.length >= 3);
+      const boxes = rooms.map((r) => {
+        let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
+        for (const [x, y] of r.polygon) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+        return [x0, x1, y0, y1];
+      });
+      index = { rooms, boxes };
+      this._roomIdx.set(lv, index);
+    }
+    return index;
+  }
+
   // Which room looks at a stretch of a wall piece, per side: [{ side, u0, u1, room }] (found once; the ends are refined to a millimetre).
   _spans(wp) {
     if (wp.spans) return wp.spans;
     const { w, p, lv } = wp, out = [];
-    const rooms = lv.rooms.filter((r) => r.polygon.length >= 3);
+    const index = this._roomIndex(lv), rooms = index.rooms, boxes = index.boxes;
     const nx = -w.dir[1], ny = w.dir[0], off = w.thickness / 2 + 0.03;
     for (const side of [1, -1]) {
       const at = (u) => {
         const x = w.from[0] + w.dir[0] * u + nx * side * off, y = w.from[1] + w.dir[1] * u + ny * side * off;
-        for (const r of rooms) if (inPolygon(x, y, r.polygon)) return r.id;
+        for (let i = 0; i < rooms.length; i++) {
+          const b = boxes[i];
+          if (x < b[0] || x > b[1] || y < b[2] || y > b[3]) continue; // outside the box of the room, so outside the room: the polygon test is skipped (a plan of many rooms and walls took minutes without this)
+          if (inPolygon(x, y, rooms[i].polygon)) return rooms[i].id;
+        }
         return null;
       };
       const edge = (a, b, id) => { for (let i = 0; i < 14; i++) { const m = (a + b) / 2; if (at(m) === id) a = m; else b = m; } return (a + b) / 2; };

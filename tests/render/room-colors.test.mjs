@@ -197,3 +197,25 @@ test('the colours stay when the look changes, and the scene can be disposed afte
   assert.equal(scene.look, 'clay'); assert.equal(skin.material.map ?? null, null);
   scene.dispose();
 });
+
+// A plan with many wall pieces and many rooms must not make setRoomColors crawl: a link can bring such a plan and a room colour, and the colours are applied before the first frame.
+// Without the box of each room in front of the polygon test, 600 walls with 600 windows and 150 rooms of 120 vertices took 109 seconds; with it, well under one.
+test('setRoomColors on a plan of many wall pieces and many rooms stays fast (a box test before the polygon test)', () => {
+  const nWalls = 300, nRooms = 80, pts = 60;
+  const ring = (cx, cy, r, n) => Array.from({ length: n }, (_, i) => [Math.round((cx + r * Math.cos((2 * Math.PI * i) / n)) * 1000) / 1000, Math.round((cy + r * Math.sin((2 * Math.PI * i) / n)) * 1000) / 1000]);
+  const walls = [], openings = [], rooms = [];
+  for (let i = 0; i < nWalls; i++) {
+    const horizontal = i % 2 === 0, k = Math.floor(i / 2) * 0.2;
+    walls.push({ id: `w${i}`, from: horizontal ? [0, k] : [k, 0], to: horizontal ? [60, k] : [k, 60], kind: 'partition', thickness: 0.05 });
+    openings.push({ id: `o${i}`, wall: `w${i}`, type: 'window', offset: 5 + (i % 40), width: 1 });
+  }
+  for (let j = 0; j < nRooms; j++) rooms.push({ id: `room${j}`, name: 'Hall', use: 'other', polygon: ring(3 + (j % 15) * 4, 3 + Math.floor(j / 15) * 4, 1.5, pts) });
+  const res = validatePlan({ version: 1, name: 'many', units: 'm', levels: [{ id: 'L0', name: 'L0', height: 2.7, elevation: 0, walls, openings, rooms }] });
+  assert.ok(res.ok, JSON.stringify(res.errors?.slice(0, 2)));
+  const scene = new PlanScene(buildModel(res.normalized), 'textured');
+  const t0 = Date.now();
+  scene.setRoomColors({ L0: { room0: { wall: '#d4a373' }, room5: { wall: '#336699', floor: '#102030' } } }, 'textured');
+  const ms = Date.now() - t0;
+  assert.ok(ms < 4000, `setRoomColors took ${ms} ms`);
+  assert.ok(skinsOf(scene).length > 0, 'the walls that look into the coloured rooms got their skins');
+});

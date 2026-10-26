@@ -24,9 +24,9 @@ test('the shell is on by default, shell=0 turns it off, and the choice survives 
   assert.equal(parseParams(`#${editHash('#plan=duplex-1', true, state)}`).shell, true, 'and leaves the default alone');
 });
 
-test('without the shell button the tools row has the example plans and the three buttons it always had, and the bar says it has tools', () => {
+test('without the shell button the tools row has the example plans and the four buttons (edit, save image, copy link, load plan), and the bar says it has tools', () => {
   const doc = makeDoc(), ui = createUI({ onPreset() {}, onTime() {}, onQuality() {}, onLang() {} }, { preset: 'amber', t: 0.5, q: 'auto', lang: 'en', tools: true, plan: 'flat-1' }, doc);
-  assert.deepEqual(toolButtons(ui).map((b) => b.dataset.tool), ['edit', 'saveImage', 'loadPlan']);
+  assert.deepEqual(toolButtons(ui).map((b) => b.dataset.tool), ['edit', 'saveImage', 'share', 'loadPlan']);
   assert.equal(ui.root.className, 'has-tools');
   ui.update({ editing: true }); assert.equal(ui.root.className, 'editing has-tools');
   ui.update({ editing: false, tools: false }); assert.equal(ui.root.className, '', 'btn=0 leaves the bar as it was');
@@ -37,7 +37,7 @@ test('with the shell the button comes first among the tools, says what it does i
   const state = { preset: 'amber', t: 0.5, q: 'auto', lang: 'en', tools: true, shell: true, shellOpen: false };
   const ui = createUI({ onPreset() {}, onTime() {}, onQuality() {}, onLang() {}, onShell: () => { calls++; } }, state, doc);
   const buttons = toolButtons(ui), shell = buttons[0];
-  assert.deepEqual(buttons.map((b) => b.dataset.tool), ['shell', 'edit', 'saveImage', 'loadPlan']);
+  assert.deepEqual(buttons.map((b) => b.dataset.tool), ['shell', 'edit', 'saveImage', 'share', 'loadPlan']);
   assert.equal(shell.textContent, 'Open the shell'); assert.equal(shell.attrs['aria-label'], 'Open the shell'); assert.match(shell.title, /Space or Esc/);
   assert.equal(shell.type, 'button');
   assert.notEqual(shell.attrs['aria-disabled'], 'true');

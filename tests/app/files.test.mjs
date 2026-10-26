@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { MAX_PLAN_CHARS } from '../../src/core/limits.js';
-import { LAYOUT_FILENAME, IMAGE_FILENAME, MAX_FILE_BYTES, REVOKE_DELAY_MS, refusalText, saveTextFile, saveBlobFile, readTextFile, askForText } from '../../src/app/files.js';
+import { LAYOUT_FILENAME, IMAGE_FILENAME, MAX_FILE_BYTES, REVOKE_DELAY_MS, refusalText, saveTextFile, saveBlobFile, readTextFile, askForText, copyText, showLinkDialog } from '../../src/app/files.js';
 
 // Matches an en dash or an em dash; built from char codes so the file itself holds neither.
 const LONG_DASH = new RegExp("[" + String.fromCharCode(0x2013, 0x2014) + "]");
@@ -396,4 +396,75 @@ test('askForText: the plan kind has its own words and a file button, the text co
   }
   const doc = makeDoc(); const p = askForText(doc, 'en'); const u = parts(doc);
   assert.equal(u.buttons.length, 2, 'the layout box has no file button'); fire(u.cancel, 'click'); assert.equal(await p, null);
+});
+
+// ---------- the share link: copying text and the dialog that shows a link ----------
+const tick = () => new Promise((r) => setTimeout(r, 0));
+
+test('copyText: the clipboard call first; when it refuses, or the page is not secure, the old selection command; neither gives false and leaves nothing in the page', async () => {
+  const doc = makeDoc(), win = doc.defaultView; win.document = doc;
+  const written = [];
+  win.isSecureContext = true; win.navigator = { clipboard: { writeText: async (t) => { written.push(t); } } };
+  assert.equal(await copyText(win, 'https://example.org/#a'), true); assert.deepEqual(written, ['https://example.org/#a']);
+  assert.equal(doc.body.children.length, 0);
+  win.navigator = { clipboard: { writeText: async () => { throw new Error('NotAllowedError'); } } };
+  const cmds = []; doc.execCommand = (c) => { cmds.push([c, doc.body.children.at(-1)?.value, doc.body.children.at(-1)?.tag]); return true; };
+  assert.equal(await copyText(win, 'link-1'), true); assert.deepEqual(cmds, [['copy', 'link-1', 'textarea']]);
+  assert.equal(doc.body.children.length, 0, 'the helper field is taken out again');
+  win.isSecureContext = false; win.navigator = { clipboard: { writeText: async (t) => { written.push(`never ${t}`); } } };
+  assert.equal(await copyText(win, 'link-2'), true); assert.equal(written.length, 1, 'an address that is not secure skips the clipboard call');
+  doc.execCommand = () => false;
+  assert.equal(await copyText(win, 'link-3'), false); assert.equal(doc.body.children.length, 0);
+  doc.execCommand = () => { throw new Error('gone'); };
+  assert.equal(await copyText(win, 'link-4'), false);
+  delete doc.execCommand; assert.equal(await copyText(win, 'link-5'), false);
+  assert.equal(await copyText(win, ''), false); assert.equal(await copyText(win, null), false); assert.equal(await copyText(undefined, 'x'), false); assert.equal(await copyText({}, 'x'), false);
+});
+
+test('showLinkDialog: the link sits in a read-only field, Copy says whether it worked, Escape, Close and the dim background close it, one dialog at a time', async () => {
+  const doc = makeDoc(), win = doc.defaultView; win.document = doc;
+  const url = 'https://example.org/plandoll/#preset=amber&share=z1.abc';
+  win.isSecureContext = true; win.navigator = { clipboard: { writeText: async () => {} } };
+  const dlg = showLinkDialog(doc, 'pl', url, { note: 'Długi link: część komunikatorów może go uciąć.' });
+  assert.ok(dlg && typeof dlg.close === 'function');
+  const overlay = doc.getElementById('ps-files-overlay');
+  assert.ok(overlay); assert.equal(overlay.parentNode, doc.body);
+  const nodes = all(overlay), area = nodes.find((n) => n.tag === 'textarea'), buttons = nodes.filter((n) => n.tag === 'button');
+  assert.equal(area.value, url); assert.equal(area.readOnly, true); assert.equal(area.attrs['aria-label'], 'Link');
+  assert.equal(nodes.find((n) => n.tag === 'h2').textContent, 'Link do tego układu');
+  assert.match(nodes.find((n) => n.id === 'ps-files-hint').textContent, /nic nie jest nigdzie zapisywane.*Długi link/);
+  assert.deepEqual(buttons.map((b) => b.textContent), ['Kopiuj', 'Zamknij']);
+  assert.equal(doc.activeElement, buttons[0], 'the Copy button has the focus');
+  const status = nodes.find((n) => n.id === 'ps-files-error');
+  fire(buttons[0], 'click'); await tick(); await tick();
+  assert.equal(status.textContent, 'Skopiowano');
+  win.navigator = { clipboard: { writeText: async () => { throw new Error('no'); } } }; doc.execCommand = () => false;
+  fire(buttons[0], 'click'); await tick(); await tick();
+  assert.equal(status.textContent, 'Nie udało się skopiować: zaznacz link i skopiuj go ręcznie.');
+  const second = showLinkDialog(doc, 'en', url);
+  assert.ok(overlay.removed, 'the older dialog is closed first'); assert.equal(all(doc.body).filter((n) => n.id === 'ps-files-overlay').length, 1);
+  const o2 = doc.getElementById('ps-files-overlay');
+  assert.equal(all(o2).find((n) => n.tag === 'h2').textContent, 'Link to this layout'); assert.deepEqual(all(o2).filter((n) => n.tag === 'button').map((b) => b.textContent), ['Copy', 'Close']);
+  const ev = fire(o2, 'keydown', { key: 'Escape' });
+  assert.ok(ev.defaultPrevented); assert.ok(o2.removed);
+  const third = showLinkDialog(doc, 'en', url);
+  fire(all(doc.getElementById('ps-files-overlay')).filter((n) => n.tag === 'button')[1], 'click');
+  assert.ok(doc.getElementById('ps-files-overlay') === null, 'Close closes it');
+  showLinkDialog(doc, 'en', url);
+  const o4 = doc.getElementById('ps-files-overlay');
+  fire(o4, 'pointerdown', { target: o4 }); fire(o4, 'click', { target: o4 });
+  assert.ok(o4.removed, 'a click on the dim background closes it');
+  showLinkDialog(doc, 'en', url);
+  const o5 = doc.getElementById('ps-files-overlay'), inner = all(o5).find((n) => n.tag === 'textarea');
+  fire(inner, 'pointerdown', { target: inner }); fire(o5, 'click', { target: o5 });
+  assert.ok(!o5.removed, 'a selection that ends on the background does not close it');
+  assert.ok(second && third);
+});
+
+test('showLinkDialog: no link, no page, or a broken document gives null and throws nothing', () => {
+  const doc = makeDoc();
+  assert.equal(showLinkDialog(doc, 'en', ''), null); assert.equal(showLinkDialog(doc, 'en', null), null);
+  assert.equal(showLinkDialog({}, 'en', 'x'), null); assert.equal(showLinkDialog(undefined, 'en', 'x'), null);
+  const bad = makeDoc(); bad.createElement = () => { throw new Error('no DOM'); };
+  assert.equal(showLinkDialog(bad, 'en', 'x'), null);
 });

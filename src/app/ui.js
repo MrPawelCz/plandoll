@@ -8,12 +8,12 @@ import { floorChoices } from './floors.js';
 
 const STR = {
   en: { time: 'Time of day', quality: 'Image quality', auto: 'Auto', high: 'High', medium: 'Medium', low: 'Low', lang: 'PL', reset: 'Reset view', resetTitle: 'Back to the starting view', hint: 'Drag to turn',
-    edit: 'Edit', editDone: 'Done', editTitle: 'Edit the furniture layout', editDoneTitle: 'Leave the layout editor', saveImage: 'Save image', saveImageTitle: 'Save the current view as a PNG picture', loadPlan: 'Load plan', loadPlanTitle: 'Replace the plan with one of your own (a file or pasted text)',
+    edit: 'Edit', editDone: 'Done', editTitle: 'Edit the furniture layout', editDoneTitle: 'Leave the layout editor', saveImage: 'Save image', saveImageTitle: 'Save the current view as a PNG picture', share: 'Copy link', shareTitle: 'Copy a link to this layout to send to someone (the whole layout is in the link, nothing is stored anywhere)', loadPlan: 'Load plan', loadPlanTitle: 'Replace the plan with one of your own (a file or pasted text)',
     shell: 'Open the shell', shellClose: 'Close the shell', shellTitle: 'Let the outer walls fall open round the plan (Space or Esc folds them back)', shellCloseTitle: 'Fold the outer walls back up',
     floors: 'Floors on show', plans: 'Example plans', 'flat-1': 'Flat', 'flat-1Title': 'Show the example flat: one floor, five rooms', 'duplex-1': 'Duplex', 'duplex-1Title': 'Show the example duplex: two floors joined by a stair',
     qualityHelp: 'High: sharper picture, soft accurate shadows, darker corners, a glow round the lamps, blurred top and bottom of the frame, shine and film grain; slower and uses more battery. Medium: in between. Low: faster and lighter on the battery, with fewer effects. Auto picks a level for your device.' },
   pl: { time: 'Pora dnia', quality: 'Jakość obrazu', auto: 'Auto', high: 'Wysoka', medium: 'Średnia', low: 'Niska', lang: 'EN', reset: 'Reset widoku', resetTitle: 'Wróć do widoku początkowego', hint: 'Przeciągnij, żeby obrócić',
-    edit: 'Edytuj', editDone: 'Zakończ edycję', editTitle: 'Edytuj układ mebli', editDoneTitle: 'Zamknij edytor układu', saveImage: 'Zapisz obraz', saveImageTitle: 'Zapisz bieżący widok jako obraz PNG', loadPlan: 'Wczytaj plan', loadPlanTitle: 'Zastąp plan własnym (plik albo wklejony tekst)',
+    edit: 'Edytuj', editDone: 'Zakończ edycję', editTitle: 'Edytuj układ mebli', editDoneTitle: 'Zamknij edytor układu', saveImage: 'Zapisz obraz', saveImageTitle: 'Zapisz bieżący widok jako obraz PNG', share: 'Kopiuj link', shareTitle: 'Skopiuj link do tego układu, żeby go komuś wysłać (cały układ jest w linku, nic nie jest nigdzie zapisywane)', loadPlan: 'Wczytaj plan', loadPlanTitle: 'Zastąp plan własnym (plik albo wklejony tekst)',
     shell: 'Otwórz bryłę', shellClose: 'Złóż bryłę', shellTitle: 'Rozłóż ściany zewnętrzne wokół rzutu (spacja albo Esc składa je z powrotem)', shellCloseTitle: 'Złóż ściany zewnętrzne z powrotem',
     floors: 'Widoczne piętra', plans: 'Przykładowe plany', 'flat-1': 'Mieszkanie', 'flat-1Title': 'Pokaż przykładowe mieszkanie: jedno piętro, pięć pomieszczeń', 'duplex-1': 'Dupleks', 'duplex-1Title': 'Pokaż przykładowy dupleks: dwa piętra połączone schodami',
     qualityHelp: 'Wysoka: ostrzejszy obraz, miękkie dokładne cienie, ciemnienie w narożnikach, poświata lamp, rozmycie góry i dołu kadru, połysk i ziarno; działa wolniej i zużywa więcej baterii. Średnia: pośrodku. Niska: szybciej i oszczędniej, mniej efektów. Auto dobiera poziom do urządzenia.' },
@@ -21,11 +21,11 @@ const STR = {
 // Texts of the edit bar (shown with edit=1): the visible word, and the longer label for screen readers and tooltips.
 export const EDIT_STR = {
   en: { turn: 'Rotate piece', turnLabel: 'Rotate the selected piece by 90 degrees', remove: 'Delete', removeLabel: 'Delete the selected piece', undo: 'Undo', undoLabel: 'Undo the last change', redo: 'Redo', redoLabel: 'Redo the change you undid',
-    auto: 'Reset layout', autoLabel: 'Reset the layout: all furniture goes back to the automatic arrangement', more: 'File', moreLabel: 'File: save, load and paste a layout, save the picture, load a plan', group: 'Edit the layout',
-    duplicate: 'Duplicate piece', save: 'Save layout', load: 'Load from file', paste: 'Paste layout', image: 'Save image', plan: 'Load plan', menu: 'File actions', hint: 'Tap a piece to select it, drag to move it' },
+    auto: 'Reset layout', autoLabel: 'Reset the layout: all furniture goes back to the automatic arrangement', more: 'File', moreLabel: 'File: save, load and paste a layout, copy a link, save the picture, load a plan', group: 'Edit the layout',
+    duplicate: 'Duplicate piece', save: 'Save layout', load: 'Load from file', paste: 'Paste layout', link: 'Copy link', image: 'Save image', plan: 'Load plan', menu: 'File actions', hint: 'Tap a piece to select it, drag to move it' },
   pl: { turn: 'Obróć mebel', turnLabel: 'Obróć zaznaczony mebel o 90 stopni', remove: 'Usuń', removeLabel: 'Usuń zaznaczony mebel', undo: 'Cofnij', undoLabel: 'Cofnij ostatnią zmianę', redo: 'Ponów', redoLabel: 'Ponów cofniętą zmianę',
-    auto: 'Układ od nowa', autoLabel: 'Układ od nowa: wszystkie meble wracają do układu automatycznego', more: 'Plik', moreLabel: 'Plik: zapisz, wczytaj i wklej układ, zapisz obraz, wczytaj plan', group: 'Edycja układu',
-    duplicate: 'Powiel mebel', save: 'Zapisz układ', load: 'Wczytaj z pliku', paste: 'Wklej układ', image: 'Zapisz obraz', plan: 'Wczytaj plan', menu: 'Działania na plikach', hint: 'Dotknij mebla, żeby go zaznaczyć, przeciągnij, żeby przesunąć' },
+    auto: 'Układ od nowa', autoLabel: 'Układ od nowa: wszystkie meble wracają do układu automatycznego', more: 'Plik', moreLabel: 'Plik: zapisz, wczytaj i wklej układ, skopiuj link, zapisz obraz, wczytaj plan', group: 'Edycja układu',
+    duplicate: 'Powiel mebel', save: 'Zapisz układ', load: 'Wczytaj z pliku', paste: 'Wklej układ', link: 'Kopiuj link', image: 'Zapisz obraz', plan: 'Wczytaj plan', menu: 'Działania na plikach', hint: 'Dotknij mebla, żeby go zaznaczyć, przeciągnij, żeby przesunąć' },
 };
 export const ERROR_TEXT = {
   en: { title: 'This page needs WebGL 2', body: 'Your browser or device did not give us a WebGL 2 context. Try a current Chrome, Edge, Firefox or Safari and make sure hardware acceleration is on.' },
@@ -120,8 +120,8 @@ export function showErrorCard(detail = '', doc = document) {
 
 // state: { preset, t, q ('auto' or a level), autoLevel (what Auto picks here, shown beside Auto; the level in use when missing), level, lang };
 // handlers: { onPreset(name), onTime(t), onQuality(q), onLang(lang), onReset(), onEdit(), onSaveImage(), onLoadPlan(), onPlan(name), onShell() }; the returned object has hideHint() for the first-visit hint and say(text) for one short result line.
-// state.tools shows the extra buttons (the example plans, the open shell, edit mode, save the picture, load a plan; hidden by btn=0 in the address); state.editing turns the edit button into "Done" and hides
-// the example plans, Save image and Load plan (the shell button stays and works). state.plan names the example on show (null: none), state.shell adds the shell button, state.shellOpen says it is open.
+// state.tools shows the extra buttons (the example plans, the open shell, edit mode, save the picture, copy a link, load a plan; hidden by btn=0 in the address); state.editing turns the edit button into "Done" and hides
+// the example plans, Save image, Copy link and Load plan (the shell button stays and works; the link is in the File menu of the edit bar). state.plan names the example on show (null: none), state.shell adds the shell button, state.shellOpen says it is open.
 export function createUI(handlers, state, doc = document) {
   injectStyles(doc);
   const root = doc.createElement('div'); root.id = 'ps-ui';
@@ -169,7 +169,7 @@ export function createUI(handlers, state, doc = document) {
   tools.append(floors);
   let floorSig = '', floorBtns = [];
   const toolBtns = {};
-  for (const [key, handler] of [...(state.shell ? [['shell', 'onShell']] : []), ['edit', 'onEdit'], ['saveImage', 'onSaveImage'], ['loadPlan', 'onLoadPlan']]) {
+  for (const [key, handler] of [...(state.shell ? [['shell', 'onShell']] : []), ['edit', 'onEdit'], ['saveImage', 'onSaveImage'], ['share', 'onShare'], ['loadPlan', 'onLoadPlan']]) {
     const b = doc.createElement('button'); b.type = 'button'; b.className = 'tool'; b.dataset.tool = key;
     b.addEventListener('click', () => handlers[handler]?.());
     tools.append(b); toolBtns[key] = b;
@@ -198,6 +198,8 @@ export function createUI(handlers, state, doc = document) {
     toolBtns.edit.textContent = editLabel; toolBtns.edit.title = editTitle; toolBtns.edit.setAttribute('aria-label', editTitle);
     toolBtns.saveImage.textContent = L.saveImage; toolBtns.saveImage.title = L.saveImageTitle; toolBtns.saveImage.setAttribute('aria-label', L.saveImageTitle);
     toolBtns.saveImage.style.display = state.editing ? 'none' : '';
+    toolBtns.share.textContent = L.share; toolBtns.share.title = L.shareTitle; toolBtns.share.setAttribute('aria-label', L.shareTitle);
+    toolBtns.share.style.display = state.editing ? 'none' : ''; // while editing the link is in the File menu of the edit bar
     toolBtns.loadPlan.textContent = L.loadPlan; toolBtns.loadPlan.title = L.loadPlanTitle; toolBtns.loadPlan.setAttribute('aria-label', L.loadPlanTitle);
     toolBtns.loadPlan.style.display = state.editing ? 'none' : '';
     if (toolBtns.shell) { // the button of the open shell: its word and its hint follow the state (it works the same while editing)
@@ -232,9 +234,9 @@ export function createUI(handlers, state, doc = document) {
 }
 
 // The edit bar (edit=1): Rotate piece, Delete, Undo, Redo, Reset layout and File, one row above the controls, every button at least 44 px; File opens a
-// small menu above the bar (Duplicate piece, Save layout, Load from file, Paste layout, Save image, Load plan) that closes on a tap outside or Escape; plus the empty
+// small menu above the bar (Duplicate piece, Save layout, Load from file, Paste layout, Copy link, Save image, Load plan) that closes on a tap outside or Escape; plus the empty
 // container #ps-edit-panel that other parts of the page fill. handlers: { onTurn(), onRemove(), onUndo(), onRedo(), onAuto(), onDuplicate(),
-// onSave(), onLoad(), onPaste(), onSaveImage(), onLoadPlan() }. update({ lang, selected, canUndo, canRedo }) sets the language and which buttons are enabled; `anchor` is the
+// onSave(), onLoad(), onPaste(), onLink(), onSaveImage(), onLoadPlan() }. update({ lang, selected, canUndo, canRedo }) sets the language and which buttons are enabled; `anchor` is the
 // control bar that the edit bar sits above. say(text, ms, title) shows one short line above the bar for a few seconds (title: the longer original shown on hover). The height of everything stacked at
 // the bottom (this bar, the mood caption, the controls) is published as the CSS variable --ps-stack-h on the root element.
 export function createEditBar(handlers, state = {}, doc = document, anchor = null) {
@@ -251,7 +253,7 @@ export function createEditBar(handlers, state = {}, doc = document, anchor = nul
   buttons.more = more; root.append(more);
   const menu = doc.createElement('div'); menu.id = 'ps-edit-menu'; menu.setAttribute('role', 'menu'); menu.hidden = true;
   const items = {};
-  const itemDefs = [['duplicate', 'onDuplicate'], ['save', 'onSave'], ['load', 'onLoad'], ['paste', 'onPaste'], ['image', 'onSaveImage'], ['plan', 'onLoadPlan']];
+  const itemDefs = [['duplicate', 'onDuplicate'], ['save', 'onSave'], ['load', 'onLoad'], ['paste', 'onPaste'], ['link', 'onLink'], ['image', 'onSaveImage'], ['plan', 'onLoadPlan']];
   const setOpen = (v) => { menu.hidden = !v; more.setAttribute('aria-expanded', String(!!v)); };
   for (const [key, handler] of itemDefs) {
     const b = doc.createElement('button'); b.type = 'button'; b.dataset.editItem = key; b.setAttribute('role', 'menuitem');

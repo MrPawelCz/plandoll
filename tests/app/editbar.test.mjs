@@ -27,16 +27,17 @@ function makeDoc() {
 }
 const all = (n) => [n, ...n.children.flatMap(all)];
 
-test('the bar has six buttons and a menu with six items, in both languages', () => {
+test('the bar has six buttons and a menu with seven items, in both languages', () => {
   const doc = makeDoc(), calls = [];
-  const names = ['onTurn', 'onRemove', 'onUndo', 'onRedo', 'onAuto', 'onDuplicate', 'onSave', 'onLoad', 'onPaste', 'onSaveImage'];
+  const names = ['onTurn', 'onRemove', 'onUndo', 'onRedo', 'onAuto', 'onDuplicate', 'onSave', 'onLoad', 'onPaste', 'onLink', 'onSaveImage'];
   const bar = createEditBar(Object.fromEntries(names.map((n) => [n, () => calls.push(n)])), { lang: 'pl', selected: true }, doc);
   assert.deepEqual(bar.root.children.filter((c) => c.tag === 'button').map((b) => b.dataset.edit), ['turn', 'remove', 'undo', 'redo', 'auto', 'more']);
-  assert.deepEqual(Object.keys(bar.items), ['duplicate', 'save', 'load', 'paste', 'image', 'plan']);
+  assert.deepEqual(Object.keys(bar.items), ['duplicate', 'save', 'load', 'paste', 'link', 'image', 'plan']);
   assert.equal(bar.buttons.more.textContent, 'Plik'); assert.equal(bar.items.save.textContent, 'Zapisz układ'); assert.equal(bar.items.image.textContent, 'Zapisz obraz');
   bar.items.image.click(); assert.deepEqual(calls, ['onSaveImage']);
+  assert.equal(bar.items.link.textContent, 'Kopiuj link'); bar.items.link.click(); assert.deepEqual(calls, ['onSaveImage', 'onLink']);
   bar.update({ lang: 'en' });
-  assert.equal(bar.buttons.more.textContent, 'File'); assert.equal(bar.items.paste.textContent, 'Paste layout');
+  assert.equal(bar.buttons.more.textContent, 'File'); assert.equal(bar.items.paste.textContent, 'Paste layout'); assert.equal(bar.items.link.textContent, 'Copy link');
   for (const lang of ['pl', 'en']) for (const [k, v] of Object.entries(EDIT_STR[lang])) { assert.ok(v.length > 0, k); assert.ok(!LONG_DASH.test(v), k); }
   for (const key of Object.keys(EDIT_STR.en)) assert.ok(key in EDIT_STR.pl, `pl has ${key}`);
 });

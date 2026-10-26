@@ -235,3 +235,82 @@ export function askForText(doc, lang, opts = {}) {
     } catch { finish(null); }
   });
 }
+
+// Copies text to the clipboard: the modern call first (it needs a secure page), then the old selection command. Resolves true when it was copied, false otherwise; never rejects.
+export async function copyText(win, text) {
+  if (!isText(text)) return false;
+  try {
+    const clip = win?.navigator?.clipboard;
+    if (typeof clip?.writeText === 'function' && win.isSecureContext !== false) { await clip.writeText(text); return true; }
+  } catch { /* the old way below */ }
+  let area = null;
+  try {
+    const doc = win?.document;
+    if (!doc?.body || typeof doc.execCommand !== 'function') return false;
+    area = doc.createElement('textarea');
+    area.value = text; area.setAttribute('readonly', '');
+    area.style.cssText = 'position:fixed;left:-9999px;top:0;opacity:0';
+    doc.body.appendChild(area);
+    area.select?.(); area.setSelectionRange?.(0, text.length);
+    return !!doc.execCommand('copy');
+  } catch { return false; } finally { detach(area); }
+}
+
+const LINK_STR = {
+  en: { title: 'Link to this layout', hint: 'Copy the link and send it to someone: whoever opens it sees this layout. The whole layout is in the link, nothing is stored anywhere.', field: 'Link', copy: 'Copy', close: 'Close', copied: 'Copied', failed: 'Could not copy: select the link and copy it by hand.' },
+  pl: { title: 'Link do tego układu', hint: 'Skopiuj link i wyślij go komuś: kto go otworzy, zobaczy ten układ. Cały układ jest w linku, nic nie jest nigdzie zapisywane.', field: 'Link', copy: 'Kopiuj', close: 'Zamknij', copied: 'Skopiowano', failed: 'Nie udało się skopiować: zaznacz link i skopiuj go ręcznie.' },
+};
+
+// A dialog that shows a link, for a page that cannot copy it by itself (an address that is not secure, a browser that refuses): the link is in a field that selects itself, with a Copy button.
+// opts.note is one more sentence under the hint. Escape, Close and a click on the dim background close it. Returns { close } or null when the dialog could not be built.
+export function showLinkDialog(doc, lang, url, opts = {}) {
+  let overlay = null, before = null, closed = false;
+  const finish = () => {
+    if (closed) return; closed = true;
+    if (showing.get(doc) === finish) showing.delete(doc);
+    detach(overlay);
+    try { before?.focus?.(); } catch { /* focus stays where it is */ }
+  };
+  try {
+    if (typeof doc?.createElement !== 'function' || !doc.body || !isText(url)) return null;
+    showing.get(doc)?.(null); // an older dialog closes first
+    detach(doc.getElementById?.('ps-files-overlay'));
+    ensureStyle(doc);
+    const L = LINK_STR[lang === 'pl' ? 'pl' : 'en'];
+    overlay = el(doc, 'div', { id: 'ps-files-overlay', className: 'ps-files-overlay' });
+    const dialog = el(doc, 'div', { className: 'ps-files-dialog' });
+    dialog.setAttribute('role', 'dialog'); dialog.setAttribute('aria-modal', 'true');
+    dialog.setAttribute('aria-labelledby', 'ps-files-title'); dialog.setAttribute('aria-describedby', 'ps-files-hint');
+    const title = el(doc, 'h2', { id: 'ps-files-title', textContent: L.title });
+    const hint = el(doc, 'p', { id: 'ps-files-hint', textContent: opts?.note ? `${L.hint} ${opts.note}` : L.hint });
+    const area = el(doc, 'textarea', { id: 'ps-files-text', spellcheck: false, readOnly: true, value: url });
+    area.setAttribute('aria-label', L.field);
+    area.addEventListener('focus', () => { try { area.select?.(); } catch { /* nothing to select */ } });
+    const status = el(doc, 'p', { id: 'ps-files-error', className: 'ps-files-error' }); status.setAttribute('role', 'status');
+    const row = el(doc, 'div', { className: 'ps-files-actions' });
+    const copy = el(doc, 'button', { type: 'button', className: 'ps-files-load', textContent: L.copy });
+    const close = el(doc, 'button', { type: 'button', className: 'ps-files-cancel', textContent: L.close });
+    copy.addEventListener('click', () => {
+      copyText(doc.defaultView, url).then((ok) => { if (closed) return; status.textContent = ok ? L.copied : L.failed; if (!ok) { try { area.focus?.(); area.select?.(); } catch { /* by hand then */ } } });
+    });
+    close.addEventListener('click', finish);
+    const order = [area, copy, close];
+    overlay.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') e.preventDefault?.(), finish();
+      else if (e.key === 'Tab') { // keep the focus inside the dialog
+        const i = order.indexOf(doc.activeElement);
+        if (e.shiftKey ? i <= 0 : i === -1 || i === order.length - 1) { e.preventDefault?.(); order[e.shiftKey ? order.length - 1 : 0].focus?.(); }
+      }
+      e.stopPropagation?.(); // keys here must not reach the page's own key handling
+    });
+    let pressedInside = false; // a text selection that ends on the dim background must not close the dialog
+    overlay.addEventListener('pointerdown', (e) => { pressedInside = e.target !== overlay; });
+    overlay.addEventListener('click', (e) => { const inside = pressedInside; pressedInside = false; if (e.target === overlay && !inside) finish(); });
+    row.append(copy, close); dialog.append(title, hint, area, status, row); overlay.append(dialog);
+    doc.body.appendChild(overlay);
+    showing.set(doc, finish);
+    before = doc.activeElement ?? null;
+    copy.focus?.();
+    return { close: finish };
+  } catch { finish(); return null; }
+}

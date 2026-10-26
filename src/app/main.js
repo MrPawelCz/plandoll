@@ -12,7 +12,7 @@ import { PlanScene } from '../render/scene.js';
 import { createStage } from '../look/stage.js';
 import { createPost } from '../look/post.js';
 import { resolveQuality } from '../look/quality.js';
-import { parseParams, editHash, planHash, parsePlanParam, parseFloorParam, floorHash } from './params.js';
+import { parseParams, editHash, planHash, parsePlanParam, parseFloorParam, floorHash, withoutShare, splitHash } from './params.js';
 import { ALL, resolveFloor, visibleFlags, visibleIndices, allShown, floorLift, visibleExtent, sameGround } from './floors.js';
 import { frameRequest } from './capture.js';
 import { createLoop } from './loop.js';
@@ -21,11 +21,12 @@ import { createEditSession, placeCheck } from './edit.js';
 import { NO_WEBGL2, hasWebgl2, failureDetail, planChoice, startState, partsOf, buildPlanParts, isFormTarget, shellKey, shellOn, strayClick } from './shell.js';
 import { coverShare, isNarrow } from './stack.js';
 import { readPlanText } from './planfile.js';
+import { decodeShare, encodeShare, packLayout, planForLink, setViewParams, lostCount, SHARE_LONG } from './share.js';
 import { pickPiece, floorHit, slidePoint } from './pick.js';
 import { createOutline, createOutlineFrame, createRoomOutline, outlineKind } from '../render/outline.js';
 import { createPanel } from './panel.js';
-import { saveTextFile, saveBlobFile, readTextFile, askForText, refusalText, LAYOUT_FILENAME, IMAGE_FILENAME } from './files.js';
-import { roomAt } from '../editor/index.js';
+import { saveTextFile, saveBlobFile, readTextFile, askForText, refusalText, copyText, showLinkDialog, LAYOUT_FILENAME, IMAGE_FILENAME } from './files.js';
+import { roomAt, serializeLayout, parseLayout } from '../editor/index.js';
 import { autoFurnish } from '../layout/index.js';
 import { piecesImplemented } from '../furniture/index.js';
 import { composeLayout, cutawayPieces, emittersByLevel, focusRoom, mergeByMaterial, showMergedLevels, setLampGlow, disposeComposed, wallCutHeight } from '../render/compose.js';
@@ -56,8 +57,14 @@ function cameraFor(ext, aspect, mode, focus) {
   return { fov: 27, pos: [cx + dir.x * dist, ty + dir.y * dist, cz + dir.z * dist], target: [cx, ty, cz] };
 }
 
+(async () => { // async because a share link is unpacked by the browser's own inflate, which is asynchronous, before the page is built
 try {
   const params = parseParams(location.hash, { language: navigator.language });
+  // A share link (share=, see share.js) carries a layout and maybe a plan of the visitor's own. It is unpacked first and read below with the same checks as a loaded file;
+  // what cannot be read is left out, and startNotes says so once the page stands.
+  const startNotes = []; // [kind, detail]
+  let shared = null;
+  if (params.share) { const r = await decodeShare(params.share); if (r.ok) shared = r; else startNotes.push(['link', r.error]); }
   if (!hasWebgl2(() => document.createElement('canvas'))) throw new Error(NO_WEBGL2);
   const dpr = window.devicePixelRatio || 1;
   const env = { cores: navigator.hardwareConcurrency, touch: navigator.maxTouchPoints > 0, width: window.innerWidth, height: window.innerHeight, memory: navigator.deviceMemory };
@@ -75,10 +82,24 @@ try {
   const scene = new THREE.Scene();
 
   // ---------- the plan ----------
+  let linkPlan = null; // the plan of the visitor's own that a link made here carries (null: an example plan, which the link names); normalized, as the validator gave it
+  if (shared?.plan) {
+    try { const rp = readPlanText(JSON.stringify(shared.plan), S.lang); if (rp.ok) linkPlan = rp.plan; else startNotes.push(['plan', rp.message]); } catch { startNotes.push(['plan', '']); }
+  }
   const choice = planChoice(params, window.__plan);
-  const plan = JSON.parse(JSON.stringify(choice === 'ext' ? window.__plan : choice === 'duplex-1' ? duplex : flat));
-  for (const lv of plan.levels) lv.furniture = []; // the plan brings no furniture: the layout engine furnishes it
-  const res = analyzePlan(plan); let model = buildModel(modelOf(res)); // model, ext, ps, stage, layout and focus are replaced when a plan is loaded
+  // The plan the page opens with, analysed and built. The plan of a link is built under a guard: readPlanText accepted it, but if it cannot be built after all the page opens with the example plan and says so.
+  const openWith = (p) => {
+    const q = JSON.parse(JSON.stringify(p));
+    for (const lv of q.levels) lv.furniture = []; // the plan brings no furniture: the layout engine furnishes it
+    const r = analyzePlan(q);
+    return { plan: q, res: r, model: buildModel(modelOf(r)) };
+  };
+  let opened = null;
+  if (linkPlan) {
+    try { opened = openWith(linkPlan); S.plan = null; /* no example button is pressed for a plan that came in a link */ } catch { linkPlan = null; startNotes.push(['plan', '']); }
+  }
+  if (!opened) opened = openWith(choice === 'ext' ? window.__plan : choice === 'duplex-1' ? duplex : flat);
+  const plan = opened.plan, res = opened.res; let model = opened.model; // model, ext, ps, stage, layout and focus are replaced when a plan is loaded
   let allExt = modelExtent(model); // the box of the whole model; ext below is the box of the floors on show, which is this very box while all of them are
   const useShell = shellOn(params); // the shell opens when its button is on (shell=0 takes it away), also while editing
   // The floors on show (floors.js): 'all' or the index of one level; flags says per level whether it is drawn. A plan with one level always shows all of it.
@@ -112,6 +133,15 @@ try {
   stage.setLift(floorLift(model, flags)); // only an upper floor on show: the base of the house comes up under it
   // ---------- furniture: the engine lays the rooms out, compose builds the pieces (rebuilt when the quality changes) ----------
   let layout = autoFurnish(model, { seed: params.seed, allowedTypes: piecesImplemented() });
+  if (shared?.layout) { // the layout of a share link: read like a pasted layout (parseLayout checks every piece against the plan); what cannot be used is left out
+    try {
+      const rl = parseLayout(JSON.stringify(shared.layout), model);
+      const count = (lay) => (Array.isArray(lay?.levels) ? lay.levels : []).reduce((n, l) => n + (Array.isArray(l?.pieces) ? l.pieces.length : 0), 0);
+      const dropped = rl.ok ? lostCount(rl.warnings) : 0; // what was not taken (a piece that merely sticks out of its room is kept and is no loss)
+      if (rl.ok && !(count(shared.layout) > 0 && count(rl.layout) === 0)) { layout = rl.layout; if (dropped) startNotes.push(['skipped', dropped]); } // a link whose every piece was refused (the levels of another plan, say) keeps the automatic layout
+      else startNotes.push(['layout', String(rl.errors?.[0] ?? '')]);
+    } catch { startNotes.push(['layout', '']); } // whatever a link holds, the page opens
+  }
   // the room that the close view (cam=close) looks at: the best furnished one of the floors on show
   const focusOf = () => (allShown(flags) ? focusRoom(model, layout) : focusRoom({ levels: model.levels.filter((_, i) => flags[i]) }, { levels: layout.levels.filter((lc) => flags[model.levels.findIndex((l) => l.id === lc.id)] !== false) }));
   let focus = focusOf();
@@ -251,7 +281,7 @@ try {
     redraw();
   }
   let editBar = null, panel = null;
-  const sayLine = (text, detail) => (editBar ? editBar.say(text, undefined, detail) : ui?.say(text, undefined, detail)); // one short result line: above the edit bar, or above the controls on the plain page
+  const sayLine = (text, detail, ms) => (editBar ? editBar.say(text, ms, detail) : ui?.say(text, ms, detail)); // one short result line: above the edit bar, or above the controls on the plain page
   // The extra buttons of the control bar (btn=1): edit mode on or off (the page reloads with edit=1 added or removed, the mood, the time of day, the
   // quality and the language kept), and the picture of the current view as a PNG. Leaving the editor with unsaved changes needs a second tap.
   let dirty = false, leaveWarned = false, leaveTimer = 0;
@@ -272,6 +302,39 @@ try {
       sayLine(ok ? T('Zapisano obraz do pliku', 'Picture saved to a file') : T('Nie udało się zapisać obrazu', 'Could not save the picture'));
     }, 'image/png');
   }
+  // ---------- the share link (share.js): the layout, the view and a plan of your own in one address ----------
+  // buildLink() packs what the page shows now: { ok, url, hash, chars, compressed } or { ok: false, error }; url is the clean link to send, hash is the same view with the parameters of this
+  // page kept (the address bar). shareLink() is the button: it makes the link, puts it in the address bar (so a reload, or Edit and Done, keeps the layout), copies it, and when the browser
+  // will not copy shows it in a dialog. The link is in the part of the address after the #, which no server ever gets.
+  let lastLink = null, shareNow = params.share; // shareNow: the share= that the page was built from or last wrote to the address
+  // A link pasted into the address bar of a tab that already shows the page changes only the hash, and the page would keep what it shows: a share= that differs from shareNow loads again.
+  addEventListener('hashchange', () => { const next = splitHash(location.hash).kv.share ?? null; if (next && next !== shareNow) location.reload(); });
+  async function buildLink() {
+    const text = session ? session.exportText() : serializeLayout(curLayout);
+    const packed = text ? packLayout(text) : null;
+    if (!packed) return { ok: false, error: 'layout' };
+    const enc = await encodeShare({ plan: linkPlan ? planForLink(linkPlan) : null, layout: packed });
+    if (!enc.ok) return { ok: false, error: enc.error };
+    const view = { preset: S.preset, t: S.t, az: cam.state.azimuth, pol: cam.state.polar, floor, plan: S.plan, seed: params.seed };
+    const url = `${location.href.split('#')[0]}#${setViewParams('', view, enc.value)}`;
+    let lost = 0; // the pieces that the page of the receiver will not take (one that stands outside its room, say), counted the way the receiver counts them
+    try { lost = lostCount(parseLayout(JSON.stringify(packed), model).warnings); } catch { lost = 0; }
+    return { ok: true, url, hash: setViewParams(location.hash, view, enc.value), chars: url.length, compressed: enc.compressed, lost };
+  }
+  async function shareLink() {
+    const r = await buildLink();
+    if (!r.ok) { sayLine(T('Nie udało się zrobić linku', 'Could not make the link'), r.error === 'too-long' ? T('Układ jest za duży na link: zapisz go do pliku', 'The layout is too large for a link: save it to a file') : r.error); return; }
+    lastLink = r.url;
+    try { history.replaceState(null, '', `#${r.hash}`); shareNow = splitHash(r.hash).kv.share ?? shareNow; } catch { /* an address that cannot change stays as it is */ }
+    dirty = false; // the link holds the layout, like a saved file
+    const note = [
+      r.chars > SHARE_LONG ? T('Długi link: część komunikatorów może go uciąć, plik układu jest pewniejszy', 'A long link: some messengers may cut it, a layout file is safer') : '',
+      r.lost ? T(`Elementów, które nie przejdą w linku (stoją poza pokojem): ${r.lost}`, `Items that will not come through the link (outside a room): ${r.lost}`) : '',
+      location.protocol === 'file:' ? T('Strona jest otwarta z pliku, więc link zadziała tylko na tym komputerze', 'The page is open from a file, so the link works only on this computer') : '',
+    ].filter(Boolean).join('. ');
+    if (await copyText(window, r.url)) { sayLine(note ? `${T('Link skopiowany', 'Link copied')}. ${note}` : T('Link skopiowany', 'Link copied'), '', note ? 9000 : undefined); return; }
+    if (!showLinkDialog(document, S.lang, r.url, { note })) sayLine(T('Nie udało się skopiować linku', 'Could not copy the link'));
+  }
   // Loading a plan of your own (a button of the controls and an item of the File menu): the text goes through the reader and the validator, then the old
   // scene is released and the model, the automatic layout, the stage and the view are built again, without reloading the page. Nothing is stored.
   let onPlanSwapped = null;
@@ -288,7 +351,8 @@ try {
     scene.remove(ps.group); ps.dispose(); stage.dispose();
     model = built.model; allExt = built.ext; ext = built.ext; frameExt = nextExt; framePts = nextPts; stageExt = nextExt; ps = built.scene; layout = built.layout; curLayout = layout;
     floor = ALL; flags = visibleFlags(ALL, model.levels.length); focus = focusOf(); S.floor = ALL; S.levels = model.levels.map((l) => ({ id: l.id, name: l.name })); // a new plan starts with all its floors on show
-    try { history.replaceState(null, '', `#${floorHash(location.hash, ALL)}`); } catch { /* an address that cannot change keeps its floor= */ }
+    colorsKey = '{}'; shareNow = null; // the new scene has no room colours (the layout of the old plan, and the share link that brought it, are gone with the plan)
+    try { history.replaceState(null, '', `#${floorHash(withoutShare(location.hash), ALL)}`); } catch { /* an address that cannot change keeps its floor= */ }
     scene.add(ps.group);
     shell = nextShell; shellTarget = 0; S.shellOpen = false; ui?.update(S); // a new plan starts closed
     stage = createStage({ renderer, scene, bounds: stageExt, board: boardOf(), quality: level, preset: S.preset, t: S.t }); // the board of the new plan hugs the closed model
@@ -305,7 +369,7 @@ try {
       const r = readPlanText(text, S.lang);
       if (!r.ok) { sayLine(r.message, r.detail); return; }
       const ok = applyPlan(r.plan);
-      if (ok) { S.plan = null; ui?.update(S); } // a plan from a file: no example button is pressed
+      if (ok) { S.plan = null; linkPlan = r.plan; ui?.update(S); } // a plan from a file: no example button is pressed, and a link made now carries this plan
       sayLine(ok ? T('Wczytano plan', 'Plan loaded') : T('Nie udało się zbudować modelu z tego planu', 'Could not build a model from this plan'));
     });
   }
@@ -314,7 +378,7 @@ try {
   function pickExample(name) {
     if (!EXAMPLES[name] || name === S.plan) return;
     if (!applyPlan(EXAMPLES[name])) { sayLine(T('Nie udało się zbudować modelu z tego planu', 'Could not build a model from this plan')); return; }
-    S.plan = name; params.plan = parsePlanParam(name); ui?.update(S);
+    S.plan = name; linkPlan = null; shareNow = null; params.plan = parsePlanParam(name); ui?.update(S);
     try { history.replaceState(null, '', `#${planHash(location.hash, name)}`); } catch { /* an address that cannot change keeps the old plan on reload */ }
   }
   // ---------- the floors on show (floors.js): the buttons of the control bar and floor= in the address ----------
@@ -365,7 +429,7 @@ try {
     if (!shellRaf) { shellLast = 0; shellRaf = requestAnimationFrame(shellTick); }
   }
   S.floor = floor; S.levels = model.levels.map((l) => ({ id: l.id, name: l.name })); // the floor buttons (two or more levels)
-  const ui = parts.controls ? createUI({ onPreset: (n) => setPreset(n), onTime: setTime, onQuality: setQ, onLang: setLang, onReset: () => cam?.reset(true), onEdit: toggleEdit, onSaveImage: saveImage, onLoadPlan: loadPlan, onPlan: pickExample, onFloor: (k) => setFloor(k),
+  const ui = parts.controls ? createUI({ onPreset: (n) => setPreset(n), onTime: setTime, onQuality: setQ, onLang: setLang, onReset: () => cam?.reset(true), onEdit: toggleEdit, onSaveImage: saveImage, onShare: shareLink, onLoadPlan: loadPlan, onPlan: pickExample, onFloor: (k) => setFloor(k),
     onShell: () => { if (shell) shellGo(shellTarget !== 1); } }, S) : null;
   // The first one-finger turn on a touch screen says how to zoom and move (one short line, about 6 seconds, once per page load).
   let touchHinted = false;
@@ -377,6 +441,18 @@ try {
   };
   cam = createCameraController({ element: renderer.domElement, home: home0, initial: { azimuth: params.az, polar: params.pol }, target: pose.target, limits: limitsOf()[0], grow: limitsOf()[1], lift: viewLift, fov: pose.fov, onChange: onCamera, onGesture });
   applyAll();
+  // The room colours of the layout go to the scene; a plan without any colour is left exactly as it was drawn before. It runs once at the start (the layout of a share link may bring
+  // colours, to the plain page as well as to the editor) and after every change of the layout in the editor.
+  let colorsKey = '{}';
+  function applyRoomColors() {
+    if (typeof ps.setRoomColors !== 'function') return;
+    const colors = {};
+    for (const lc of curLayout.levels) if (lc.rooms && Object.keys(lc.rooms).length) colors[lc.id] = lc.rooms;
+    const key = JSON.stringify(colors);
+    if (key === colorsKey) return;
+    colorsKey = key; ps.setRoomColors(colors, 'textured'); redraw();
+  }
+  applyRoomColors();
   // ---------- edit mode (edit=1): select a piece, drag it over the floor, turn, delete, undo and redo ----------
   let session = null;
   if (params.edit) {
@@ -388,16 +464,7 @@ try {
     onHinge = followHinge;
     const dom = renderer.domElement;
     const polygonOf = (r) => model.levels.find((l) => l.id === r.level)?.rooms?.find((x) => x.id === r.id)?.polygon ?? null;
-    // the room colours of the layout go to the scene; a plan without any colour is left exactly as it was drawn before
-    let colorsKey = '{}';
-    function applyRoomColors() {
-      if (typeof ps.setRoomColors !== 'function') return;
-      const colors = {};
-      for (const lc of curLayout.levels) if (lc.rooms && Object.keys(lc.rooms).length) colors[lc.id] = lc.rooms;
-      const key = JSON.stringify(colors);
-      if (key === colorsKey) return;
-      colorsKey = key; ps.setRoomColors(colors, 'textured'); redraw();
-    }
+    // (applyRoomColors, which puts the room colours of the layout on the scene, is above: a layout from a share link brings colours to the plain page too)
     // the plan point and level under the centre of the view: where a new piece is put
     const viewPoint = () => {
       let bottom = H; // the picture above the bars (and above the sheet of the panel when it is open) is what the person looks at
@@ -476,7 +543,7 @@ try {
       onLoad: () => { readTextFile(document).then((r) => { if (r.ok) loaded(session.importText(r.text)); else if (r.error !== 'cancelled') say(refusalText(S.lang, r.error === 'too-large' ? 'fileTooLarge' : 'fileFailed')); }); },
       onPaste: () => { askForText(document, S.lang).then((t) => { if (t != null) loaded(session.importText(t)); }); },
     };
-    if (parts.editBar) editBar = createEditBar({ onTurn: () => session.turn(90), onRemove: () => session.remove(), onUndo: () => session.undo(), onRedo: () => session.redo(), onAuto: () => session.reset(), onSaveImage: saveImage, onLoadPlan: loadPlan, ...fileHandlers }, { lang: S.lang }, document, ui);
+    if (parts.editBar) editBar = createEditBar({ onTurn: () => session.turn(90), onRemove: () => session.remove(), onUndo: () => session.undo(), onRedo: () => session.redo(), onAuto: () => session.reset(), onSaveImage: saveImage, onLoadPlan: loadPlan, onLink: shareLink, ...fileHandlers }, { lang: S.lang }, document, ui);
     if (parts.sheet) panel = createPanel({ doc: document, host: document.body, lang: S.lang, session });
     refreshEdit();
     onPlanSwapped = () => { // a new plan: a new editing session with nothing selected, no undo history and no unsaved changes
@@ -689,6 +756,9 @@ try {
   // returns the choice now, count is the number of levels, visible() the indices of the levels drawn, lift() how far the base of the house has come up (metres).
   window.__floors = { get: () => floor, set: (v) => setFloor(parseFloorParam(String(v))), get count() { return model.levels.length; }, visible: () => visibleIndices(floor, model.levels.length), lift: () => stage.lift() };
   window.__setT = setTime; window.__setPreset = setPreset; window.__setQuality = setQ;
+  // For test tools: the share link. build() makes the link of the page as it stands ({ ok, url, hash, chars, compressed }), copy() is the button, last() the link that the button made last,
+  // notes what a link could not give and said what the page told the visitor about it (once the first frame was drawn).
+  window.__share = { build: buildLink, copy: shareLink, last: () => lastLink, get notes() { return startNotes.map((n) => n.slice()); }, get said() { return startNoteText; } };
   // For test tools: the view (turn, tilt, distance and its default), the pan in metres, what the camera looks at, the ground point under a client point, and the plane of the near cut
   window.__camera = { get azimuth() { return cam.state.azimuth; }, get polar() { return cam.state.polar; }, get distance() { return cam.state.distance; }, get base() { return cam.state.base; }, get pan() { return cam.pan; }, get target() { return cam.target; }, get lift() { return cam.lift; },
     get near() { return sidesKey(near); }, get nearPlane() { return camera.near; }, get busy() { return cam.busy; }, groundAt: (x, y) => cam.groundAt(x, y), set: (azimuth, polar) => cam.set({ azimuth, polar }), reset: () => cam.reset(false) };
@@ -737,6 +807,7 @@ try {
 
   // ---------- loop: the first N frames (frames=N, 4 by default) are drawn at once and measured, then a frame is drawn whenever the picture changes ----------
   function frame(n) {
+    if (n === 1) sayStartNote();
     renderer.info.reset(); renderCalls = 0; const t0 = performance.now();
     post.render();
     if (n <= params.frames) { const gl = renderer.getContext(); gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(4)); times.push(performance.now() - t0); } // waits for the GPU: only for the measured frames
@@ -758,6 +829,21 @@ try {
       luminance: luminance(), msFirst: Math.round(times[0]), frames: params.frames, geometries: renderer.info.memory.geometries, visibleMeshes: meshes, lights, rendererRenderCalls: renderCalls, shadowCasters: stage.state.casters, pieces: furn.pieces.size, hiddenPieces: furn.hidden, mergedMeshes: furn.merged?.meshes ?? 0, emitters: furn.emitters.length, azimuth: Math.round(current.azimuth), near: sidesKey(near), size: post.size, pixelRatio: post.pixelRatio, plan: params.plan.name };
     window.__done = true;
   }
+  // What a share link could not give (see the start of this block): one short line, said when the first frame is drawn (on a slow device that is some seconds after the page was built, and a line
+  // said earlier would be gone by then); the page itself opens as it can.
+  let startNoteText = ''; // what was said, for the test tools
+  const sayStartNote = () => {
+    if (!startNotes.length) return;
+    const [kind, detail] = startNotes[0];
+    const words = {
+      link: detail === 'unsupported' ? T('Ta przeglądarka nie otworzy takiego linku: strona otwarta bez układu z linku', 'This browser cannot open such a link: the page opened without its layout') : T('Link jest uszkodzony albo za długi: strona otwarta bez niego', 'The link is broken or too long: the page opened without it'),
+      plan: T('Plan z linku nie jest poprawny: strona otwarta z przykładowym planem', 'The plan in the link is not valid: the page opened with an example plan'),
+      layout: T('Nie udało się wczytać układu z linku', 'Could not load the layout of the link'),
+      skipped: T(`Z linku pominięto część elementów (${detail})`, `Some items of the link were left out (${detail})`),
+    };
+    startNoteText = words[kind] ?? words.link;
+    sayLine(startNoteText, '', 9000);
+  };
   loop = createLoop({ draw: frame, frames: params.frames, live: params.live });
   loop.start();
   // Frame hook for screenshots and video capture: window.__frame({ preset, t, az, pol, dist, size }) sets the mood, the time of day (0 to 1), the view
@@ -774,3 +860,4 @@ try {
     loop.invalidate(); requestAnimationFrame(wait);
   });
 } catch (e) { fail(e); }
+})();
