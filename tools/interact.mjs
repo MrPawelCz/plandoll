@@ -2,7 +2,7 @@
 // by default with a phone screen and touch input. It waits for the first frames, then taps a mood button, drags the time-of-day
 // slider and changes the quality, and after each step checks that the PICTURE changed, not only the controls.
 //   node tools/interact.mjs [--html dist/plandoll.html | --html https://host/path/] [--size 390x844] [--scale 3] [--desktop]
-//                           [--hash "frames=2"] [--out DIR] [--timeout 240] [--settle 12] [--edit] [--quick] [--btn]
+//                           [--hash "frames=2"] [--out DIR] [--timeout 240] [--settle 12] [--edit] [--quick] [--btn] [--floors]
 // --desktop uses mouse input and a plain window. --hash is the address hash; empty (the default) is the page exactly as a visitor
 // opens it. --settle is how many seconds to wait for a redraw when the page does not report its frame count (older builds).
 // --edit opens the page with edit=1 and adds the steps of the layout editor (select, drag, turn, undo, redo, delete, automatic layout), then the same with the
@@ -15,6 +15,10 @@
 // Each camera step reads the ground point under the fingers from the page (window.__camera.groundAt) and checks that it did not drift, besides the picture changing.
 // After the camera steps of each plan (liftBlock) it checks that the centre of the projection is lifted over the part above the controls, that the model starts in the middle of that part and that three turns
 // of 45 degrees after a zoom to about half the distance keep it there (the camera looks at the middle of the model, not at a point below the floor).
+// With --btn on the duplex (floorsBlock) the floor buttons are tapped one by one: the ground floor, the upper floor (the base of the house comes up under it), with the shell open, in Polish, and back to
+// both; every tap checks the hooks, the address, that the turn and the tilt stay, that the floors on show fit above the controls and that the PICTURE changed, and the last tap that the first picture is back byte for byte.
+// --edit on a plan with two or more levels adds floorsEditBlock: a piece is selected only on the floor on show, the selection of a floor that goes is cleared, a hidden piece cannot be hit, Add uses the floor on show.
+// --floors runs only those steps (plan=duplex-1 in --hash; with --edit the editor ones): the first frames, then the floor steps, then the check that nothing is drawn at rest.
 // Exits 1 when a step fails, the page reports an error, writes to storage or asks for anything outside its own address.
 // On a small machine run only one browser at a time (tools/chrome-lock.sh).
 import { spawn } from 'node:child_process';
@@ -24,15 +28,16 @@ import { dirname, join, resolve } from 'node:path';
 import { pathToFileURL, fileURLToPath } from 'node:url';
 
 const argv = process.argv.slice(2);
-const opt = { html: null, size: '390x844', scale: '3', hash: '', out: null, timeout: 240, settle: 12, desktop: false, edit: false, quick: false, btn: false };
+const opt = { html: null, size: '390x844', scale: '3', hash: '', out: null, timeout: 240, settle: 12, desktop: false, edit: false, quick: false, btn: false, floors: false };
 for (let i = 0; i < argv.length; i++) {
   const a = argv[i];
   if (a === '--desktop') opt.desktop = true;
   else if (a === '--edit') opt.edit = true;
   else if (a === '--quick') opt.quick = true;
   else if (a === '--btn') opt.btn = true;
+  else if (a === '--floors') { opt.floors = true; opt.quick = true; }
   else if (a.startsWith('--') && a.slice(2) in opt && i + 1 < argv.length) opt[a.slice(2)] = argv[++i];
-  else { console.error(`usage: node tools/interact.mjs [--html FILE|URL] [--size WxH] [--scale N] [--desktop] [--edit] [--quick] [--btn] [--hash H] [--out DIR] [--timeout S] [--settle S] (got ${a})`); process.exit(2); }
+  else { console.error(`usage: node tools/interact.mjs [--html FILE|URL] [--size WxH] [--scale N] [--desktop] [--edit] [--quick] [--btn] [--floors] [--hash H] [--out DIR] [--timeout S] [--settle S] (got ${a})`); process.exit(2); }
 }
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const [W, H] = opt.size.split('x').map(Number);
@@ -373,6 +378,167 @@ async function liftBlock(tag) {
   await homeAgain();
 }
 
+// ---- the floors on show (a plan with two or more levels): one button per floor and one for all of them ----
+// Every tap must change the PICTURE, not only the hooks: the other floors are not drawn, the camera keeps its turn and tilt and fits the floors on show above the controls, the
+// address follows without a reload, the language changes the words, and a tap on the last button brings the first picture back byte for byte.
+const floorBtns = async () => JSON.parse(await ev(`JSON.stringify([...document.querySelectorAll('#ps-ui button.floor')].map((b) => { const r = b.getBoundingClientRect(); return { key: b.dataset.floor, text: b.textContent, label: b.getAttribute('aria-label'), pressed: b.getAttribute('aria-pressed'), x: r.left, y: r.top, w: r.width, h: r.height }; }))`));
+const floorNow = async () => JSON.parse(await ev(`JSON.stringify({ floor: window.__floors.get(), visible: window.__floors.visible(), lift: window.__floors.lift(), count: window.__floors.count, hash: location.hash, fail: window.__fail || null, az: window.__camera.azimuth, pol: window.__camera.polar, dist: window.__camera.distance, pressed: [...document.querySelectorAll('#ps-ui button.floor')].map((b) => b.getAttribute('aria-pressed')).join(',') })`));
+// where the corners of the closed model and of every wall lying flat (the floors on show only) land: all of them must be inside the window and above the controls
+const floorFit = () => ev(`(() => { if (typeof window.__shell !== 'object') return null; const p = window.__shell.project(), top = p.barTop ?? p.h; return { n: p.pts.length, inside: p.pts.every((q) => q.x >= -1 && q.x <= p.w + 1 && q.y >= -1 && q.y <= top + 1), lowest: Math.round(Math.max(...p.pts.map((q) => q.y))), top: Math.round(top) }; })()`);
+// draw calls of the frame the page draws now (the frame hook draws one frame and reports renderer.info.render.calls)
+const floorCalls = () => ev('window.__frame({}).then((r) => r.drawCalls)');
+const tapFloor = async (key) => { const f = await frames(), ok = await tapAt(`#ps-ui button.floor[data-floor="${key}"]`); await redrawn(f); await sleep(300); return ok; };
+async function floorsBlock(tag) {
+  const label = (s) => `floors ${tag}: ${s}`, noFloor = (h) => !/(^|[#&])floor=/.test(h);
+  if ((await ev('typeof window.__floors')) !== 'object') { record(label('the page has the floor hook'), false, { error: 'window.__floors is missing' }); return; }
+  const startFloor = await ev('window.__floors.get()');
+  if (startFloor !== 'all') { // the address asked for one floor (--hash floor=1): the page opens with it
+    const s = await floorNow(), pic = await picture(`${tag}-floor-00-from-address`), fit = await floorFit();
+    record(label(`the address floor=${startFloor} opens with that floor only, its button pressed, fitted above the controls`), s.floor === startFloor && s.visible.join() === String(startFloor) && s.pressed.split(',')[startFloor] === 'true' && fit?.inside !== false && !s.fail && (startFloor === 0 ? s.lift === 0 : s.lift > 2), { state: s, fit, pictureBytes: pic.length });
+    await tapFloor('all');
+  }
+  const b0 = await floorBtns(), s0 = await floorNow(), pic0 = await picture(`${tag}-floor-1-both`), fit0 = await floorFit(), calls0 = await floorCalls();
+  record(label('the buttons are there: one per floor and one for both, at least 40 px, on the screen, Both pressed, each with a name'),
+    b0.length === 3 && b0.map((b) => b.key).join() === '0,1,all' && b0.every((b) => b.h >= 39.5 && b.w >= 39.5 && b.x >= -1 && b.x + b.w <= W + 1 && b.y >= 0 && b.y + b.h <= H + 1 && b.label?.length > 6) && s0.pressed === 'false,false,true'
+      && /Ground floor|Parter/.test(b0[0].text) && /Upper floor|Piętro/.test(b0[1].text) && /Both|Oba/.test(b0[2].text) && s0.floor === 'all' && s0.visible.join() === '0,1' && s0.lift === 0 && s0.count === 2 && fit0?.inside !== false,
+    { buttons: b0.map((b) => `${b.text} ${Math.round(b.w)}x${Math.round(b.h)} at ${Math.round(b.x)},${Math.round(b.y)}${b.pressed === 'true' ? ' pressed' : ''}`), fit: fit0 });
+
+  await tapFloor('0');
+  const g = await floorNow(), picG = await picture(`${tag}-floor-2-ground`), fitG = await floorFit(), callsG = await floorCalls();
+  record(label('Ground floor: only that floor is drawn, the picture changes, the address follows, the turn and the tilt stay, the floor fits above the controls'),
+    g.floor === 0 && g.visible.join() === '0' && g.lift === 0 && /floor=0/.test(g.hash) && g.pressed === 'true,false,false' && picG !== pic0 && Math.abs(g.az - s0.az) < 1e-6 && Math.abs(g.pol - s0.pol) < 1e-6 && fitG?.inside !== false && !g.fail,
+    { state: g, fit: fitG, pictureChanged: picG !== pic0 });
+
+  await tapFloor('1');
+  const u = await floorNow(), picU = await picture(`${tag}-floor-3-upper`), fitU = await floorFit(), callsU = await floorCalls();
+  record(label('Upper floor: the other floor is drawn instead, the base of the house comes up under it, the picture differs from both, the address follows, the floor fits'),
+    u.floor === 1 && u.visible.join() === '1' && u.lift > 2 && /floor=1/.test(u.hash) && !/floor=0/.test(u.hash) && u.pressed === 'false,true,false' && picU !== pic0 && picU !== picG && Math.abs(u.az - s0.az) < 1e-6 && Math.abs(u.pol - s0.pol) < 1e-6 && fitU?.inside !== false && !u.fail,
+    { state: u, fit: fitU, differsFromBoth: picU !== pic0 && picU !== picG });
+
+  // the hook and the address take the same values: a wrong one means all
+  const hookSet = await ev(`JSON.stringify([window.__floors.set('0'), window.__floors.set('1'), window.__floors.set('nonsense'), window.__floors.set(7), window.__floors.set(0), window.__floors.set('all')])`);
+  await waitFor('window.__camera.busy === false', 30); await sleep(400);
+  record(label('the test hook takes 0, 1 and all, and a wrong value or a floor that does not exist is all'), hookSet === JSON.stringify([0, 1, 'all', 'all', 0, 'all']), { returned: hookSet });
+  // nothing is merged again and nothing is added: a floor that is not on show costs no draw call, and all floors cost again what they cost before (measured before the shell moves:
+  // opening and closing the shell itself leaves four more calls than the start, with or without the floor buttons), under the limit of the page (1800 on high)
+  const callsA = await floorCalls();
+  record(label('draw calls: a single floor draws fewer calls than both, both again draw exactly as many as before, and the number stays under the limit'), callsG < calls0 && callsU < calls0 && callsA === calls0 && calls0 <= 1800, { both: calls0, ground: callsG, upper: callsU, bothAgain: callsA, limit: 1800 });
+  await tapFloor('1');
+
+  // the open shell with only the upper floor on show: its walls lie flat on the board that came up, and everything stays in the picture
+  const shellSel = '#ps-ui button.tool[data-tool="shell"]';
+  if ((await ev('typeof window.__shell')) === 'object' && (await rectOf(shellSel))) {
+    const fsh = await frames();
+    await tapAt(shellSel);
+    const opened = await waitFor('window.__shell.mode === "open"', 30);
+    await redrawn(fsh); await sleep(400);
+    const picO = await picture(`${tag}-floor-4-upper-shell-open`), fitO = await floorFit();
+    const board = JSON.parse(await ev('JSON.stringify(window.__stats.board)')), open = JSON.parse(await ev('JSON.stringify(window.__shell.extent())'));
+    const holds = board.minX <= open.minX + 1e-6 && board.maxX >= open.maxX - 1e-6 && board.minZ <= open.minZ + 1e-6 && board.maxZ >= open.maxZ - 1e-6;
+    record(label('Upper floor with the shell open: the walls lie flat, the board holds them, the picture changes and everything stays above the controls'), opened && picO !== picU && fitO?.inside !== false && holds && (await floorNow()).floor === 1, { fit: fitO, boardHoldsOpenExtent: holds, pictureChanged: picO !== picU });
+    await tapFloor('0'); await sleep(300);
+    const picO0 = await picture(`${tag}-floor-5-ground-shell-open`), fitO0 = await floorFit();
+    record(label('switching to the ground floor while the shell is open: the walls of the floor on show stay flat, the picture changes, nothing leaves the picture'), picO0 !== picO && fitO0?.inside !== false && (await ev('window.__shell.mode')) === 'open' && (await floorNow()).floor === 0, { fit: fitO0, pictureChanged: picO0 !== picO });
+    const fsc = await frames(); await tapAt(shellSel); await waitFor('window.__shell.mode === "closed"', 30); await redrawn(fsc); await sleep(300);
+  }
+
+  await tapFloor('all');
+  const a = await floorNow(), picA = await picture(`${tag}-floor-6-both-again`);
+  record(label('Both brings the first picture back, byte for byte, with the camera where it was and floor= out of the address'),
+    a.floor === 'all' && a.visible.join() === '0,1' && a.lift === 0 && noFloor(a.hash) && a.pressed === 'false,false,true' && picA === pic0 && Math.abs(a.az - s0.az) < 1e-6 && Math.abs(a.pol - s0.pol) < 1e-6 && Math.abs(a.dist - s0.dist) < 1e-6 * Math.max(1, s0.dist) && !a.fail,
+    { state: a, first: { az: s0.az, pol: s0.pol, dist: s0.dist }, samePicture: picA === pic0 });
+
+
+  // another language: the buttons are translated (Polish: Parter, Piętro, Oba), the pressed one stays
+  const lang0 = await ev('document.documentElement.lang');
+  if (lang0 !== 'pl') { await tapAt('#ps-ui button.lang'); await sleep(500); }
+  const pl = await floorBtns(), picPl = await picture(`${tag}-floor-7-polish`);
+  record(label('in Polish the buttons read Parter, Piętro and Oba and the pressed one stays'), pl.map((b) => b.text).join() === 'Parter,Piętro,Oba' && pl[2].pressed === 'true' && pl.every((b) => !/[–—]/.test(b.text + b.label)), { buttons: pl.map((b) => b.text), labels: pl.map((b) => b.label), pictureBytes: picPl.length });
+  if (lang0 !== 'pl') { await tapAt('#ps-ui button.lang'); await sleep(400); }
+
+  // a plan of another size: the floor row goes with a one-level plan, and a new plan starts with all its floors on show
+  if (await rectOf('#ps-ui button[data-plan="flat-1"]')) {
+    await tapFloor('1');
+    let fp = await frames(); await tapAt('#ps-ui button[data-plan="flat-1"]'); await redrawn(fp);
+    const flat = JSON.parse(await ev(`JSON.stringify({ levels: window.__planInfo().levels, count: window.__floors.count, floor: window.__floors.get(), rows: [...document.querySelectorAll('#ps-ui button.floor')].filter((b) => b.getBoundingClientRect().width > 0).length, hash: location.hash })`));
+    fp = await frames(); await tapAt('#ps-ui button[data-plan="duplex-1"]'); await redrawn(fp);
+    const back = await floorNow(), rows = (await floorBtns()).filter((b) => b.w > 0).length;
+    record(label('a plan with one floor has no floor buttons, and a plan picked again starts with all floors on show and floor= out of the address'), flat.levels === 1 && flat.count === 1 && flat.floor === 'all' && flat.rows === 0 && noFloor(flat.hash) && back.floor === 'all' && back.visible.join() === '0,1' && back.lift === 0 && noFloor(back.hash) && rows === 3 && back.pressed === 'false,false,true' && !back.fail, { flat, back, rows });
+  }
+}
+
+// The editor with a floor hidden (--edit on a plan with two or more levels): a tap selects only on the floor on show, a change of floors clears the selection that belongs to
+// the floor that goes, a piece of the floor that is hidden cannot be hit, and Add puts the new piece on the floor on show.
+async function floorsEditBlock() {
+  const label = (s) => `floors edit: ${s}`;
+  if ((await ev('typeof window.__floors')) !== 'object' || (await ev('window.__floors.count')) < 2 || (await ev('typeof window.__edit')) !== 'object') return;
+  if ((await ev('window.__floors.get()')) !== 'all') await tapFloor('all');
+  const ids = await ev('window.__edit.session.state.layout.levels.map((l) => l.id)'), area = await pictureArea();
+  const inside = (pt) => pt && pt.x > 8 && pt.x < W - 8 && pt.y > 8 && pt.y < area.top;
+  const selected = () => ev('window.__edit.selectedId()'), levelOf = (pid) => ev(`window.__edit.session.levelOf(${JSON.stringify(pid)})`);
+  const layoutJson = () => ev('JSON.stringify(window.__edit.session.state.layout)');
+  const layout0 = await layoutJson();
+  // a floor piece of one level that a tap can reach on the picture now (nothing selected, so no sheet covers the picture)
+  const reach = async (levelIndex) => {
+    await ev('window.__edit.session.select(null)'); await sleep(300);
+    const cands = await ev(`(() => { const lv = window.__edit.session.state.layout.levels[${levelIndex}]; return lv.pieces.filter((p) => !p.on && p.elev === 0 && p.size[2] > 0.3).map((p) => ({ id: p.id, area: p.size[0] * p.size[1] })).sort((a, b) => b.area - a.area).slice(0, 14); })()`);
+    for (const c of cands) {
+      const pt = await ev(`window.__edit.screenOf(${JSON.stringify(c.id)})`);
+      if (inside(pt) && (await ev(`window.__edit.hit(${pt.x}, ${pt.y}, 'mouse')`)) === c.id) return { id: c.id, pt };
+    }
+    return null;
+  };
+  const upper = await reach(1);
+  if (!upper) { record(label('a piece of the upper floor can be reached by a tap'), false, { error: 'none found' }); return; }
+  let f = await frames(); await tap(upper.pt.x, upper.pt.y); await redrawn(f); await sleep(300);
+  const sel1 = await selected(), picSel = await picture('floor-edit-1-upper-selected');
+  record(label('with both floors on show a tap selects a piece of the upper floor'), sel1 === upper.id && (await levelOf(upper.id)) === ids[1], { piece: upper.id, selected: sel1 });
+
+  await tapFloor('0'); await sleep(300);
+  const sel2 = await selected(), picG = await picture('floor-edit-2-ground-only');
+  const hiddenPt = await ev(`window.__edit.screenOf(${JSON.stringify(upper.id)})`), hitHidden = hiddenPt ? await ev(`window.__edit.hit(${hiddenPt.x}, ${hiddenPt.y}, 'mouse')`) : null;
+  record(label('the ground floor alone: the selection of the upper floor is gone, the picture changes, and a piece of the hidden floor cannot be hit'), sel2 === null && picG !== picSel && hitHidden !== upper.id && (await ev('window.__floors.get()')) === 0, { selectedNow: sel2, hitWhereTheHiddenPieceWas: hitHidden, pictureChanged: picG !== picSel });
+
+  const ground = await reach(0);
+  if (ground) {
+    f = await frames(); await tap(ground.pt.x, ground.pt.y); await redrawn(f); await sleep(300);
+    const sel3 = await selected();
+    record(label('on the ground floor alone a tap selects a piece of the ground floor'), sel3 === ground.id && (await levelOf(ground.id)) === ids[0], { piece: ground.id, selected: sel3 });
+    const added = JSON.parse(await ev(`JSON.stringify((() => { const r = window.__edit.session.add('armchair'); return { ok: r.ok, id: r.id ?? null, reason: r.reason ?? null, level: r.ok ? window.__edit.session.levelOf(r.id) : null }; })())`));
+    await sleep(300);
+    record(label('Add puts the new piece on the floor on show (ground)'), added.ok && added.level === ids[0], { added });
+    await ev('window.__edit.session.undo()'); await sleep(200);
+  } else record(label('on the ground floor alone a tap selects a piece of the ground floor'), false, { error: 'no piece of the ground floor could be reached' });
+
+  await tapFloor('1'); await sleep(300);
+  const sel4 = await selected();
+  const picU = await picture('floor-edit-3-upper-only');
+  const upper2 = await reach(1);
+  if (upper2) {
+    f = await frames(); await tap(upper2.pt.x, upper2.pt.y); await redrawn(f); await sleep(300);
+    const sel5 = await selected(), picSel2 = await picture('floor-edit-4-upper-selected-alone');
+    const added = JSON.parse(await ev(`JSON.stringify((() => { const r = window.__edit.session.add('armchair'); return { ok: r.ok, id: r.id ?? null, reason: r.reason ?? null, level: r.ok ? window.__edit.session.levelOf(r.id) : null }; })())`));
+    await sleep(300);
+    record(label('the upper floor alone: the ground selection was cleared by the change, a tap selects an upper piece, and Add puts the new piece on the upper floor'), sel4 === null && sel5 === upper2.id && added.ok && added.level === ids[1] && picSel2 !== picU, { clearedByTheChange: sel4 === null, selected: sel5, added });
+    await ev('window.__edit.session.undo()'); await sleep(200);
+  } else record(label('the upper floor alone: a tap selects an upper piece'), false, { error: 'no piece of the upper floor could be reached' });
+
+  // a room picked on a floor goes when that floor goes
+  await tapFloor('all'); await sleep(300);
+  const planFile = JSON.parse(readFileSync(new URL('../examples/duplex-1.plan.json', import.meta.url), 'utf8')), roomUp = planFile.levels[1]?.rooms?.[0]?.id;
+  if (roomUp) {
+    await ev(`window.__edit.session.selectRoom(${JSON.stringify(ids[1])}, ${JSON.stringify(roomUp)})`); await sleep(300);
+    const rs1 = await ev('window.__edit.selectedRoomId()');
+    await tapFloor('0'); await sleep(300);
+    const rs2 = await ev('window.__edit.selectedRoomId()');
+    record(label('a room picked on a floor is no longer selected when that floor goes'), rs1 === roomUp && rs2 === null, { before: rs1, after: rs2 });
+    await tapFloor('all'); await sleep(300);
+  }
+  await ev('window.__edit.session.select(null)');
+  const layout1 = await layoutJson();
+  record(label('Both brings every piece back and the layout is the one it was'), layout1 === layout0 && (await ev('window.__floors.get()')) === 'all' && (await ev('window.__edit.count()')) === JSON.parse(layout0).levels.reduce((n, l) => n + l.pieces.length, 0), { layoutBack: layout1 === layout0 });
+}
+
 try {
   let list;
   for (let k = 0; k < 60; k++) { try { list = await (await fetch(`http://127.0.0.1:${PORT}/json/list`)).json(); if (list.find((t) => t.type === 'page')) break; } catch {} await sleep(500); }
@@ -525,7 +691,7 @@ try {
   }
 
   // 10b. the layout editor (--edit): select a piece, drag it, turn, undo, redo, delete, automatic layout
-  if (opt.edit) {
+  if (opt.edit && !opt.floors) {
     const pieceInfo = (pid) => ev(`(() => { const p = window.__edit.session.pieceById(${JSON.stringify(pid)}); return p ? { x: p.x, y: p.y, rot: p.rot } : null; })()`);
     const layoutJson = () => ev('JSON.stringify(window.__edit.session.state.layout)');
     const selected = () => ev('window.__edit.selectedId()');
@@ -1007,8 +1173,12 @@ try {
     }
   }
 
+  // 10c. the floors on show (--floors alone, or after the editor steps when the plan has two or more levels)
+  if (opt.floors) { if (opt.edit) await floorsEditBlock(); else await floorsBlock('duplex-1'); }
+  else if (opt.edit && (await ev('window.__floors ? window.__floors.count : 1')) >= 2) await floorsEditBlock();
+
   // 10d. the extra buttons (--btn): saving the picture, the frame hook, the Edit button and leaving the editor again
-  if (opt.btn && !opt.edit) {
+  if (opt.btn && !opt.edit && !opt.floors) {
     const toolInfo = JSON.parse(await ev(`JSON.stringify([...document.querySelectorAll('#ps-ui button.tool')].map((b) => { const r = b.getBoundingClientRect(); return { name: b.dataset.tool ?? 'plan:' + b.dataset.plan, x: r.left, y: r.top, w: r.width, h: r.height, text: b.textContent }; }))`));
     await picture('30-buttons');
     const onScreen = (b) => b.w >= 43.5 && b.h >= 43.5 && b.x >= -1 && b.x + b.w <= W + 1 && b.y >= 0 && b.y + b.h <= H + 1;
@@ -1029,6 +1199,7 @@ try {
     record('example plans: Duplex builds the two-storey plan in place', planBefore.levels === 1 && planBefore.pressed.join() === 'flat-1' && planDup.levels === 2 && planDup.pressed.join() === 'duplex-1' && /plan=duplex-1/.test(planDup.hash) && picPlanDup !== picPlanFlat && !planDup.fail, { before: planBefore, after: planDup, pictureChanged: picPlanDup !== picPlanFlat });
     await cameraBlock('duplex-1');
     await liftBlock('duplex-1');
+    await floorsBlock('duplex-1');
     fpl = await frames();
     await tapAt('#ps-ui button[data-plan="flat-1"]'); await redrawn(fpl);
     const planFlat2 = await planNow(), picPlanFlat2 = await picture('37-plan-flat-again');
@@ -1120,7 +1291,7 @@ try {
 
 
   // 10e. Load plan: the text of another plan goes into the dialog and the page builds the new model without reloading; a bad text gives a message and changes nothing
-  {
+  if (!opt.floors) {
     let planText = null; // the other example than the one on show: the duplex over the flat, the flat over the duplex (a run started with plan=duplex-1)
     const openLoad = async () => {
       if (opt.edit) { await tapAt('#ps-edit button[data-edit="more"]'); await sleep(300); await tapAt('#ps-edit-menu button[data-edit-item="plan"]'); }

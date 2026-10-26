@@ -312,8 +312,8 @@ export function createCameraController(options) {
 
   // A new default distance (the window changed shape): the turn stays, the zoom keeps its ratio to the default, the pan stays as it was from the new home.
   function rehome(next) {
-    const h = makeState(next), ratio = h.base / state.base;
-    home = h; state = { ...state, base: h.base, distance: clamp(state.distance * ratio, h.base * ZOOM_MIN, h.base * ZOOM_MAX) };
+    const h = makeState(next), zoom = state.distance / state.base; // the zoom as a multiple of the default: an unzoomed view stays exactly the default, however often it is framed again
+    home = h; state = { ...state, base: h.base, distance: clamp(h.base * zoom, h.base * ZOOM_MIN, h.base * ZOOM_MAX) };
     if (anim) anim = { ...anim, to: home };
   }
 

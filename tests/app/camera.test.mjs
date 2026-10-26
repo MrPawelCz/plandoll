@@ -195,6 +195,19 @@ test('controller: pointerToRay gives a finite unit ray through the touched point
   assert.equal(r.cam.home.distance, 20);
 });
 
+test('controller: framing again and again leaves an unzoomed view exactly at the default and a zoomed one at its ratio', () => {
+  const r = rig();
+  const home = (distance) => ({ azimuth: 35, polar: 50, distance });
+  // three defaults (the floors of a duplex frame the model three ways) and back: multiplying by the ratio of the defaults each time drifts in the last digit
+  const fits = [27.7293222806087, 86.7195701909808, 95.8161998148152, 27.7293222806087];
+  for (const d of fits) r.cam.rehome(home(d));
+  assert.equal(r.cam.state.distance, fits[0], 'the same default as before, to the last bit'); assert.equal(r.cam.state.base, fits[0]);
+  r.cam.set({ distance: fits[0] / 2 }); // half of the default
+  for (const d of [...fits.slice(1), 10]) r.cam.rehome(home(d));
+  assert.ok(Math.abs(r.cam.state.distance - 5) < 1e-9, `the zoom keeps its ratio: ${r.cam.state.distance}`);
+  assert.equal(r.cam.state.base, 10);
+});
+
 // ---- fitView and the controller's target / start distance ----
 const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 // Where a world point lands on the picture of the camera that rayFor describes: x, y in -1..1 (up is positive) and the depth.
