@@ -468,3 +468,113 @@ test('showLinkDialog: no link, no page, or a broken document gives null and thro
   const bad = makeDoc(); bad.createElement = () => { throw new Error('no DOM'); };
   assert.equal(showLinkDialog(bad, 'en', 'x'), null);
 });
+
+// ---------- the plan box: the folded instruction (a plan file from a picture of a plan) and the problem that stays in the box ----------
+const HELP_PROMPT = 'You turn a floor plan image into a JSON file for plandoll.\nSecond line.';
+const helpOpts = (extra = {}) => ({ kind: 'plan', help: { prompt: HELP_PROMPT }, ...extra });
+const byClass = (u, cls) => u.nodes.find((n) => n.className === cls);
+const boxArea = (doc) => doc.getElementById('ps-files-text');
+
+test('askForText (plan): the instruction is folded, in page order, in English and Polish, with the prompt to read and no long dashes', async () => {
+  for (const [lang, title, copy, show] of [['en', 'No plan file yet? Make one from a picture of your plan', 'Copy the prompt', 'Show the prompt'], ['pl', 'Nie masz pliku z planem? Zrób go ze zdjęcia rzutu', 'Kopiuj polecenie', 'Pokaż polecenie']]) {
+    const doc = makeDoc(); const p = askForText(doc, lang, helpOpts()); const u = parts(doc);
+    const help = u.nodes.find((n) => n.id === 'ps-files-help');
+    assert.equal(help.tag, 'details'); assert.ok(!help.open, 'folded at first');
+    assert.equal(help.children[0].tag, 'summary'); assert.equal(help.children[0].textContent, title);
+    const steps = all(help).filter((n) => n.tag === 'li'); assert.equal(steps.length, 4);
+    assert.ok(all(steps[1]).some((n) => n.tag === 'button' && n.textContent === copy), 'the copy button sits in the step that says to paste the prompt');
+    assert.ok(all(help).some((n) => n.tag === 'summary' && n.textContent === show));
+    const promptArea = all(help).find((n) => n.tag === 'textarea');
+    assert.equal(promptArea.value, HELP_PROMPT); assert.equal(promptArea.readOnly, true); assert.ok(promptArea.attrs['aria-label']);
+    assert.ok(all(help).some((n) => n.className === 'ps-files-note' && n.textContent.length > 40), 'the privacy line is there');
+    assert.deepEqual(u.dialog.children.map((n) => n.tag), ['h2', 'p', 'details', 'textarea', 'p', 'div'], 'heading, hint, instruction, the box, the problem line, the buttons');
+    assert.ok(!all(u.overlay).map((n) => n.textContent).join(' ').match(LONG_DASH), 'no long dashes in the texts');
+    assert.equal(doc.activeElement, boxArea(doc), 'the focus still starts in the box');
+    assert.equal(u.buttons.filter((b) => b.className === 'ps-files-load').length, 1);
+    fire(u.cancel, 'click'); assert.equal(await p, null);
+  }
+});
+
+test('askForText (plan): Copy the prompt copies exactly the prompt and says so; when nothing can copy it says so and opens the prompt', async () => {
+  const doc = makeDoc(), win = doc.defaultView; win.document = doc; win.isSecureContext = true;
+  const written = []; win.navigator = { clipboard: { writeText: async (t) => { written.push(t); } } };
+  const p = askForText(doc, 'pl', helpOpts()); const u = parts(doc);
+  const copy = byClass(u, 'ps-files-copyprompt'), status = copy.parentNode.children.find((n) => n.className === 'ps-files-copied');
+  assert.equal(status.attrs.role, 'status');
+  fire(copy, 'click'); await tick(); await tick();
+  assert.deepEqual(written, [HELP_PROMPT]); assert.equal(status.textContent, 'Skopiowano polecenie. Wklej je do czatu.');
+  const shown = byClass(u, 'ps-files-prompt'); assert.ok(!shown.open, 'the prompt stays folded when copying worked');
+  win.navigator = { clipboard: { writeText: async () => { throw new Error('no'); } } }; doc.execCommand = () => false;
+  fire(copy, 'click'); await tick(); await tick();
+  assert.equal(status.textContent, 'Nie udało się skopiować. Otwórz Pokaż polecenie i skopiuj tekst ręcznie.');
+  assert.equal(shown.open, true, 'the prompt is opened to be copied by hand'); assert.equal(doc.activeElement.className, 'ps-files-prompt-text');
+  fire(u.cancel, 'click'); assert.equal(await p, null);
+  win.navigator = { clipboard: { writeText: async () => { written.push('late'); } } };
+  fire(copy, 'click'); fire(u.cancel, 'click'); await tick(); await tick();
+  assert.equal(status.textContent, 'Nie udało się skopiować. Otwórz Pokaż polecenie i skopiuj tekst ręcznie.', 'an answer that comes after the box closed changes nothing');
+});
+
+test('askForText (plan): a plan that does not pass the check keeps the box open with the problem, Copy the message hands it over, editing clears it, a passing text resolves', async () => {
+  const doc = makeDoc(), win = doc.defaultView; win.document = doc; win.isSecureContext = true;
+  const written = []; win.navigator = { clipboard: { writeText: async (t) => { written.push(t); } } };
+  const seen = [];
+  const check = (t) => { seen.push(t); return t.includes('good') ? null : { message: 'Could not load the plan: an opening does not fit its wall (2 more)', detail: 'opening d3 ends 0.4 m past the end of wall w9' }; };
+  const p = askForText(doc, 'en', helpOpts({ check })); const u = parts(doc);
+  const area = boxArea(doc), err = doc.getElementById('ps-files-error');
+  const row = byClass(u, 'ps-files-msgrow'); assert.equal(row.style.display, 'none', 'no Copy button before there is a problem');
+  area.value = 'bad plan'; fire(u.load, 'click');
+  assert.equal(doc.body.children.length, 1, 'the box stays');
+  assert.equal(err.textContent, 'Could not load the plan: an opening does not fit its wall (2 more)\nopening d3 ends 0.4 m past the end of wall w9');
+  assert.equal(err.attrs.role, 'alert'); assert.equal(row.style.display, ''); assert.equal(doc.activeElement, area);
+  const copyMsg = byClass(u, 'ps-files-copymsg'), st = row.children.find((n) => n.className === 'ps-files-copied');
+  assert.equal(copyMsg.textContent, 'Copy the message');
+  fire(copyMsg, 'click'); await tick(); await tick();
+  assert.deepEqual(written, [err.textContent]); assert.equal(st.textContent, 'Message copied. Paste it into the chat.');
+  win.navigator = { clipboard: { writeText: async () => { throw new Error('no'); } } }; doc.execCommand = () => false;
+  fire(copyMsg, 'click'); await tick(); await tick(); assert.equal(st.textContent, 'Could not copy. Select the message by hand.');
+  fire(area, 'input'); assert.equal(err.textContent, ''); assert.equal(row.style.display, 'none'); assert.equal(st.textContent, '');
+  area.value = 'a good plan'; fire(area, 'keydown', { key: 'Enter', ctrlKey: true });
+  assert.equal(await p, 'a good plan'); assert.deepEqual(seen, ['bad plan', 'a good plan']);
+  assert.equal(doc.body.children.length, 0);
+});
+
+test('askForText (plan): the problem line speaks Polish in the Polish box, and a problem without words is not shown', async () => {
+  const doc = makeDoc(); let verdict = { message: 'Nie wczytano planu: drzwi lub okno nie pasują do ściany' };
+  const p = askForText(doc, 'pl', { kind: 'plan', check: () => verdict }); const u = parts(doc);
+  const area = boxArea(doc), err = doc.getElementById('ps-files-error');
+  area.value = '{}'; fire(u.load, 'click');
+  assert.equal(err.textContent, 'Nie wczytano planu: drzwi lub okno nie pasują do ściany'); assert.equal(byClass(u, 'ps-files-copymsg').textContent, 'Kopiuj komunikat');
+  verdict = { message: '', detail: '' }; fire(u.load, 'click');
+  assert.equal(await p, '{}', 'a verdict with no words cannot keep the box open: the caller reads the text again');
+});
+
+test('askForText (plan): a check that throws lets the text through, and a blank or oversized text never reaches it', async () => {
+  let calls = 0;
+  const doc = makeDoc(); const p = askForText(doc, 'en', { kind: 'plan', check: () => { calls++; throw new Error('boom'); } }); const u = parts(doc);
+  const area = boxArea(doc);
+  area.value = '   '; fire(u.load, 'click'); area.value = 'x'.repeat(MAX_FILE_BYTES + 1); fire(u.load, 'click');
+  assert.equal(calls, 0); assert.equal(doc.body.children.length, 1);
+  area.value = '{"a":1}'; fire(u.load, 'click'); assert.equal(await p, '{"a":1}'); assert.equal(calls, 1);
+});
+
+test('askForText (plan): the Tab key wraps inside the box through the instruction and the Copy buttons, and never jumps from a control that is listed', async () => {
+  const doc = makeDoc(); const p = askForText(doc, 'en', helpOpts({ check: () => null })); const u = parts(doc);
+  const help = u.nodes.find((n) => n.id === 'ps-files-help'), summary = help.children[0];
+  const press = (from, shift) => { doc.activeElement = from; return fire(from, 'keydown', { key: 'Tab', shiftKey: shift }); };
+  let ev = press(summary, true); assert.ok(ev.defaultPrevented); assert.equal(doc.activeElement, u.cancel, 'Shift+Tab on the first control goes to the last');
+  ev = press(u.cancel, false); assert.ok(ev.defaultPrevented); assert.equal(doc.activeElement, summary, 'Tab on the last control goes to the first');
+  for (const node of [all(help).find((n) => n.tag === 'textarea'), byClass(u, 'ps-files-copyprompt'), byClass(u, 'ps-files-copymsg'), boxArea(doc), u.load]) {
+    for (const shift of [false, true]) { ev = press(node, shift); assert.ok(!ev.defaultPrevented, `${node.className || node.id}: the browser moves on by itself`); }
+  }
+  fire(u.cancel, 'click'); assert.equal(await p, null);
+});
+
+test('askForText: help and check belong to the plan box only, and a help with no prompt adds nothing', async () => {
+  let calls = 0;
+  let doc = makeDoc(); let p = askForText(doc, 'en', { help: { prompt: HELP_PROMPT }, check: () => { calls++; return { message: 'no' }; } }); let u = parts(doc);
+  assert.ok(!u.nodes.some((n) => n.tag === 'details' || n.tag === 'ol')); u.area.value = 'x'; fire(u.load, 'click'); assert.equal(await p, 'x'); assert.equal(calls, 0);
+  for (const prompt of ['', null, undefined, 42]) {
+    doc = makeDoc(); p = askForText(doc, 'en', { kind: 'plan', help: { prompt } }); u = parts(doc);
+    assert.ok(!u.nodes.some((n) => n.tag === 'details'), `no instruction for ${String(prompt)}`); fire(u.cancel, 'click'); await p;
+  }
+});

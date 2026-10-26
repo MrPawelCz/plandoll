@@ -133,8 +133,30 @@ const STR = {
   pl: { title: 'Wklej układ', hint: 'Wklej tekst zapisanego układu i naciśnij Wczytaj.', field: 'Tekst układu', load: 'Wczytaj', cancel: 'Anuluj' },
 };
 const PLAN_STR = {
-  en: { title: 'Load a plan', hint: 'Paste the text of a plan (JSON) or choose a file, then press Load.', field: 'Plan text', load: 'Load', cancel: 'Cancel', pick: 'Choose a file' },
-  pl: { title: 'Wczytaj plan', hint: 'Wklej tekst planu (JSON) albo wybierz plik, potem naciśnij Wczytaj.', field: 'Tekst planu', load: 'Wczytaj', cancel: 'Anuluj', pick: 'Wybierz plik' },
+  en: { title: 'Load a plan', hint: 'Paste the text of a plan (JSON) or choose a file, then press Load.', field: 'Plan text', load: 'Load', cancel: 'Cancel', pick: 'Choose a file',
+    helpTitle: 'No plan file yet? Make one from a picture of your plan',
+    helpSteps: [
+      'Take a photo, a screenshot or a PDF page of your floor plan. Walls, doors and windows should be visible; sizes or room areas printed on it help to find the scale.',
+      'Open an AI chat assistant that can read pictures, attach the picture and paste the prompt.',
+      'Copy the whole answer of the assistant, paste it into the box below and press Load. The page finds the plan in it.',
+      'If the page names a problem, copy its message and paste it back into the chat: ask for a corrected plan.',
+    ],
+    copyPrompt: 'Copy the prompt', promptCopied: 'Prompt copied. Paste it into the chat.', copyFailed: 'Could not copy. Open Show the prompt and copy the text by hand.',
+    showPrompt: 'Show the prompt', promptField: 'The prompt for the assistant',
+    privacy: 'The picture goes to the assistant you choose, under its own rules; plandoll itself sends nothing anywhere. Take names and addresses off the picture first.',
+    copyMessage: 'Copy the message', messageCopied: 'Message copied. Paste it into the chat.', messageFailed: 'Could not copy. Select the message by hand.' },
+  pl: { title: 'Wczytaj plan', hint: 'Wklej tekst planu (JSON) albo wybierz plik, potem naciśnij Wczytaj.', field: 'Tekst planu', load: 'Wczytaj', cancel: 'Anuluj', pick: 'Wybierz plik',
+    helpTitle: 'Nie masz pliku z planem? Zrób go ze zdjęcia rzutu',
+    helpSteps: [
+      'Zrób zdjęcie, zrzut ekranu albo weź stronę PDF z rzutem mieszkania. Mają być widoczne ściany, drzwi i okna; wymiary lub powierzchnie pokoi na rysunku pomagają ustalić skalę.',
+      'Otwórz asystenta AI do czatu, który czyta obrazy, dołącz obraz i wklej polecenie.',
+      'Skopiuj całą odpowiedź asystenta, wklej ją do pola poniżej i naciśnij Wczytaj. Strona sama znajdzie w niej plan.',
+      'Jeśli strona wskaże problem, skopiuj jej komunikat i wklej go z powrotem do czatu, prosząc o poprawiony plan.',
+    ],
+    copyPrompt: 'Kopiuj polecenie', promptCopied: 'Skopiowano polecenie. Wklej je do czatu.', copyFailed: 'Nie udało się skopiować. Otwórz Pokaż polecenie i skopiuj tekst ręcznie.',
+    showPrompt: 'Pokaż polecenie', promptField: 'Polecenie dla asystenta',
+    privacy: 'Obraz trafia do wybranego asystenta, na jego zasadach; plandoll niczego nigdzie nie wysyła. Usuń z obrazu imiona, nazwiska i adresy.',
+    copyMessage: 'Kopiuj komunikat', messageCopied: 'Skopiowano komunikat. Wklej go do czatu.', messageFailed: 'Nie udało się skopiować. Zaznacz komunikat ręcznie.' },
 };
 
 const CSS = `
@@ -150,6 +172,21 @@ const CSS = `
 #ps-files-overlay button.ps-files-load{background:#c8793a;border-color:#c8793a;color:#1c130a}
 #ps-files-overlay button:hover{filter:brightness(1.15)}
 #ps-files-overlay textarea:focus-visible,#ps-files-overlay button:focus-visible{outline:2px solid #ffb680;outline-offset:2px}
+#ps-files-overlay .ps-files-error{white-space:pre-wrap;overflow-wrap:anywhere}
+#ps-files-overlay .ps-files-help{margin:0 0 12px;padding:2px 12px 10px;border-radius:12px;border:1px solid rgba(255,255,255,.16);background:rgba(255,255,255,.05)}
+#ps-files-overlay .ps-files-help summary{cursor:pointer;padding:9px 0;min-height:26px;font-weight:700;color:#ffb680}
+#ps-files-overlay .ps-files-help summary:focus-visible{outline:2px solid #ffb680;outline-offset:2px;border-radius:6px}
+#ps-files-overlay .ps-files-steps{margin:4px 0 10px;padding-left:22px}
+#ps-files-overlay .ps-files-steps li{margin:8px 0;opacity:.92}
+#ps-files-overlay .ps-files-steps li::marker{color:#ffb680;font-weight:700}
+#ps-files-overlay .ps-files-help button,#ps-files-overlay .ps-files-msgrow button{display:block;flex:none;min-height:40px;margin-top:8px;padding:6px 14px}
+#ps-files-overlay .ps-files-copied{display:block;margin-top:6px;color:#bfe3b4;font-weight:600}
+#ps-files-overlay .ps-files-copied:empty{display:none}
+#ps-files-overlay .ps-files-note{margin:0 0 8px;font-size:.92em;opacity:.75}
+#ps-files-overlay .ps-files-prompt summary{font-weight:600;color:inherit;opacity:.85}
+#ps-files-overlay .ps-files-help textarea{height:26vh;min-height:110px;font-size:12px}
+#ps-files-overlay .ps-files-help[open] ~ #ps-files-text{height:22vh}
+#ps-files-overlay .ps-files-msgrow{margin-top:8px}
 @media (pointer:coarse){#ps-files-overlay textarea{font-size:16px}}
 `;
 
@@ -163,6 +200,8 @@ const showing = new WeakMap(); // document -> close function of the dialog that 
 
 // Modal for pasting layout text (opts.kind 'plan': the words of loading a plan, plus a button that fills the field from a file). Resolves with the text, or null when cancelled or the dialog could not be built;
 // a blank or too long text keeps the dialog open and shows the reason.
+// Plan kind only: opts.check(text) is asked before the dialog closes. null or undefined lets the text through; { message, detail } keeps the dialog open and shows the problem, with a button that
+// copies it (to hand it back to the AI chat that made the plan). opts.help { prompt } adds a folded instruction on making a plan file from a picture of a floor plan, with a button that copies the prompt.
 // Escape or a click on the dim background cancels; Ctrl or Cmd + Enter loads. Only one dialog per document at a time.
 export function askForText(doc, lang, opts = {}) {
   return new Promise((resolve) => {
@@ -180,6 +219,7 @@ export function askForText(doc, lang, opts = {}) {
       detach(doc.getElementById?.('ps-files-overlay'));
       ensureStyle(doc);
       const plan = opts?.kind === 'plan', L = (plan ? PLAN_STR : STR)[lang === 'pl' ? 'pl' : 'en'];
+      const useCheck = plan && typeof opts?.check === 'function', useHelp = plan && isText(opts?.help?.prompt);
       overlay = el(doc, 'div', { id: 'ps-files-overlay', className: 'ps-files-overlay' });
       const dialog = el(doc, 'div', { className: 'ps-files-dialog' });
       dialog.setAttribute('role', 'dialog'); dialog.setAttribute('aria-modal', 'true');
@@ -190,7 +230,23 @@ export function askForText(doc, lang, opts = {}) {
       area.setAttribute('aria-label', L.field);
       const R = REASON[lang === 'pl' ? 'pl' : 'en'];
       const err = el(doc, 'p', { id: 'ps-files-error', className: 'ps-files-error' }); err.setAttribute('role', 'alert');
-      const showError = (text) => { err.textContent = text; };
+      // The problem that opts.check reported stays in the dialog (not a line that fades), with a button that copies it, so it can be pasted back into the chat that made the plan.
+      const msgRow = el(doc, 'div', { className: 'ps-files-msgrow' }); msgRow.style.display = 'none';
+      const copyMsg = el(doc, 'button', { type: 'button', className: 'ps-files-copymsg', textContent: L.copyMessage });
+      const msgStatus = el(doc, 'span', { className: 'ps-files-copied' }); msgStatus.setAttribute('role', 'status');
+      msgRow.append(copyMsg, msgStatus);
+      let problemText = '';
+      const showError = (text) => { err.textContent = text; problemText = ''; msgStatus.textContent = ''; msgRow.style.display = 'none'; };
+      const showProblem = (p) => {
+        const full = [p?.message, p?.detail].filter(isText).join('\n');
+        if (!full) return false;
+        err.textContent = full; problemText = full; msgStatus.textContent = ''; msgRow.style.display = '';
+        return true;
+      };
+      copyMsg.addEventListener('click', () => {
+        if (!problemText) return;
+        copyText(doc.defaultView, problemText).then((ok) => { if (!settled) msgStatus.textContent = ok ? L.messageCopied : L.messageFailed; });
+      });
       area.addEventListener('input', () => showError(''));
       const row = el(doc, 'div', { className: 'ps-files-actions' });
       const load = el(doc, 'button', { type: 'button', className: 'ps-files-load', textContent: L.load });
@@ -199,6 +255,11 @@ export function askForText(doc, lang, opts = {}) {
         const text = area.value;
         if (typeof text !== 'string' || text.trim() === '') { showError(R.empty); area.focus?.(); return; }
         if (text.length > MAX_FILE_BYTES) { showError(R.tooLong); return; }
+        if (useCheck) {
+          let verdict = null;
+          try { verdict = opts.check(text); } catch { verdict = null; } // a check that fails by itself lets the text through: the caller reads it again
+          if (verdict && showProblem(verdict)) { area.focus?.(); return; }
+        }
         showError(''); finish(text);
       };
       load.addEventListener('click', submit);
@@ -215,6 +276,39 @@ export function askForText(doc, lang, opts = {}) {
         });
         order.splice(2, 0, pick);
       }
+      // The folded instruction: three steps, a button that copies the prompt, the privacy line and the prompt itself to read (or to copy by hand when the clipboard refuses).
+      let help = null;
+      if (useHelp) {
+        const prompt = opts.help.prompt;
+        help = el(doc, 'details', { id: 'ps-files-help', className: 'ps-files-help' });
+        const helpSummary = el(doc, 'summary', { textContent: L.helpTitle });
+        const steps = el(doc, 'ol', { className: 'ps-files-steps' });
+        const copyPrompt = el(doc, 'button', { type: 'button', className: 'ps-files-copyprompt', textContent: L.copyPrompt });
+        const promptStatus = el(doc, 'span', { className: 'ps-files-copied' }); promptStatus.setAttribute('role', 'status');
+        L.helpSteps.forEach((text, i) => {
+          const li = el(doc, 'li', {});
+          li.appendChild(el(doc, 'span', { textContent: text }));
+          if (i === 1) li.append(copyPrompt, promptStatus);
+          steps.appendChild(li);
+        });
+        const note = el(doc, 'p', { className: 'ps-files-note', textContent: L.privacy });
+        const shown = el(doc, 'details', { className: 'ps-files-prompt' });
+        const shownSummary = el(doc, 'summary', { textContent: L.showPrompt });
+        const promptArea = el(doc, 'textarea', { className: 'ps-files-prompt-text', spellcheck: false, readOnly: true, value: prompt });
+        promptArea.setAttribute('aria-label', L.promptField);
+        promptArea.addEventListener('focus', () => { try { promptArea.select?.(); } catch { /* nothing to select */ } });
+        shown.append(shownSummary, promptArea);
+        help.append(helpSummary, steps, note, shown);
+        copyPrompt.addEventListener('click', () => {
+          copyText(doc.defaultView, prompt).then((ok) => {
+            if (settled) return;
+            promptStatus.textContent = ok ? L.promptCopied : L.copyFailed;
+            if (!ok) { shown.open = true; try { promptArea.focus?.(); promptArea.select?.(); } catch { /* by hand then */ } }
+          });
+        });
+        order.unshift(helpSummary, copyPrompt, shownSummary, promptArea); // every control of the dialog is listed in page order, so the Tab key never jumps from one that is missing
+      }
+      if (useCheck) order.splice(order.indexOf(area) + 1, 0, copyMsg);
       overlay.addEventListener('keydown', (e) => {
         if (e.key === 'Escape') { e.preventDefault?.(); finish(null); }
         else if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault?.(); submit(); }
@@ -227,7 +321,8 @@ export function askForText(doc, lang, opts = {}) {
       let pressedInside = false; // a text selection that ends on the dim background must not close the dialog
       overlay.addEventListener('pointerdown', (e) => { pressedInside = e.target !== overlay; });
       overlay.addEventListener('click', (e) => { const inside = pressedInside; pressedInside = false; if (e.target === overlay && !inside) finish(null); });
-      row.append(...(pick ? [load, pick, cancel] : [load, cancel])); dialog.append(title, hint, area, err, row); overlay.append(dialog);
+      row.append(...(pick ? [load, pick, cancel] : [load, cancel]));
+      dialog.append(title, hint, ...(help ? [help] : []), area, err, ...(useCheck ? [msgRow] : []), row); overlay.append(dialog);
       doc.body.appendChild(overlay);
       showing.set(doc, finish);
       before = doc.activeElement ?? null;

@@ -13,6 +13,7 @@
     "test": "node tools/test.mjs",
     "validate": "node tools/validate.mjs",
     "build": "node tools/build.mjs",
+    "sync-prompts": "node tools/sync-prompts.mjs",
     "start": "node tools/serve.mjs dist 8080"
   },
   "devDependencies": {

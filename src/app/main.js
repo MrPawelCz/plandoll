@@ -27,6 +27,7 @@ import { pickPiece, floorHit, slidePoint } from './pick.js';
 import { createOutline, createOutlineFrame, createRoomOutline, outlineKind } from '../render/outline.js';
 import { createPanel } from './panel.js';
 import { saveTextFile, saveBlobFile, readTextFile, askForText, refusalText, copyText, showLinkDialog, LAYOUT_FILENAME, IMAGE_FILENAME } from './files.js';
+import { promptFor } from './prompts.js';
 import { roomAt, serializeLayout, parseLayout } from '../editor/index.js';
 import { autoFurnish } from '../layout/index.js';
 import { piecesImplemented } from '../furniture/index.js';
@@ -387,9 +388,13 @@ try {
     return true;
   }
   function loadPlan() {
-    askForText(document, S.lang, { kind: 'plan' }).then((text) => {
+    // The box tells how to make a plan file from a picture (and copies the prompt for an AI chat), and keeps a plan that does not pass the validator open with the reason,
+    // so the message can be copied and handed back to the chat; the text that passed is the one that is built.
+    let checked = null;
+    const check = (text) => { const r = readPlanText(text, S.lang); checked = { text, r }; return r.ok ? null : { message: r.message, detail: r.detail }; };
+    askForText(document, S.lang, { kind: 'plan', check, help: { prompt: promptFor(S.lang) } }).then((text) => {
       if (text == null) return;
-      const r = readPlanText(text, S.lang);
+      const r = checked && checked.text === text ? checked.r : readPlanText(text, S.lang);
       if (!r.ok) { sayLine(r.message, r.detail); return; }
       const ok = applyPlan(r.plan);
       if (ok) { S.plan = null; linkPlan = r.plan; ui?.update(S); } // a plan from a file: no example button is pressed, and a link made now carries this plan
