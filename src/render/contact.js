@@ -75,13 +75,17 @@ for (let j = 0; j < 3; j++) for (let i = 0; i < 3; i++) { const a = j * 4 + i, b
 const UV = [0, 0.5, 0.5, 1];
 
 // One mesh with a 3 x 3 patch per piece, in world space; `skip` (a Set of piece ids) leaves pieces out. Returns null when nothing stands.
+// The patches follow the order of the pieces, so those of one level lie together: `mesh.userData.levelRanges = [{ level, start, count }]` (index stretches), which
+// lets the page draw the patches of the floors on show only (showMergedLevels in compose.js).
 export function contactMesh(pieces, skip = null) {
-  const pos = [], uv = [], nor = [], index = [], v = new THREE.Vector3();
+  const pos = [], uv = [], nor = [], index = [], v = new THREE.Vector3(), ranges = [];
   let n = 0;
   for (const [id, g] of pieces) {
     if (!g.visible || skip?.has(id) || !castsContact(g)) continue;
     const f = footprintOf(g);
     if (!f) continue;
+    const level = g.userData.levelId ?? '', last = ranges[ranges.length - 1];
+    if (last && last.level === level) last.count += idx.length; else ranges.push({ level, start: n * idx.length, count: idx.length });
     const pad = Math.min(CONTACT_PAD, Math.max(0.07, 0.3 * Math.min(f.x1 - f.x0, f.z1 - f.z0))); // small things get a tighter shadow
     const xs = [f.x0 - pad, f.x0, f.x1, f.x1 + pad], zs = [f.z0 - pad, f.z0, f.z1, f.z1 + pad];
     for (let j = 0; j < 4; j++) {
@@ -103,5 +107,6 @@ export function contactMesh(pieces, skip = null) {
   mesh.name = 'contact-shadows'; mesh.renderOrder = 1; mesh.castShadow = false; mesh.receiveShadow = false;
   mesh.raycast = () => {}; // never picked
   mesh.userData.pieces = n;
+  mesh.userData.levelRanges = ranges;
   return mesh;
 }

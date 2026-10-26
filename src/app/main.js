@@ -12,7 +12,8 @@ import { PlanScene } from '../render/scene.js';
 import { createStage } from '../look/stage.js';
 import { createPost } from '../look/post.js';
 import { resolveQuality } from '../look/quality.js';
-import { parseParams, editHash, planHash, parsePlanParam } from './params.js';
+import { parseParams, editHash, planHash, parsePlanParam, parseFloorParam, floorHash } from './params.js';
+import { ALL, resolveFloor, visibleFlags, visibleIndices, allShown, floorLift, visibleExtent, sameGround } from './floors.js';
 import { frameRequest } from './capture.js';
 import { createLoop } from './loop.js';
 import { createUI, createEditBar, showErrorCard } from './ui.js';
@@ -27,11 +28,11 @@ import { saveTextFile, saveBlobFile, readTextFile, askForText, refusalText, LAYO
 import { roomAt } from '../editor/index.js';
 import { autoFurnish } from '../layout/index.js';
 import { piecesImplemented } from '../furniture/index.js';
-import { composeLayout, cutawayPieces, emittersOf, focusRoom, mergeByMaterial, setLampGlow, disposeComposed, wallCutHeight } from '../render/compose.js';
+import { composeLayout, cutawayPieces, emittersByLevel, focusRoom, mergeByMaterial, showMergedLevels, setLampGlow, disposeComposed, wallCutHeight } from '../render/compose.js';
 import { applyWallCut } from '../render/cutaway.js';
 import { createOpenShell } from '../render/openshell.js';
 import { stepClock, modeOf } from '../render/openmotion.js';
-import { openExtent, openPoints, flatFootprint } from '../model/foldwalls.js';
+import { openExtent, openPoints, flatFootprint, foldWalls } from '../model/foldwalls.js';
 import { createCameraController, stateFrom, positionOf, nearSides, sameSides, sidesKey, viewOf, fitView, wrapDegrees, fillBoost, lowestOnPicture, nearPlane, liftOf, PAN_GROW, SLOP_MOUSE, SLOP_TOUCH } from './camera.js';
 import { boardRect } from '../look/board.js';
 import flat from '../../examples/flat-1.plan.json';
@@ -50,7 +51,7 @@ function cameraFor(ext, aspect, mode, focus) {
   if (mode === 'close') return { fov: 50, pos: [ext.minX + 0.38 * w, 1.55, ext.minZ + 0.14 * d], target: [ext.minX + 0.5 * w, 0.42, ext.minZ + 0.42 * d] };
   const hgt = ext.maxY - ext.minY, multi = hgt > 3.6; // a tall model (several storeys) is framed by its 3D diagonal and aimed higher
   const R = (multi ? Math.hypot(w, d, hgt) : Math.hypot(w, d)) / 2, dist = R * 3.2 * Math.max(1, Math.pow(1.78 / Math.max(0.4, aspect), 0.8));
-  const ty = multi ? ext.minY + 0.3 * hgt : 0;
+  const ty = multi ? ext.minY + 0.3 * hgt : (ext.floorY ?? 0); // floorY: the box of a single upper floor on show starts at its own floor
   const dir = new THREE.Vector3(0.5, 0.7, 0.7).normalize();
   return { fov: 27, pos: [cx + dir.x * dist, ty + dir.y * dist, cz + dir.z * dist], target: [cx, ty, cz] };
 }
@@ -78,10 +79,21 @@ try {
   const plan = JSON.parse(JSON.stringify(choice === 'ext' ? window.__plan : choice === 'duplex-1' ? duplex : flat));
   for (const lv of plan.levels) lv.furniture = []; // the plan brings no furniture: the layout engine furnishes it
   const res = analyzePlan(plan); let model = buildModel(modelOf(res)); // model, ext, ps, stage, layout and focus are replaced when a plan is loaded
-  let ext = modelExtent(model);
+  let allExt = modelExtent(model); // the box of the whole model; ext below is the box of the floors on show, which is this very box while all of them are
   const useShell = shellOn(params); // the shell opens when its button is on (shell=0 takes it away), also while editing
-  let frameExt = useShell ? openExtent(model, ext) : ext; // the box the camera and the stage keep in view: with the shell the closed and the open model together
-  let framePts = useShell ? openPoints(model, ext) : undefined; // with the shell the camera fits these points (the closed model and every wall lying flat), a tighter fit than the box
+  // The floors on show (floors.js): 'all' or the index of one level; flags says per level whether it is drawn. A plan with one level always shows all of it.
+  let floor = resolveFloor(params.floor, model.levels.length), flags = visibleFlags(floor, model.levels.length);
+  // What the camera and the walls look at for the floors in `fl`: ext (their box), frameExt (the box the camera and the stage keep in view: with the shell the closed and the
+  // open model together) and framePts (with the shell the camera fits these points, the closed model and every wall lying flat, a tighter fit than the box).
+  const framing = (m, full, fl) => {
+    const e = visibleExtent(m, full, fl);
+    if (!useShell) return { ext: e, frameExt: e, framePts: undefined };
+    const walls = foldWalls(m).filter((f) => fl[f.level]);
+    return { ext: e, frameExt: openExtent(m, e, walls), framePts: openPoints(m, e, walls) };
+  };
+  let stageExt = framing(model, allExt, visibleFlags(ALL, model.levels.length)).frameExt; // the stage (light, table, board) is made for the whole house and keeps that
+  const firstFraming = framing(model, allExt, flags);
+  let ext = firstFraming.ext, frameExt = firstFraming.frameExt, framePts = firstFraming.framePts;
   const makeScene = (m) => { const s = new PlanScene(m, 'textured'); s.setLabels(false); s.setArcs(false); s.setCeilings(false); return s; };
   let ps = makeScene(model);
   scene.add(ps.group);
@@ -90,8 +102,14 @@ try {
   // ---------- stage ----------
   // The card board hugs the closed model and follows the walls while the shell opens (look/board.js); the light and the table keep the bounds of the open extent.
   // Without outer walls that open (or without the shell) the board is the old one: the bounds with a margin.
-  const boardOf = () => (shell?.walls.length ? boardRect(ext, shell.walls, shell.state().map((w) => w.deg)) : null);
-  let stage = createStage({ renderer, scene, bounds: frameExt, board: boardOf(), quality: level, preset: S.preset, t: S.t });
+  // Only the walls of the floors on show count for the board (a hidden floor's walls fall and lie flat out of sight).
+  const boardOf = () => {
+    if (!shell?.walls.length) return null;
+    const st = shell.state(), keep = shell.walls.map((f, i) => i).filter((i) => flags[shell.walls[i].level]);
+    return keep.length ? boardRect(ext, keep.map((i) => shell.walls[i]), keep.map((i) => st[i].deg)) : null;
+  };
+  let stage = createStage({ renderer, scene, bounds: stageExt, board: boardOf(), quality: level, preset: S.preset, t: S.t });
+  stage.setLift(floorLift(model, flags)); // only an upper floor on show: the base of the house comes up under it
   // ---------- furniture: the engine lays the rooms out, compose builds the pieces (rebuilt when the quality changes) ----------
   let layout = autoFurnish(model, { seed: params.seed, allowedTypes: piecesImplemented() });
   let focus = focusRoom(model, layout);
@@ -132,7 +150,8 @@ try {
     const fit = fitView(st, frameExt, { fov: p.fov, aspect: W / H, bottom: cover, lift: true });
     return { ...p, target: fit.target, pos: positionOf({ azimuth: st.azimuth, polar: st.polar, distance: fit.distance }, fit.target), lifted: true };
   };
-  if (wantFit) pose = fitPose(pose);
+  const fitNow = () => wantFit || !allShown(flags); // a view of some floors only is always fitted to them
+  if (fitNow()) pose = fitPose(pose);
   const home0 = stateFrom(pose.pos, pose.target);
   let current = { ...home0, azimuth: params.az ?? home0.azimuth, polar: params.pol ?? home0.polar }; // the view the controller reports
   let near = nearSides(current.azimuth);
@@ -155,18 +174,37 @@ try {
     const open = !!shell?.active; // the shell is open or moving: the outer walls stand full height and the pieces hung on them turn with them
     furn.hidden = cutawayPieces(furn.pieces, ext, viewOf(current), open ? {} : near); // hung pieces behind the low walls would float
     const hung = open ? shell.adopt(furn.group, furn.pieces, (x, z) => wallCutHeight(x, z, ext, 0.3, near)) : (shell?.release(), null); // ids of the pieces that turn with a wall
-    furn.emitters = emittersOf(furn.pieces);
+    furn.lamps = emittersByLevel(furn.pieces); // the lamps of each level, before the pieces leave for the merged meshes; showFloors gives the stage those of the floors on show
+    furn.cutOff = new Set(); for (const [id, g] of furn.pieces) if (!g.visible) furn.cutOff.add(id); // hidden by the cutaway
     if (furn.merged) { disposeComposed(furn.merged.group); furn.merged = null; }
+    furn.own = new Set(); // the pieces that are objects of their own (not inside the merged meshes): showFloors keeps them in step with the floors on show
     if (params.merge && (params.edit || hung?.size)) { // the editor merges the pieces nobody moves (the one being dragged stays its own object); with the shell open the pieces that turn with a wall stay their own objects
       const keep = new Set([...(hung ?? []), ...live]); // the pieces that turn with a wall, and the one being dragged (it may be one of them)
-      furn.cutHidden = new Set(); for (const [id, g] of furn.pieces) if (!g.visible) furn.cutHidden.add(id); // hidden by the cutaway: not pickable
+      furn.cutHidden = furn.cutOff; // hidden by the cutaway: not pickable
       furn.merged = mergeByMaterial(furn, keep);
       for (const [id, g] of furn.pieces) if (!keep.has(id)) g.visible = false; // the merged meshes draw them
+      furn.own = keep;
       furn.group.visible = true;
       scene.add(furn.merged.group);
     } else if (params.merge) { furn.merged = mergeByMaterial(furn); furn.group.visible = false; scene.add(furn.merged.group); } // one mesh per material: far fewer draw calls
-    stage.setEmitters(furn.emitters);
+    else furn.own = new Set(furn.pieces.keys()); // merge=0: every piece is an object of its own
+    showFloors();
     stage.refreshShadowCasters(scene);
+  }
+  // The floors on show (flags): the other levels vanish with their walls, floors, stairs and window light (PlanScene.setLevelVisible), their pieces drawn as objects of
+  // their own and the pieces hung on their walls (shell.setLevels), and their stretch of the merged meshes (the draw range only, nothing is merged again); the stage
+  // gets the lamps of the floors on show only. Cheap enough for every tap of a floor button.
+  function showFloors() {
+    const shown = new Set(model.levels.filter((_, i) => flags[i]).map((l) => l.id));
+    ps.setLevelVisible((i) => flags[i]);
+    shell?.setLevels(allShown(flags) ? null : flags);
+    if (furn.merged) showMergedLevels(furn.merged.group, allShown(flags) ? null : shown);
+    for (const id of furn.own) {
+      const g = furn.pieces.get(id);
+      if (g && !shell?.hostMatrix(id)) g.visible = shown.has(g.userData.levelId) && !furn.cutOff.has(id); // the pieces hung on a turned wall follow the shell
+    }
+    furn.emitters = [...furn.lamps].filter(([lv]) => shown.has(lv)).flatMap(([, list]) => list);
+    stage.setEmitters(furn.emitters);
   }
   furnish();
 
@@ -177,7 +215,7 @@ try {
   function frameCamera() {
     cover = barsCover();
     pose = cameraFor(frameExt, W / H, params.cam, focus);
-    pose = wantFit ? fitPose(pose) : liftPose(pose);
+    pose = fitNow() ? fitPose(pose) : liftPose(pose);
     viewLift = pose.lifted ? liftOf(cover) : 0; // only a fitted view has its target in the middle of the model and the centre of the projection over the free part
     if (cam) { cam.setLift(viewLift); cam.setLimits(...limitsOf()); cam.setTarget(pose.target); cam.rehome(stateFrom(pose.pos, pose.target)); current = cam.state; } // the pan stays, now from the new home
     const eye = cam ? cam.target : pose.target; // what the camera looks at: the home target and the pan
@@ -245,10 +283,12 @@ try {
     shell?.dispose();
     if (furn) { disposeComposed(furn.group, furn.merged?.group); furn = null; }
     scene.remove(ps.group); ps.dispose(); stage.dispose();
-    model = built.model; ext = built.ext; frameExt = nextExt; framePts = nextPts; ps = built.scene; layout = built.layout; curLayout = layout; focus = focusRoom(model, layout);
+    model = built.model; allExt = built.ext; ext = built.ext; frameExt = nextExt; framePts = nextPts; stageExt = nextExt; ps = built.scene; layout = built.layout; curLayout = layout; focus = focusRoom(model, layout);
+    floor = ALL; flags = visibleFlags(ALL, model.levels.length); S.floor = ALL; S.levels = model.levels.map((l) => ({ id: l.id, name: l.name })); // a new plan starts with all its floors on show
+    try { history.replaceState(null, '', `#${floorHash(location.hash, ALL)}`); } catch { /* an address that cannot change keeps its floor= */ }
     scene.add(ps.group);
     shell = nextShell; shellTarget = 0; S.shellOpen = false; ui?.update(S); // a new plan starts closed
-    stage = createStage({ renderer, scene, bounds: frameExt, board: boardOf(), quality: level, preset: S.preset, t: S.t }); // the board of the new plan hugs the closed model
+    stage = createStage({ renderer, scene, bounds: stageExt, board: boardOf(), quality: level, preset: S.preset, t: S.t }); // the board of the new plan hugs the closed model
     wantFit = useShell && params.cam !== 'close'; near = nearSides(current.azimuth); recut();
     furnish(); // the pieces first: the camera below may re-cut the walls and the pieces
     frameCamera(); cam.reset(false); current = cam.state; // the reset takes the turn, the zoom and the pan of the old plan away
@@ -273,6 +313,26 @@ try {
     if (!applyPlan(EXAMPLES[name])) { sayLine(T('Nie udało się zbudować modelu z tego planu', 'Could not build a model from this plan')); return; }
     S.plan = name; params.plan = parsePlanParam(name); ui?.update(S);
     try { history.replaceState(null, '', `#${planHash(location.hash, name)}`); } catch { /* an address that cannot change keeps the old plan on reload */ }
+  }
+  // ---------- the floors on show (floors.js): the buttons of the control bar and floor= in the address ----------
+  // A change draws the chosen floors only: the others vanish (PlanScene, the merged meshes by draw range, the lamps), the base of the house comes up under an upper floor
+  // that stands alone, the board follows the walls of the floors on show, the walls are cut again when their ground differs, and the camera is fitted to them (the turn and the
+  // tilt stay; the distance and the target are the fit of the floors on show). Nothing is built again unless the ground of the floors differs from that of the last choice.
+  let onFloorChange = null; // set by the editing block: clears the selection that belongs to a floor that is no longer on show
+  const shownLevel = (id) => flags[model.levels.findIndex((l) => l.id === id)] !== false; // whether the level with this id is on show (a level that is not known counts as shown)
+  function setFloor(next) {
+    const want = resolveFloor(next, model.levels.length);
+    if (want === floor) return floor;
+    floor = want; flags = visibleFlags(floor, model.levels.length); S.floor = floor;
+    const f = framing(model, allExt, flags), reground = !sameGround(f.ext, ext);
+    ext = f.ext; frameExt = f.frameExt; framePts = f.framePts;
+    stage.setLift(floorLift(model, flags));
+    onFloorChange?.();
+    if (reground) { recut(); shell?.hidePatches(); settle(); } else { showFloors(); stage.refreshShadowCasters(scene); } // other ground: other near walls and hung pieces
+    const rect = boardOf(); if (rect) stage.setBoard(rect);
+    frameCamera(); ui?.update(S); redraw();
+    try { history.replaceState(null, '', `#${floorHash(location.hash, floor)}`); } catch { /* an address that cannot change keeps its floor= */ }
+    return floor;
   }
   // ---------- open shell: the clock runs towards its target and the walls follow it ----------
   // Every step puts the walls where the clock says, cuts them for the view and asks for a frame. The hung pieces and the merged furniture are settled
@@ -301,7 +361,8 @@ try {
     shellTarget = open ? 1 : 0; S.shellOpen = !!open; ui?.update(S);
     if (!shellRaf) { shellLast = 0; shellRaf = requestAnimationFrame(shellTick); }
   }
-  const ui = parts.controls ? createUI({ onPreset: (n) => setPreset(n), onTime: setTime, onQuality: setQ, onLang: setLang, onReset: () => cam?.reset(true), onEdit: toggleEdit, onSaveImage: saveImage, onLoadPlan: loadPlan, onPlan: pickExample,
+  S.floor = floor; S.levels = model.levels.map((l) => ({ id: l.id, name: l.name })); // the floor buttons (two or more levels)
+  const ui = parts.controls ? createUI({ onPreset: (n) => setPreset(n), onTime: setTime, onQuality: setQ, onLang: setLang, onReset: () => cam?.reset(true), onEdit: toggleEdit, onSaveImage: saveImage, onLoadPlan: loadPlan, onPlan: pickExample, onFloor: (k) => setFloor(k),
     onShell: () => { if (shell) shellGo(shellTarget !== 1); } }, S) : null;
   // The first one-finger turn on a touch screen says how to zoom and move (one short line, about 6 seconds, once per page load).
   let touchHinted = false;
@@ -340,19 +401,29 @@ try {
       for (const sel of ['#ps-edit', '.psp-sheet']) { const r = document.querySelector(sel)?.getBoundingClientRect(); if (r && r.width > 0 && r.height > 0 && r.top > H * 0.3) bottom = Math.min(bottom, r.top); }
       const ray = cam.pointerToRay({ clientX: W / 2, clientY: bottom / 2 });
       for (const lv of [...model.levels].sort((p, q) => levelBase(q.id) - levelBase(p.id))) {
+        if (!shownLevel(lv.id)) continue; // a floor that is not on show takes nothing
         const fh = floorHit(ray, levelBase(lv.id));
         if (fh && roomAt(model, lv.id, fh[0], fh[2])) return { level: lv.id, x: fh[0], y: fh[2] };
       }
-      return null;
+      const top = [...model.levels].sort((p, q) => levelBase(q.id) - levelBase(p.id)).find((lv) => shownLevel(lv.id));
+      return !allShown(flags) && top ? { level: top.id } : null; // with some floors hidden a new piece goes to the highest floor on show even when the view centre is over no room
     };
     // the room under a pointer on the floor (the highest level first), or null
     const roomHitAt = (e) => {
       const ray = cam.pointerToRay(e);
       for (const lv of [...model.levels].sort((p, q) => levelBase(q.id) - levelBase(p.id))) {
+        if (!shownLevel(lv.id)) continue;
         const fh = floorHit(ray, levelBase(lv.id)), id = fh ? roomAt(model, lv.id, fh[0], fh[2]) : null;
         if (id) return { level: lv.id, id };
       }
       return null;
+    };
+    // a selection that belongs to a floor that is no longer on show goes
+    onFloorChange = () => {
+      const sel = session?.selected();
+      if (sel && !shownLevel(session.levelOf(sel.id))) session.select(null);
+      const room = session?.selectedRoom();
+      if (room && !shownLevel(room.level)) session.selectRoom(null);
     };
     // the pieces move to where the layout says (no rebuilding): a drag, a turn, an undo of a move
     function syncGroups() {
@@ -417,7 +488,7 @@ try {
     const PAD = { mouse: 0.02, touch: 0.06, pen: 0.04 }; // metres of margin round every piece when picking: a fingertip is wider than a mouse pointer
     // A piece that the cutaway hides cannot be picked. furn.cutHidden says which they are for the pieces that went into the merged meshes; a piece that hangs on a
     // turned wall stays its own object, so its own flag is the live one (it shows once its wall has risen). Such a piece is picked where the wall has put it: frameOf.
-    const hiddenNow = (id) => (shell?.hostMatrix(id) ? !furn.pieces.get(id)?.visible : furn.cutHidden ? furn.cutHidden.has(id) : !furn.pieces.get(id)?.visible);
+    const hiddenNow = (id) => !shownLevel(session.levelOf(id)) || (shell?.hostMatrix(id) ? !furn.pieces.get(id)?.visible : furn.cutHidden ? furn.cutHidden.has(id) : !furn.pieces.get(id)?.visible); // a piece on a floor that is not on show cannot be picked
     const hitAt = (e) => pickPiece(session.state.layout, cam.pointerToRay(e), { levelBase, pad: PAD[e.pointerType] ?? PAD.mouse, skip: hiddenNow, frameOf: (id) => shell?.hostMatrix(id) ?? null });
     // Where a pointer is on the surface a piece slides over (slidePoint in pick.js): the floor at the height of the piece, or, for a piece that hangs on an outer wall
     // that has turned, the inner face of that wall in the wall's closed place, so the piece moves along the wall wherever the wall lies. host: shell.hostOf(id) or null.
@@ -609,7 +680,11 @@ try {
   };
   if (useShell) addEventListener('keydown', onShellKey);
   addEventListener('resize', () => { W = window.innerWidth; H = window.innerHeight; frameCamera(); coverSeen = cover; post.resize(W, H); redraw(); });
-  window.__planInfo = () => ({ pieces: furn.pieces.size, levels: model.levels.length, rooms: model.levels.reduce((n, l) => n + (l.rooms?.length ?? 0), 0), extent: [ext.minX, ext.maxX, ext.minZ, ext.maxZ].map((v) => +v.toFixed(2)) }); // for test tools
+  window.__planInfo = () => ({ pieces: furn.pieces.size, levels: model.levels.length, rooms: model.levels.reduce((n, l) => n + (l.rooms?.length ?? 0), 0), extent: [ext.minX, ext.maxX, ext.minZ, ext.maxZ].map((v) => +v.toFixed(2)),
+    floor, visibleLevels: visibleIndices(floor, model.levels.length) }); // for test tools; floor: 'all' or the index of the level on show
+  // For test tools: the floors on show. get() is 'all' or the index of one level, set(v) takes the same (a number, a numeric string or 'all'; anything else counts as all) and
+  // returns the choice now, count is the number of levels, visible() the indices of the levels drawn, lift() how far the base of the house has come up (metres).
+  window.__floors = { get: () => floor, set: (v) => setFloor(parseFloorParam(String(v))), get count() { return model.levels.length; }, visible: () => visibleIndices(floor, model.levels.length), lift: () => stage.lift() };
   window.__setT = setTime; window.__setPreset = setPreset; window.__setQuality = setQ;
   // For test tools: the view (turn, tilt, distance and its default), the pan in metres, what the camera looks at, the ground point under a client point, and the plane of the near cut
   window.__camera = { get azimuth() { return cam.state.azimuth; }, get polar() { return cam.state.polar; }, get distance() { return cam.state.distance; }, get base() { return cam.state.base; }, get pan() { return cam.pan; }, get target() { return cam.target; }, get lift() { return cam.lift; },
@@ -628,7 +703,7 @@ try {
         camera.updateMatrixWorld(true); camera.updateProjectionMatrix();
         const v = new THREE.Vector3(), pts = [], add = (x, y, z, kind) => { v.set(x, y, z).project(camera); pts.push({ kind, x: ((v.x + 1) / 2) * W, y: ((1 - v.y) / 2) * H }); };
         for (const x of [ext.minX, ext.maxX]) for (const y of [ext.minY, ext.maxY]) for (const z of [ext.minZ, ext.maxZ]) add(x, y, z, 'closed');
-        for (const f of shell.walls) for (const [x, z] of flatFootprint(f)) add(x, ps.levelGroups[f.level].position.y + f.y, z, 'flat');
+        for (const f of shell.walls) if (flags[f.level]) for (const [x, z] of flatFootprint(f)) add(x, ps.levelGroups[f.level].position.y + f.y, z, 'flat'); // the walls of the floors on show
         return { w: W, h: H, pts, barTop: document.querySelector('#ps-ui')?.getBoundingClientRect().top ?? null };
       },
       // how well the sun's shadow frustum holds the closed model and every wall lying flat: worst is the largest share of the half width, the half height
@@ -639,7 +714,7 @@ try {
         let worst = 0;
         const check = (x, y, z) => { v.set(x, y, z).applyMatrix4(sc.matrixWorldInverse); const d = -v.z; worst = Math.max(worst, Math.abs(v.x) / sc.right, Math.abs(v.y) / sc.top, (d - sc.near) / (sc.far - sc.near) > 1 ? 9 : 0, d < sc.near ? 9 : 0); };
         for (const x of [ext.minX, ext.maxX]) for (const y of [ext.minY, ext.maxY]) for (const z of [ext.minZ, ext.maxZ]) check(x, y, z);
-        for (const f of shell.walls) for (const [x, z] of flatFootprint(f)) { const y = ps.levelGroups[f.level].position.y + f.y; check(x, y, z); check(x, y - 0.25, z); }
+        for (const f of shell.walls) if (flags[f.level]) for (const [x, z] of flatFootprint(f)) { const y = ps.levelGroups[f.level].position.y + f.y; check(x, y, z); check(x, y - 0.25, z); }
         return { half: [sc.right, sc.top], near: sc.near, far: sc.far, worst: +worst.toFixed(4) };
       },
       seek: (p) => new Promise((resolve) => {

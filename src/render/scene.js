@@ -143,6 +143,7 @@ export class PlanScene {
     this.roomColors = {};
     this._panes = []; // every window pane with its level, for the window light on the floor
     this.sunPatch = null;
+    this.levelOn = model.levels.map(() => true); // which levels are drawn (setLevelVisible)
     this.levelGroups = model.levels.map((lv) => this._level(lv));
     this.levelGroups.forEach((g) => this.group.add(g));
     this.setExplode(0);
@@ -160,7 +161,7 @@ export class PlanScene {
     m.scale.set(b.sx, 1, b.sz);
     // Texture frame: metres along the box's own axes, so a texture runs on along a wall and over the steps of a stair.
     const ca = Math.cos(b.angle), sa = Math.sin(b.angle);
-    if (b.mat === 'glass') { m.pw = { mat: b.mat, box: true, pane: true }; setPaneUV(m.geometry); } // a pane shows one picture, not a metric texture
+    if (b.mat === 'glass') { m.pw = { mat: b.mat, box: true, pane: true, level: this._lv }; setPaneUV(m.geometry); } // a pane shows one picture, not a metric texture
     else m.pw = { mat: b.mat, box: true, uv: { u: b.cx * ca + b.cy * sa, w: -b.cx * sa + b.cy * ca, sx: b.sx, sz: b.sz, k: texScale(b.mat), swap: TURNED.has(b.mat) } }; // not in userData: that goes into the GLB
     const y0 = b.y0 <= 1e-6 ? b.y0 - drop : b.y0;
     place(m, y0, b.y1);
@@ -199,6 +200,7 @@ export class PlanScene {
   }
 
   _level(lv) {
+    this._lv = lv.index; // the boxes made below know their level
     const g = new THREE.Group();
     g.name = `level:${lv.id}`;
     g.userData.level = lv.index;
@@ -221,7 +223,7 @@ export class PlanScene {
       og.userData.type = o.type;
       for (const b of o.parts) {
         const bm = this._box(og, b, 0);
-        if (b.mat === 'glass') this._panes.push({ mesh: bm, floorY: lv.elevation, rooms: lv.rooms.filter((r) => r.polygon.length >= 3).map((r) => r.polygon) });
+        if (b.mat === 'glass') this._panes.push({ mesh: bm, floorY: lv.elevation, level: lv.index, rooms: lv.rooms.filter((r) => r.polygon.length >= 3).map((r) => r.polygon) });
       }
       g.add(og);
       if (o.arc) {
@@ -467,7 +469,15 @@ export class PlanScene {
   setArcs(on) { for (const a of this.arcs) a.visible = on; }
   // In Walk mode floors and ceilings stop casting shadows so the sun reaches the rooms under virtual roofs.
   setWalkShadows(walk) { for (const m of this.floors) m.castShadow = !walk && m.name.endsWith('/slab'); }
-  setLevelVisible(fn) { this.levelGroups.forEach((g, i) => { g.visible = fn(i); }); }
+  // Draws only the levels for which fn(index) is true (the others vanish with everything on them: walls, floors, stairs, panes, and the window light of their panes).
+  setLevelVisible(fn) {
+    this.levelOn = this.levelGroups.map((_, i) => !!fn(i));
+    this.levelGroups.forEach((g, i) => { g.visible = this.levelOn[i]; });
+    this.relightPanes();
+  }
+  // The window light of a pane is on when its pane is drawn and its level is on show (applyWallCut asks this too).
+  paneLit(mesh) { return mesh.visible && this.levelOn[mesh.pw?.level] !== false; }
+  relightPanes() { if (this.sunPatch) for (const p of this._panes) this.sunPatch.userData.show(p.mesh, this.paneLit(p.mesh)); }
 
   // Swaps every solid to the material of a look: 'clay' (plain colours) or 'textured' (procedural textures).
   setMaterials(look) {

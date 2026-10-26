@@ -71,6 +71,15 @@ export function emittersOf(pieces) {
   return out;
 }
 
+// The same lamps, kept apart by level: Map levelId -> emitters of the visible pieces of that level (in the order of the pieces). The page keeps the lists
+// and gives the stage the lamps of the floors on show, so a change of floors needs no new walk over the pieces.
+export function emittersByLevel(pieces) {
+  const levels = new Map();
+  for (const g of pieces.values()) { const lv = g.userData.levelId ?? ''; if (!levels.has(lv)) levels.set(lv, new Map()); }
+  for (const [id, g] of pieces) levels.get(g.userData.levelId ?? '').set(id, g);
+  return new Map([...levels].map(([lv, part]) => [lv, emittersOf(part)]));
+}
+
 // Hides pieces that the cutaway would spoil, and returns how many it hid:
 //  - hung pieces (pictures, mirrors, wall cabinets, curtains) whose lower edge is above the wall behind them, which would hang in
 //    the air, and curtains behind a low wall;
@@ -131,35 +140,70 @@ export function setLampGlow(root, k) {
 // The per-piece groups stay untouched in `composed` (hide `composed.group` when you draw the merged group); call it again after
 // the layout or the visibility of pieces changes. Geometry that cannot be merged with its neighbours stays as it is.
 // `skip` (a Set of piece ids) leaves those pieces out: the editor keeps the piece being dragged as its own object.
+//
+// The geometry of each merged mesh is laid out level by level (the pieces come in that order, and a bucket is sorted by level when they do not), and the mesh
+// remembers which stretch of its index (or of its vertices when it has no index) belongs to which level: `mesh.userData.levelRanges = [{ level, start, count }]`.
+// showMergedLevels(group, shown) then draws only the stretch of the levels on show by setting the draw range, with no new merge and no extra draw call.
 export function mergeByMaterial(composed, skip = null) {
   const out = new THREE.Group(); out.name = 'furnishing-merged';
-  const buckets = new Map();
+  const buckets = new Map(), rank = new Map();
   composed.group.updateMatrixWorld(true);
   for (const [id, g] of composed.pieces) {
     if (!g.visible || skip?.has(id)) continue;
+    const level = g.userData.levelId ?? '';
+    if (!rank.has(level)) rank.set(level, rank.size);
     g.traverse((o) => {
       if (!o.isMesh) return;
       const geo = o.geometry, names = Object.keys(geo.attributes).sort().join(',');
       const key = `${o.material.uuid}|${+o.castShadow}${+o.receiveShadow}|${geo.index ? 'i' : 'n'}|${names}`;
       let b = buckets.get(key);
-      if (!b) { b = { material: o.material, cast: o.castShadow, receive: o.receiveShadow, geoms: [], meshes: [] }; buckets.set(key, b); }
-      b.geoms.push(geo.clone().applyMatrix4(o.matrixWorld)); b.meshes.push(o);
+      if (!b) { b = { material: o.material, cast: o.castShadow, receive: o.receiveShadow, geoms: [], meshes: [], levels: [] }; buckets.set(key, b); }
+      b.geoms.push(geo.clone().applyMatrix4(o.matrixWorld)); b.meshes.push(o); b.levels.push(level);
     });
   }
   let meshes = 0;
   for (const b of buckets.values()) {
-    const merged = b.geoms.length === 1 ? b.geoms[0] : mergeGeometries(b.geoms, false);
+    const at = b.geoms.map((_, i) => i);
+    if (b.levels.some((lv, i) => i && rank.get(lv) < rank.get(b.levels[i - 1]))) at.sort((p, q) => rank.get(b.levels[p]) - rank.get(b.levels[q]) || p - q); // the levels must follow each other
+    const geoms = at.map((i) => b.geoms[i]), mine = at.map((i) => b.meshes[i]), levels = at.map((i) => b.levels[i]);
+    const sizeOf = (geo) => (geo.index ? geo.index.count : geo.attributes.position.count);
+    const levelRanges = []; // consecutive pieces of one level are one stretch
+    geoms.forEach((geo, i) => {
+      const n = sizeOf(geo), last = levelRanges[levelRanges.length - 1];
+      if (last && last.level === levels[i]) last.count += n; else levelRanges.push({ level: levels[i], start: last ? last.start + last.count : 0, count: n });
+    });
+    const merged = geoms.length === 1 ? geoms[0] : mergeGeometries(geoms, false);
     if (!merged) { // not mergeable: draw the single meshes as they are
-      for (const o of b.meshes) { const m = new THREE.Mesh(o.geometry.clone().applyMatrix4(o.matrixWorld), b.material); m.castShadow = b.cast; m.receiveShadow = b.receive; out.add(m); meshes++; }
+      mine.forEach((o, i) => {
+        const m = new THREE.Mesh(o.geometry.clone().applyMatrix4(o.matrixWorld), b.material); m.castShadow = b.cast; m.receiveShadow = b.receive;
+        m.userData.levelRanges = [{ level: levels[i], start: 0, count: sizeOf(m.geometry) }];
+        out.add(m); meshes++;
+      });
       continue;
     }
-    if (b.geoms.length > 1) b.geoms.forEach((x) => x.dispose());
+    if (geoms.length > 1) geoms.forEach((x) => x.dispose());
     const m = new THREE.Mesh(merged, b.material); m.castShadow = b.cast; m.receiveShadow = b.receive; m.name = `merged:${b.material.name || meshes}`;
+    m.userData.levelRanges = levelRanges;
     out.add(m); meshes++;
   }
   const contact = contactMesh(composed.pieces, skip); // one soft footprint patch per piece standing on the floor
   if (contact) { out.add(contact); meshes++; }
   return { group: out, meshes };
+}
+
+// Draws only the levels in `shown` (a Set of level ids; null or undefined for all of them) out of the meshes that mergeByMaterial made: the draw range of each mesh
+// is cut to the stretch of those levels, and a mesh with nothing on show is hidden. Nothing is rebuilt. The levels on show must follow each other in the order of
+// the pieces (all of them, or one, as the page uses it): the stretch between the first and the last of them is drawn.
+export function showMergedLevels(group, shown) {
+  group.traverse((o) => {
+    const ranges = o.userData?.levelRanges;
+    if (!o.isMesh || !ranges) return;
+    if (!shown) { o.visible = true; o.geometry.setDrawRange(0, Infinity); return; }
+    const hit = ranges.filter((r) => shown.has(r.level));
+    if (!hit.length) { o.visible = false; return; }
+    const start = Math.min(...hit.map((r) => r.start)), end = Math.max(...hit.map((r) => r.start + r.count));
+    o.visible = true; o.geometry.setDrawRange(start, end - start);
+  });
 }
 
 // Frees the geometry of a composed group (materials are shared and stay).

@@ -4,17 +4,18 @@ import { PRESET_NAMES, PRESETS, presetLabel, presetBlurb } from '../look/presets
 import { QUALITY_LEVELS } from '../look/quality.js';
 import { clock } from '../look/timeofday.js';
 import { PLAN_NAMES } from './params.js';
+import { floorChoices } from './floors.js';
 
 const STR = {
   en: { time: 'Time of day', quality: 'Image quality', auto: 'Auto', high: 'High', medium: 'Medium', low: 'Low', lang: 'PL', reset: 'Reset view', resetTitle: 'Back to the starting view', hint: 'Drag to turn',
     edit: 'Edit', editDone: 'Done', editTitle: 'Edit the furniture layout', editDoneTitle: 'Leave the layout editor', saveImage: 'Save image', saveImageTitle: 'Save the current view as a PNG picture', loadPlan: 'Load plan', loadPlanTitle: 'Replace the plan with one of your own (a file or pasted text)',
     shell: 'Open the shell', shellClose: 'Close the shell', shellTitle: 'Let the outer walls fall open round the plan (Space or Esc folds them back)', shellCloseTitle: 'Fold the outer walls back up',
-    plans: 'Example plans', 'flat-1': 'Flat', 'flat-1Title': 'Show the example flat: one floor, five rooms', 'duplex-1': 'Duplex', 'duplex-1Title': 'Show the example duplex: two floors joined by a stair',
+    floors: 'Floors on show', plans: 'Example plans', 'flat-1': 'Flat', 'flat-1Title': 'Show the example flat: one floor, five rooms', 'duplex-1': 'Duplex', 'duplex-1Title': 'Show the example duplex: two floors joined by a stair',
     qualityHelp: 'High: sharper picture, soft accurate shadows, darker corners, a glow round the lamps, blurred top and bottom of the frame, shine and film grain; slower and uses more battery. Medium: in between. Low: faster and lighter on the battery, with fewer effects. Auto picks a level for your device.' },
   pl: { time: 'Pora dnia', quality: 'Jakość obrazu', auto: 'Auto', high: 'Wysoka', medium: 'Średnia', low: 'Niska', lang: 'EN', reset: 'Reset widoku', resetTitle: 'Wróć do widoku początkowego', hint: 'Przeciągnij, żeby obrócić',
     edit: 'Edytuj', editDone: 'Zakończ edycję', editTitle: 'Edytuj układ mebli', editDoneTitle: 'Zamknij edytor układu', saveImage: 'Zapisz obraz', saveImageTitle: 'Zapisz bieżący widok jako obraz PNG', loadPlan: 'Wczytaj plan', loadPlanTitle: 'Zastąp plan własnym (plik albo wklejony tekst)',
     shell: 'Otwórz bryłę', shellClose: 'Złóż bryłę', shellTitle: 'Rozłóż ściany zewnętrzne wokół rzutu (spacja albo Esc składa je z powrotem)', shellCloseTitle: 'Złóż ściany zewnętrzne z powrotem',
-    plans: 'Przykładowe plany', 'flat-1': 'Mieszkanie', 'flat-1Title': 'Pokaż przykładowe mieszkanie: jedno piętro, pięć pomieszczeń', 'duplex-1': 'Dupleks', 'duplex-1Title': 'Pokaż przykładowy dupleks: dwa piętra połączone schodami',
+    floors: 'Widoczne piętra', plans: 'Przykładowe plany', 'flat-1': 'Mieszkanie', 'flat-1Title': 'Pokaż przykładowe mieszkanie: jedno piętro, pięć pomieszczeń', 'duplex-1': 'Dupleks', 'duplex-1Title': 'Pokaż przykładowy dupleks: dwa piętra połączone schodami',
     qualityHelp: 'Wysoka: ostrzejszy obraz, miękkie dokładne cienie, ciemnienie w narożnikach, poświata lamp, rozmycie góry i dołu kadru, połysk i ziarno; działa wolniej i zużywa więcej baterii. Średnia: pośrodku. Niska: szybciej i oszczędniej, mniej efektów. Auto dobiera poziom do urządzenia.' },
 };
 // Texts of the edit bar (shown with edit=1): the visible word, and the longer label for screen readers and tooltips.
@@ -69,7 +70,7 @@ const CSS = `
 #ps-hint{position:fixed;left:50%;top:14px;transform:translateX(-50%);font:600 13px/1.3 ui-rounded,"SF Pro Rounded","Avenir Next","Segoe UI",system-ui,sans-serif;color:var(--ink);background:var(--paper);padding:6px 14px;border-radius:16px;border:1px solid var(--line);box-shadow:0 6px 18px rgba(40,28,12,.22);-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px);pointer-events:none;max-width:calc(100vw - 24px);box-sizing:border-box;text-align:center}
 @media (min-width:761px) and (max-width:1380px){#ps-ui{flex-wrap:wrap;justify-content:center}#ps-ui .tools{flex-basis:100%}#ps-ui .sep{display:none}}
 @media (min-width:1381px){#ps-ui.has-tools{flex-wrap:wrap;justify-content:center}#ps-ui.has-tools .tools{flex-basis:100%}#ps-ui.has-tools .sep{display:none}}
-#ps-ui .plans{display:flex;gap:6px}
+#ps-ui .plans,#ps-ui .floors{display:flex;gap:6px}
 #ps-ui button.tool[aria-pressed=true]{background:#fffaf0;box-shadow:0 2px 8px rgba(70,48,20,.14)}
 @media (max-width:760px){#ps-ui{flex-wrap:wrap;justify-content:center;gap:8px}#ps-ui label.time{min-width:100%}#ps-ui label.quality{flex-direction:column;align-items:flex-start;gap:2px}#ps-ui select{padding:4px 6px}}
 @media (max-width:760px),(pointer:coarse){#ps-ui button.mood{min-height:44px;box-sizing:border-box}#ps-ui select{min-height:44px;box-sizing:border-box}#ps-ui button.reset,#ps-ui button.lang{min-height:44px;min-width:44px;box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center}}
@@ -161,6 +162,10 @@ export function createUI(handlers, state, doc = document) {
     plans.append(b); planBtns[name] = b;
   }
   tools.append(plans);
+  // the floors on show (a plan with two or more levels): one button per level and a last one for all of them, the choice on show is pressed
+  const floors = doc.createElement('div'); floors.className = 'floors'; floors.setAttribute('role', 'group');
+  tools.append(floors);
+  let floorSig = '', floorBtns = [];
   const toolBtns = {};
   for (const [key, handler] of [...(state.shell ? [['shell', 'onShell']] : []), ['edit', 'onEdit'], ['saveImage', 'onSaveImage'], ['loadPlan', 'onLoadPlan']]) {
     const b = doc.createElement('button'); b.type = 'button'; b.className = 'tool'; b.dataset.tool = key;
@@ -202,6 +207,18 @@ export function createUI(handlers, state, doc = document) {
       const b = planBtns[name];
       b.textContent = L[name]; b.title = L[`${name}Title`]; b.setAttribute('aria-label', L[`${name}Title`]); b.setAttribute('aria-pressed', String(name === state.plan));
     }
+    // the floor buttons: rebuilt when the plan has other levels, their words and the pressed one follow the state (they stay on the bar while editing)
+    const choices = floorChoices(state.levels, state.lang), sig = choices.map((c) => String(c.key)).join('|');
+    if (sig !== floorSig) {
+      floorSig = sig; for (const b of floorBtns) b.remove(); floorBtns = [];
+      for (const c of choices) {
+        const b = doc.createElement('button'); b.type = 'button'; b.className = 'tool floor'; b.dataset.floor = String(c.key);
+        b.addEventListener('click', () => handlers.onFloor?.(c.key));
+        floors.append(b); floorBtns.push(b);
+      }
+    }
+    floors.style.display = choices.length ? '' : 'none'; floors.setAttribute('aria-label', L.floors);
+    choices.forEach((c, i) => { const b = floorBtns[i]; b.textContent = c.label; b.title = c.title; b.setAttribute('aria-label', c.title); b.setAttribute('aria-pressed', String(String(c.key) === String(state.floor ?? 'all'))); });
     root.className = [state.editing ? 'editing' : '', state.tools ? 'has-tools' : ''].filter(Boolean).join(' ');
     doc.documentElement.lang = state.lang;
   }

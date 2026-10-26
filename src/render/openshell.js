@@ -12,7 +12,7 @@ const clamp01 = (v) => Math.min(1, Math.max(0, Number.isFinite(v) ? v : 0));
 const HUNG = new Set(['wall-mount', 'window']);
 
 // ps: a PlanScene; model: the model it was made from. Returns the shell: { walls, clock, active, setOrder(view), pose(p), heightFor(c, h), adopt(group, pieces, closedHeight),
-// release(), hostMatrix(id), hostOf(id), hidePatches(), state(), dispose() }.
+// release(), hostMatrix(id), hostOf(id), setLevels(flags), hidePatches(), state(), dispose() }.
 export function createOpenShell(ps, model) {
   const walls = foldWalls(model);
   const byName = ps.levelGroups.map((lg) => { const m = new Map(); for (const c of lg.children) if (c.name) m.set(c.name, c); return m; });
@@ -37,7 +37,7 @@ export function createOpenShell(ps, model) {
     if (c.mesh.pw?.pane === true) panes.push(c.mesh);
   }
 
-  let clock = 0, rank = walls.map((_, i) => i);
+  let clock = 0, rank = walls.map((_, i) => i), levelsOn = null; // levelsOn: which levels are on show (setLevels), null for all
   const live = walls.map(() => ({ deg: 0, grow: 0 }));
   let hinges = new Map(), hosted = [], hostById = new Map(), turned = new Map(); // hinge groups of the hung pieces by wall; the pieces on them: { id, g, wall, elev, window, h0 }; the same by piece id; the matrix of each hinge group by wall
 
@@ -49,7 +49,7 @@ export function createOpenShell(ps, model) {
     for (const [i, hg] of hinges) { const m = worldMatrix(i, live[i].deg); turned.set(i, m); hg.matrix.fromArray(m); hg.matrixWorldNeedsUpdate = true; }
     for (const e of hosted) { // a piece shows once the wall it hangs on has risen above its lower edge (the closed view cuts the near walls low)
       const wallTop = lift(e.wall, e.h0);
-      e.g.visible = wallTop === Infinity || (e.elev < wallTop - 0.02 && !(e.window && wallTop < 1.5));
+      e.g.visible = levelsOn?.[walls[e.wall].level] !== false && (wallTop === Infinity || (e.elev < wallTop - 0.02 && !(e.window && wallTop < 1.5)));
     }
   }
 
@@ -106,6 +106,8 @@ export function createOpenShell(ps, model) {
       const e = hostById.get(id), matrix = e && turned.get(e.wall);
       return matrix ? { wall: walls[e.wall].id, matrix, plane: innerFace(walls[e.wall]) } : null;
     },
+    // Which levels are on show (a boolean per level, null for all): the pieces hung on the walls of the others stay hidden whatever their wall does.
+    setLevels(flags) { levelsOn = Array.isArray(flags) ? flags.slice() : null; moveHung(); },
     // The window light on the floor goes with the wall: no patches while the shell is not closed (applyWallCut switches them on again).
     hidePatches() { if (clock > 0) for (const m of panes) ps.sunPatch?.userData.show(m, false); },
     state: () => walls.map((f, i) => ({ id: f.id, level: f.levelId, deg: live[i].deg, grow: live[i].grow })),

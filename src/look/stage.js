@@ -214,10 +214,20 @@ export function createStage(options = {}) {
   }
   function setPreset(name) { const p = getPreset(name ?? DEFAULT_PRESET); state.preset = p.id; applyPalette(p.palette); return p; }
   function setQuality(name) { const l = getLevel(name); state.quality = l.id; rig.setQuality(l.id); setTextureAnisotropy(l.anisotropy); return l; }
-  function setEmitters(list) { rig.setEmitters(list); }
+  // The base of the house rises by `dy` metres when only an upper floor is on show (the board, the table, the light rig and the lamps move together, so the floor
+  // on show stands on the board and nothing hangs in the air); 0 puts everything back. The lamps are given in world coordinates and follow the base.
+  let lift = 0, lamps = [];
+  const lowered = (list) => (lift ? list.map((e) => (e && Array.isArray(e.pos) ? { ...e, pos: [e.pos[0], e.pos[1] - lift, e.pos[2]] } : e)) : list);
+  function setEmitters(list) { lamps = Array.isArray(list) ? list : []; rig.setEmitters(lowered(lamps)); }
+  function setLift(dy) {
+    const next = Number.isFinite(dy) && dy > 0 ? dy : 0;
+    if (next === lift) return lift;
+    lift = next; group.position.y = lift; rig.setEmitters(lowered(lamps));
+    return lift;
+  }
   function dispose() { rig.dispose(); bgTex.dispose(); glass.map = null; glass.emissiveMap = null; view.dispose(); tableMat.alphaMap?.dispose(); contactMat.map?.dispose(); for (const o of [board, under, table, contact]) o.geometry.dispose(); [paper, card, tableMat, contactMat].forEach((m) => m.dispose()); scene?.remove(group); }
 
   setPreset(options.preset);
   applyTime(options.t ?? getPreset(options.preset).t);
-  return { group, rig, state, background: bgTex, applyTime, fitBackdrop, setPreset, setQuality, setEmitters, refreshShadowCasters, setBoard, board: boardInfo, dispose };
+  return { group, rig, state, background: bgTex, applyTime, fitBackdrop, setPreset, setQuality, setEmitters, setLift, lift: () => lift, refreshShadowCasters, setBoard, board: boardInfo, dispose };
 }
