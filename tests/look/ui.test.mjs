@@ -44,6 +44,15 @@ test('controls: three mood buttons with own names, language switch, no old names
 
 const everyNode = (n) => [n, ...n.children.flatMap(everyNode)];
 
+test('controls: no description line under the moods, whatever the mood, the language and the time of day', () => {
+  const ui = createUI({ onPreset() {}, onTime() {}, onQuality() {}, onLang() {} }, { preset: 'lamplit', t: 0.98, q: 'auto', lang: 'pl' }, makeDoc());
+  assert.ok(!everyNode(ui.root).some((n) => n.className === 'blurb'));
+  for (const lang of ['pl', 'en']) for (const preset of ['amber', 'clear', 'lamplit']) for (const t of [0.2, 0.98]) {
+    ui.update({ lang, preset, t });
+    assert.ok(!texts(ui.root).join(' ').match(/curtain|zasłon|Saturday|sobot|Home from work|Powrót z pracy|lamps on|świecą/i), `${lang} ${preset} ${t}`);
+  }
+});
+
 test('controls: the quality choice has a visible name, Auto says which level it picked, and a description is attached', () => {
   const doc = makeDoc(); const calls = [];
   const state = { preset: 'amber', t: 0.5, q: 'auto', level: 'low', lang: 'en' };

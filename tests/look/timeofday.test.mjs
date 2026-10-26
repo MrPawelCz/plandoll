@@ -2,7 +2,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { KEYFRAMES, NUMBER_FIELDS, COLOR_FIELDS, sample, clock, sunPosition, hexToRgb, rgbToHex, lerpHex, clamp01 } from '../../src/look/timeofday.js';
-import { PRESETS, PRESET_NAMES, getPreset, presetLabel, presetBlurb, isPreset } from '../../src/look/presets.js';
+import { PRESETS, PRESET_NAMES, getPreset, presetLabel, isPreset } from '../../src/look/presets.js';
 import { parseParams, parsePlanParam, buildHash } from '../../src/app/params.js';
 
 test('keyframes are ordered, start at 0 and end at 1, and carry every field', () => {
@@ -82,7 +82,8 @@ test('presets: three own names, none of the old identifiers, text in two languag
   for (const n of PRESET_NAMES) {
     const p = PRESETS[n];
     assert.ok(p.t >= 0 && p.t <= 1);
-    for (const lang of ['en', 'pl']) { for (const s of [presetLabel(n, lang), presetBlurb(n, lang)]) { assert.ok(s.length > 2); assert.ok(!/[\u2013\u2014]/.test(s)); } }
+    for (const lang of ['en', 'pl']) { const s = presetLabel(n, lang); assert.ok(s.length > 2); assert.ok(!/[\u2013\u2014]/.test(s)); }
+    assert.ok(!('blurb' in p), 'a mood has no description line: it went stale when the time of day moved');
     for (const hex of [...p.swatch, ...Object.values(p.palette).flat()]) assert.match(hex, /^#[0-9a-f]{6}$/i);
   }
   assert.deepEqual(['Amber', 'Clear', 'Lamplit'], PRESET_NAMES.map((n) => presetLabel(n, 'en')));

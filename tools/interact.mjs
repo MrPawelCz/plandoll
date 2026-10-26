@@ -132,7 +132,7 @@ const wheelAt = (x, y, deltaY) => send('Input.dispatchMouseEvent', { type: 'mous
 const rectOf = (sel) => ev(`(() => { const e = document.querySelector(${JSON.stringify(sel)}); if (!e) return null; const r = e.getBoundingClientRect(); return { x: r.left, y: r.top, w: r.width, h: r.height }; })()`);
 // The part of the screen above the controls: only the 3D picture is there, so equal bytes mean an unchanged picture.
 async function picture(label) {
-  const top = await ev(`Math.floor(Math.min(...['#ps-ui', '#ps-ui .blurb'].map((s) => document.querySelector(s)?.getBoundingClientRect().top ?? innerHeight)) - 4)`);
+  const top = await ev(`Math.floor(Math.min(...['#ps-ui'].map((s) => document.querySelector(s)?.getBoundingClientRect().top ?? innerHeight)) - 4)`);
   const shot = await send('Page.captureScreenshot', { format: 'png', fromSurface: true, clip: { x: 0, y: 0, width: W, height: Math.max(40, top), scale: 1 } });
   if (out) {
     writeFileSync(join(out, `${label}.png`), Buffer.from(shot.data, 'base64'));
@@ -208,7 +208,7 @@ async function gesture(action) {
 }
 // The part of the screen above the controls where fingers may go, and its middle.
 const pictureArea = async () => {
-  const top = await ev(`Math.floor(Math.min(...['#ps-ui', '#ps-ui .blurb', '#ps-edit'].map((s) => document.querySelector(s)?.getBoundingClientRect().top ?? innerHeight)) - 8)`);
+  const top = await ev(`Math.floor(Math.min(...['#ps-ui', '#ps-edit'].map((s) => document.querySelector(s)?.getBoundingClientRect().top ?? innerHeight)) - 8)`);
   return { top, cx: Math.round(W / 2), cy: Math.round(top * 0.5) };
 };
 

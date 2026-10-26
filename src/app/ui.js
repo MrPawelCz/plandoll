@@ -1,6 +1,6 @@
 // Page controls: a floating paper-coloured bar at the bottom with three mood buttons, a time-of-day slider and a quality
 // choice; plus the card shown when WebGL 2 is missing or start-up fails. System font stack only, styles injected from here.
-import { PRESET_NAMES, PRESETS, presetLabel, presetBlurb } from '../look/presets.js';
+import { PRESET_NAMES, PRESETS, presetLabel } from '../look/presets.js';
 import { QUALITY_LEVELS } from '../look/quality.js';
 import { clock } from '../look/timeofday.js';
 import { PLAN_NAMES } from './params.js';
@@ -55,7 +55,6 @@ const CSS = `
 #ps-ui input[type=range]::-moz-range-thumb{box-sizing:border-box;width:16px;height:30px;border-radius:6px;background:#fffaf0;border:2px solid var(--accent);box-shadow:0 2px 6px rgba(0,0,0,.28)}
 #ps-ui select{font:inherit;color:inherit;background:#fffaf0;border:1px solid var(--line);border-radius:10px;padding:5px 8px}
 #ps-ui button.lang{all:unset;cursor:pointer;font-weight:700;font-size:11px;letter-spacing:.08em;padding:5px 8px;border-radius:8px;border:1px solid var(--line)}
-#ps-ui .blurb{position:absolute;left:50%;transform:translateX(-50%);bottom:100%;margin-bottom:8px;white-space:nowrap;max-width:calc(100vw - 24px);overflow:hidden;text-overflow:ellipsis;text-align:center;font-size:12px;color:var(--ink);background:var(--paper);padding:3px 12px;border-radius:12px;border:1px solid var(--line);pointer-events:none}
 #ps-ui label.quality{display:flex;align-items:center;gap:6px;font-size:11px;font-weight:600;letter-spacing:.02em}
 #ps-ui button.reset{all:unset;cursor:pointer;font-weight:600;font-size:12px;padding:5px 10px;border-radius:10px;border:1px solid var(--line);white-space:nowrap}
 #ps-ui button.reset:hover{background:rgba(200,121,58,.1)}
@@ -125,7 +124,6 @@ export function showErrorCard(detail = '', doc = document) {
 export function createUI(handlers, state, doc = document) {
   injectStyles(doc);
   const root = doc.createElement('div'); root.id = 'ps-ui';
-  const blurb = doc.createElement('div'); blurb.className = 'blurb';
   const moods = doc.createElement('div'); moods.className = 'moods'; moods.setAttribute('role', 'group');
   const buttons = {};
   for (const name of PRESET_NAMES) {
@@ -175,7 +173,7 @@ export function createUI(handlers, state, doc = document) {
     tools.append(b); toolBtns[key] = b;
   }
   const msg = doc.createElement('div'); msg.id = 'ps-ui-msg'; msg.setAttribute('role', 'status');
-  root.append(blurb, msg, moods, sep1, timeLabel, sep2, qLabel, reset, lang, tools);
+  root.append(msg, moods, sep1, timeLabel, sep2, qLabel, reset, lang, tools);
   doc.body.appendChild(root);
   // a hint for the first visit; it goes away at the first turn of the model
   let hint = doc.createElement('div'); hint.id = 'ps-hint'; hint.setAttribute('role', 'status'); doc.body.appendChild(hint);
@@ -184,7 +182,6 @@ export function createUI(handlers, state, doc = document) {
     Object.assign(state, s);
     const L = STR[state.lang] ?? STR.en;
     for (const name of PRESET_NAMES) { buttons[name].label.textContent = presetLabel(name, state.lang); buttons[name].b.setAttribute('aria-pressed', String(name === state.preset)); }
-    blurb.textContent = presetBlurb(state.preset, state.lang);
     timeName.textContent = L.time; slider.value = String(state.t); slider.style?.setProperty?.('--fill', `calc(8px + (100% - 16px) * ${Math.min(1, Math.max(0, Number(state.t) || 0))})`); slider.setAttribute('aria-label', L.time); clk.textContent = clock(state.t).text;
     qName.textContent = L.quality; qHelp.textContent = L.qualityHelp; qLabel.title = L.qualityHelp; qSel.title = L.qualityHelp;
     const autoPick = state.autoLevel ?? state.level; // the level that Auto stands for on this device
