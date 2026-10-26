@@ -1250,8 +1250,9 @@ try {
     const toolInfo = JSON.parse(await ev(`JSON.stringify([...document.querySelectorAll('#ps-ui button.tool')].map((b) => { const r = b.getBoundingClientRect(); return { name: b.dataset.tool ?? 'plan:' + b.dataset.plan, x: r.left, y: r.top, w: r.width, h: r.height, text: b.textContent }; }))`));
     await picture('30-buttons');
     const onScreen = (b) => b.w >= 43.5 && b.h >= 43.5 && b.x >= -1 && b.x + b.w <= W + 1 && b.y >= 0 && b.y + b.h <= H + 1;
-    const classic = toolInfo.filter((b) => ['edit', 'saveImage', 'loadPlan'].includes(b.name)), extra = toolInfo.filter((b) => !['edit', 'saveImage', 'loadPlan'].includes(b.name));
-    record('buttons: Edit, Save image and Load plan are on screen, at least 44 px', classic.length === 3 && classic.every(onScreen), { buttons: classic.map((b) => `${b.text} ${Math.round(b.w)}x${Math.round(b.h)} at ${Math.round(b.x)},${Math.round(b.y)}`) });
+    const CLASSIC = ['edit', 'saveImage', 'share', 'loadPlan'];
+    const classic = toolInfo.filter((b) => CLASSIC.includes(b.name)), extra = toolInfo.filter((b) => !CLASSIC.includes(b.name));
+    record('buttons: Edit, Save image, Copy link and Load plan are on screen, at least 44 px', classic.length === 4 && classic.every(onScreen), { buttons: classic.map((b) => `${b.text} ${Math.round(b.w)}x${Math.round(b.h)} at ${Math.round(b.x)},${Math.round(b.y)}`) });
     record('buttons: the example plans and the open shell are on screen, at least 44 px', extra.length === 3 && extra.every(onScreen), { buttons: extra.map((b) => `${b.text} ${Math.round(b.w)}x${Math.round(b.h)} at ${Math.round(b.x)},${Math.round(b.y)}`) });
 
     // the camera steps (pan, pinch, wheel, double tap) on the flat, then on the duplex below
