@@ -22,6 +22,7 @@ import { NO_WEBGL2, hasWebgl2, failureDetail, planChoice, startState, partsOf, b
 import { coverShare, isNarrow } from './stack.js';
 import { readPlanText } from './planfile.js';
 import { decodeShare, encodeShare, packLayout, planForLink, setViewParams, lostCount, SHARE_LONG } from './share.js';
+import { createAddressSync, leaveAdvice } from './addrsync.js';
 import { pickPiece, floorHit, slidePoint } from './pick.js';
 import { createOutline, createOutlineFrame, createRoomOutline, outlineKind } from '../render/outline.js';
 import { createPanel } from './panel.js';
@@ -283,14 +284,23 @@ try {
   let editBar = null, panel = null;
   const sayLine = (text, detail, ms) => (editBar ? editBar.say(text, ms, detail) : ui?.say(text, ms, detail)); // one short result line: above the edit bar, or above the controls on the plain page
   // The extra buttons of the control bar (btn=1): edit mode on or off (the page reloads with edit=1 added or removed, the mood, the time of day, the
-  // quality and the language kept), and the picture of the current view as a PNG. Leaving the editor with unsaved changes needs a second tap.
+  // quality and the language kept), and the picture of the current view as a PNG. The address follows the layout (addr below), so Done keeps every change; only a layout that
+  // cannot go in the address still asks for a file and a second tap.
   let dirty = false, leaveWarned = false, leaveTimer = 0;
-  function toggleEdit() {
+  async function toggleEdit() {
     const leaving = params.edit;
-    if (leaving && dirty && session?.canUndo() && !leaveWarned) {
-      leaveWarned = true; clearTimeout(leaveTimer); leaveTimer = setTimeout(() => { leaveWarned = false; }, 6000);
-      sayLine(T('Masz niezapisane zmiany: zapisz układ albo dotknij jeszcze raz', 'You have unsaved changes: save the layout or tap again'));
-      return;
+    const planOnly = !!linkPlan && !shareNow; // a plan of your own loaded here is in no address yet: it goes in too, or the reload would drop it
+    if (planOnly || (leaving && (dirty || addr.pending))) addr.changed(); // the view of this moment goes into the address with the last change
+    if (addr.pending) { await addr.flush(); if (!addr.pending) dirty = false; } // the last change goes into the address before the page reloads
+    if (leaving) {
+      const advice = leaveAdvice({ unsaved: dirty && !!session?.canUndo(), lost: keptLost, warned: leaveWarned });
+      if (advice !== 'go') {
+        leaveWarned = true; clearTimeout(leaveTimer); leaveTimer = setTimeout(() => { leaveWarned = false; }, 6000);
+        sayLine(advice === 'file'
+          ? T('Nie udało się zostawić układu w adresie strony: zapisz go do pliku (Plik, Zapisz układ) albo dotknij jeszcze raz', 'The layout could not stay in the address of the page: save it to a file (File, Save layout) or tap again')
+          : T(`Elementów poza pokojem: ${keptLost}. Po zakończeniu znikną: przesuń je do pokoju albo dotknij jeszcze raz`, `Items outside a room: ${keptLost}. They will be gone after Done: move them into a room or tap again`), '', 9000);
+        return;
+      }
     }
     location.hash = editHash(location.hash, !leaving, S);
     location.reload();
@@ -306,10 +316,11 @@ try {
   // buildLink() packs what the page shows now: { ok, url, hash, chars, compressed } or { ok: false, error }; url is the clean link to send, hash is the same view with the parameters of this
   // page kept (the address bar). shareLink() is the button: it makes the link, puts it in the address bar (so a reload, or Edit and Done, keeps the layout), copies it, and when the browser
   // will not copy shows it in a dialog. The link is in the part of the address after the #, which no server ever gets.
-  let lastLink = null, shareNow = params.share; // shareNow: the share= that the page was built from or last wrote to the address
+  let lastLink = null, planGen = 0, keptLost = 0, shareNow = params.share; // planGen: counts the plans built on this page (a layout made for an older plan is never written); keptLost: the pieces of the layout last written that a reader leaves out; shareNow: the share= that the page was built from or last wrote to the address
   // A link pasted into the address bar of a tab that already shows the page changes only the hash, and the page would keep what it shows: a share= that differs from shareNow loads again.
   addEventListener('hashchange', () => { const next = splitHash(location.hash).kv.share ?? null; if (next && next !== shareNow) location.reload(); });
   async function buildLink() {
+    const gen = planGen; // read before any await: the plan may change while the link is built
     const text = session ? session.exportText() : serializeLayout(curLayout);
     const packed = text ? packLayout(text) : null;
     if (!packed) return { ok: false, error: 'layout' };
@@ -319,7 +330,7 @@ try {
     const url = `${location.href.split('#')[0]}#${setViewParams('', view, enc.value)}`;
     let lost = 0; // the pieces that the page of the receiver will not take (one that stands outside its room, say), counted the way the receiver counts them
     try { lost = lostCount(parseLayout(JSON.stringify(packed), model).warnings); } catch { lost = 0; }
-    return { ok: true, url, hash: setViewParams(location.hash, view, enc.value), chars: url.length, compressed: enc.compressed, lost };
+    return { ok: true, url, hash: setViewParams(location.hash, view, enc.value), chars: url.length, compressed: enc.compressed, lost, gen };
   }
   async function shareLink() {
     const r = await buildLink();
@@ -335,6 +346,18 @@ try {
     if (await copyText(window, r.url)) { sayLine(note ? `${T('Link skopiowany', 'Link copied')}. ${note}` : T('Link skopiowany', 'Link copied'), '', note ? 9000 : undefined); return; }
     if (!showLinkDialog(document, S.lang, r.url, { note })) sayLine(T('Nie udało się skopiować linku', 'Could not copy the link'));
   }
+  // The address follows the layout. Edit and Done reload the page, and a reloaded page builds its layout from the share= of its address, so whatever is not there is lost (a changed colour,
+  // say). Every change of the layout is written to the address a moment after it is made, without the clipboard and without a word to the visitor; Done writes the last one first
+  // (toggleEdit), and Copy link copies the same address. A layout that cannot go in the address (too large) is the one case that still asks for a file.
+  const addr = createAddressSync({
+    build: buildLink,
+    write: (r) => {
+      if (r.gen !== planGen) return false; // built for a plan that is gone: the address already names the new one
+      try { history.replaceState(null, '', `#${r.hash}`); } catch { return false; } // an address that cannot change keeps the old layout
+      shareNow = splitHash(r.hash).kv.share ?? shareNow; keptLost = r.lost ?? 0;
+      return true;
+    },
+  });
   // Loading a plan of your own (a button of the controls and an item of the File menu): the text goes through the reader and the validator, then the old
   // scene is released and the model, the automatic layout, the stage and the view are built again, without reloading the page. Nothing is stored.
   let onPlanSwapped = null;
@@ -351,7 +374,7 @@ try {
     scene.remove(ps.group); ps.dispose(); stage.dispose();
     model = built.model; allExt = built.ext; ext = built.ext; frameExt = nextExt; framePts = nextPts; stageExt = nextExt; ps = built.scene; layout = built.layout; curLayout = layout;
     floor = ALL; flags = visibleFlags(ALL, model.levels.length); focus = focusOf(); S.floor = ALL; S.levels = model.levels.map((l) => ({ id: l.id, name: l.name })); // a new plan starts with all its floors on show
-    colorsKey = '{}'; shareNow = null; // the new scene has no room colours (the layout of the old plan, and the share link that brought it, are gone with the plan)
+    colorsKey = '{}'; shareNow = null; planGen += 1; keptLost = 0; // the new scene has no room colours (the layout of the old plan, and the share link that brought it, are gone with the plan)
     try { history.replaceState(null, '', `#${floorHash(withoutShare(location.hash), ALL)}`); } catch { /* an address that cannot change keeps its floor= */ }
     scene.add(ps.group);
     shell = nextShell; shellTarget = 0; S.shellOpen = false; ui?.update(S); // a new plan starts closed
@@ -512,7 +535,7 @@ try {
     }
     function onEdit(e) {
       curLayout = session.state.layout;
-      if (e.type === 'structure' || e.type === 'dragend') dirty = true;
+      if (e.type === 'structure' || e.type === 'dragend') { dirty = true; try { addr.changed(); } catch { /* the address is a convenience: the editor goes on without it */ } }
       if (e.type === 'structure') {
         live = new Set(); // a cancelled drag, a turn, an undo: every piece goes back into the merged meshes
         const next = sigsOf(curLayout);

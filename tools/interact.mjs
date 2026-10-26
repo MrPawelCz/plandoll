@@ -1324,7 +1324,7 @@ try {
     // the shell is opened once more and left open on purpose: the Edit button below reloads the page, which starts with the shell closed
     await tapAt(shellSel); await waitFor('window.__shell.mode === "open"', 20); await sleep(300);
 
-    // the Edit button turns the editor on (the page reloads with edit=1) and Done leaves it; unsaved changes need a second tap
+    // the Edit button turns the editor on (the page reloads with edit=1) and Done leaves it; the address follows the layout, so Done keeps a change and leaves on the first tap
     const editSel = '#ps-ui button.tool[data-tool="edit"]';
     await tapAt(editSel);
     const entered = await waitFor('window.__done === true && typeof window.__edit === "object" && !!document.querySelector("#ps-edit")', Number(opt.timeout));
@@ -1347,14 +1347,11 @@ try {
       record('editing: the shell button is active, a tap opens the shell and the next one folds it, and nothing tells the person to finish editing', !!shBtn && shBtn.shown && shBtn.disabled !== 'true' && shBtn.api === 'object' && !/Finish editing|Zakończ edycję/.test(`${shBtn.title}${shMsg}`) && openedEdit && degE.length > 0 && degE.every((d) => Math.abs(d - 90) <= 1) && closedEdit && picE1 !== picE0 && !(await ev('window.__fail')), { button: shBtn, message: shMsg, opened: openedEdit, closed: closedEdit, pictureChanged: picE1 !== picE0 });
       const firstId = await ev('window.__edit.session.state.layout.levels[0].pieces[0].id');
       await ev(`window.__edit.session.select(${JSON.stringify(firstId)}); window.__edit.session.turn(90)`); await sleep(400);
-      await tapAt(editSel); await sleep(700);
-      const warn = await ev(`document.querySelector('#ps-edit-msg')?.textContent ?? ''`), still = await ev('typeof window.__edit');
-      await picture('34-done-warning');
-      record('Done with unsaved changes warns first and stays', /unsaved|niezapisane/i.test(warn) && still === 'object', { message: warn });
       await tapAt(editSel);
       const left = await waitFor('window.__done === true && typeof window.__edit === "undefined" && !document.querySelector("#ps-edit")', Number(opt.timeout));
       await sleep(500);
-      record('a second tap on Done leaves the editor', left, { hash: await ev('location.hash'), label: await ev(`document.querySelector(${JSON.stringify(editSel)})?.textContent ?? null`) });
+      const hashLeft = await ev('location.hash');
+      record('Done after a change leaves the editor on the first tap, with no warning, and the layout is in the address', left && /share=/.test(hashLeft) && !/edit=1/.test(hashLeft), { hash: hashLeft.slice(0, 90), label: await ev(`document.querySelector(${JSON.stringify(editSel)})?.textContent ?? null`) });
     }
   }
 

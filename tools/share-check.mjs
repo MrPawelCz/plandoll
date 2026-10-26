@@ -194,6 +194,45 @@ try {
 
   const { model, layout } = build(examplePlan('duplex-1'));
   const lv0 = model.levels[0], piece = layout.levels[0].pieces.find((p) => specOf(p.type)?.slots?.length && !p.on), slot = specOf(piece.type).slots[0], room = lv0.rooms[0];
+  // ---------- 1b. no Copy link and no file: a change made in the editor stays through Done, because the address follows the layout (this section and 1c also run with --quick, on a page without the feature they fail) ----------
+  record('the editor page loads (this section copies and saves nothing)', await load('plan=duplex-1&edit=1&preset=clear&t=0.45'));
+  const stay = await ev(`(() => { const s = window.__edit.session, r = [];
+    r.push(s.select(${JSON.stringify(piece.id)})); r.push(s.turn(90).ok); r.push(s.recolor(${JSON.stringify(slot)}, '#c0392b').ok); s.select(null); return r; })()`);
+  record('a piece is turned and recoloured', stay.every(Boolean), { stay });
+  const stayText = await ev('window.__edit.session.exportText()');
+  record('a moment later the address holds a layout, with no button pressed', await waitFor("location.hash.includes('share=z1.')", 20));
+  const stayHash = await ev('location.hash');
+  const stayDec = await decodeShare(shareOf(stayHash));
+  record('and it is the layout of the editor, turn and colour included, with edit=1 kept', stayDec.ok && JSON.stringify(stayDec.layout) === JSON.stringify(packLayout(stayText)) && stayHash.includes('edit=1'), { error: stayDec.error });
+  // one more change and Done in the same breath (one evaluation, so the moment of the address cannot have passed): the tap itself must carry the last change
+  const lastText = await ev(`(() => { const s = window.__edit.session; s.select(${JSON.stringify(piece.id)}); s.turn(90); s.select(null); const t = s.exportText(); window.__marker = 1; document.querySelector('#ps-ui .tool[data-tool="edit"]').click(); return t; })()`);
+  record('the last change differs from the one in the address', lastText !== stayText);
+  record('Done leaves the editor on the first tap, with no warning about unsaved changes', await waitFor("typeof window.__marker === 'undefined' && window.__done === true", T));
+  const keptUrl = await ev('window.__share.build().then((r) => r.url)'), keptDec = await decodeShare(shareOf(keptUrl)), keptHash = await ev('location.hash');
+  record('the page in view mode shows the layout of the last change, turns and colour included', keptDec.ok && JSON.stringify(keptDec.layout) === JSON.stringify(packLayout(lastText)) && !keptHash.includes('edit=1') && keptHash.includes('share=z1.') && (await rectOf('#ps-edit')) === null, { error: keptDec.error, hash: keptHash.slice(0, 70) });
+
+  // ---------- 1c. what Done says when the layout cannot be kept: a piece outside every room, and an address that refuses to change; the next tap leaves ----------
+  record('the editor page loads (a piece is to be dragged out of every room)', await load('plan=duplex-1&edit=1&preset=clear&t=0.45'));
+  const gone = await ev(`(() => { const s = window.__edit.session; if (!s.beginDrag(${JSON.stringify(piece.id)})) return 'no drag'; const r = s.dragTo(-4, -4); s.endDrag(); return r.ok ? 'moved' : 'refused: ' + r.reason; })()`);
+  record('a piece is dragged out of every room', gone === 'moved', { gone });
+  record('the address takes that layout too', await waitFor("location.hash.includes('share=z1.')", 20));
+  await ev('window.__marker = 1');
+  await click('#ps-ui .tool[data-tool="edit"]'); await sleep(2500);
+  const lostLine = await ev("(document.querySelector('#ps-edit-msg') || {}).textContent || ''");
+  record('Done says that the piece outside a room will be gone, and the editor stays', /Items outside a room|Elementów poza pokojem/.test(lostLine) && (await ev('typeof window.__marker')) === 'number', { line: lostLine });
+  await click('#ps-ui .tool[data-tool="edit"]');
+  record('the second tap leaves the editor', await waitFor("typeof window.__marker === 'undefined' && window.__done === true", T));
+  record('the editor page loads again (the address is to refuse)', await load('plan=duplex-1&edit=1&preset=clear&t=0.45'));
+  await ev(`(() => { history.replaceState = () => { throw new Error('refused'); }; const s = window.__edit.session; s.select(${JSON.stringify(piece.id)}); s.turn(90); s.select(null); })()`);
+  await sleep(1200); // the moment passes and the write is refused
+  await ev('window.__marker = 1');
+  await click('#ps-ui .tool[data-tool="edit"]'); await sleep(2500);
+  const fileLine = await ev("(document.querySelector('#ps-edit-msg') || {}).textContent || ''");
+  record('with the address refusing, Done says that the layout could not stay, asks for a file, and the editor stays', /could not stay|Nie udało się zostawić/.test(fileLine) && (await ev('typeof window.__marker')) === 'number', { line: fileLine });
+  await ev('delete history.replaceState');
+  await click('#ps-ui .tool[data-tool="edit"]');
+  record('the next tap writes the address again and leaves with the layout in it', (await waitFor("typeof window.__marker === 'undefined' && window.__done === true", T)) && (await ev('location.hash')).includes('share=z1.'));
+
   if (!opt.quick) {
   // ---------- 2. an edited layout: the link carries every change, through the Edit and Done reload, into a page of someone else ----------
   record('the editor page loads', await load('plan=duplex-1&edit=1&preset=clear&t=0.45'));
