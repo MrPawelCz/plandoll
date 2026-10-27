@@ -5,6 +5,8 @@
 // With edit=1 a piece can be selected, dragged over the floor, turned and deleted, with undo and redo (edit.js, pick.js, render/outline.js); with the shell open the
 // pieces that hang on an outer wall are picked, outlined and dragged where the turned wall has put them.
 // The model can be turned round, zoomed and moved over the ground (camera.js): the outer walls that face the camera are cut low (render/cutaway.js). The card board under it follows the open shell (look/board.js).
+// The plain page opens with an intro (intro.js, buildup.js, introview.js, introrun.js): the first model builds itself on the stage while the camera comes down to the starting view; intro=0 and a request for
+// less motion switch it off, and the editor, ui=0 and live=1 never get it. A touch or a key ends it at once.
 import * as THREE from 'three';
 import { analyzePlan, modelOf } from '../core/validate.js';
 import { buildModel, modelExtent } from '../model/geometry.js';
@@ -27,6 +29,10 @@ import { pickPiece, floorHit, slidePoint } from './pick.js';
 import { createOutline, createOutlineFrame, createRoomOutline, outlineKind } from '../render/outline.js';
 import { createPanel } from './panel.js';
 import { createDock } from './dock.js';
+import { introWanted, cameraFrom, cameraAt, liftAt } from './intro.js';
+import { createBuildUp } from './buildup.js';
+import { createIntroView } from './introview.js';
+import { createIntroRun } from './introrun.js';
 import { pieceInfo, roomsData } from './info.js';
 import { saveTextFile, saveBlobFile, readTextFile, askForText, refusalText, copyText, showLinkDialog, LAYOUT_FILENAME, IMAGE_FILENAME } from './files.js';
 import { promptFor } from './prompts.js';
@@ -43,7 +49,9 @@ import { boardRect } from '../look/board.js';
 import flat from '../../examples/flat-1.plan.json';
 import duplex from '../../examples/duplex-1.plan.json';
 
-const fail = (e) => { window.__fail = String((e && e.stack) || e); console.error(window.__fail); try { showErrorCard(failureDetail(e)); } catch {} };
+// The loading icon of the page (plain CSS in the HTML, see tools/build.mjs) goes once the first frame is drawn, or when the page fails; data-intro on the body says where the page is: loading, playing (the intro), done.
+const leaveLoading = (state, why) => { try { const b = document.body; document.getElementById('ps-loading')?.remove(); if (state === 'done' && b.dataset.intro === 'playing') b.dataset.introFade = '1'; b.dataset.intro = state; b.dataset.introEnd = why; } catch {} }; // the control bar fades in only after an intro that played
+const fail = (e) => { window.__fail = String((e && e.stack) || e); console.error(window.__fail); leaveLoading('done', 'error'); try { showErrorCard(failureDetail(e)); } catch {} };
 
 // Camera for the whole model (three-quarter view from the south-east) or a close view into the north-west room.
 function cameraFor(ext, aspect, mode, focus) {
@@ -75,6 +83,11 @@ try {
   const env = { cores: navigator.hardwareConcurrency, touch: navigator.maxTouchPoints > 0, width: window.innerWidth, height: window.innerHeight, memory: navigator.deviceMemory };
   const S = startState(params), parts = partsOf(params); // what the controls show; which parts of the page are built (ui=0, btn=0, edit=1)
   const T = (pl, en) => (S.lang === 'pl' ? pl : en);
+  try { document.getElementById('ps-loading')?.setAttribute('aria-label', T('Wczytywanie', 'Loading')); } catch {}
+  // The intro (see the block before the loop): while it is asked for, the pieces stay objects of their own (introHold) and the camera may turn without the walls being cut again for each view; the scene is put in its usual state when it ends.
+  const introAsk = introWanted(params, { reducedMotion: !!(typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches) });
+  let introHold = introAsk.run, intro = null;
+  const introSize = [window.innerWidth, window.innerHeight], introSized = (w, h) => Math.abs(w - introSize[0]) > 1 || Math.abs(h - introSize[1]) > introSize[1] * 0.15; // whether the window is no longer the one the intro was made for
   let level = resolveQuality(S.q, env);
   S.level = level; S.autoLevel = resolveQuality('auto', env); // the controls show which level Auto would pick on this device
 
@@ -216,7 +229,8 @@ try {
     furn.cutOff = new Set(); for (const [id, g] of furn.pieces) if (!g.visible) furn.cutOff.add(id); // hidden by the cutaway
     if (furn.merged) { disposeComposed(furn.merged.group); furn.merged = null; }
     furn.own = new Set(); // the pieces that are objects of their own (not inside the merged meshes): showFloors keeps them in step with the floors on show
-    if (params.merge && (params.edit || hung?.size)) { // the editor merges the pieces nobody moves (the one being dragged stays its own object); with the shell open the pieces that turn with a wall stay their own objects
+    const merging = params.merge && !introHold; // while the intro builds the flat the pieces stay objects of their own; they are merged when it ends
+    if (merging && (params.edit || hung?.size)) { // the editor merges the pieces nobody moves (the one being dragged stays its own object); with the shell open the pieces that turn with a wall stay their own objects
       const keep = new Set([...(hung ?? []), ...live]); // the pieces that turn with a wall, and the one being dragged (it may be one of them)
       furn.cutHidden = furn.cutOff; // hidden by the cutaway: not pickable
       furn.merged = mergeByMaterial(furn, keep);
@@ -224,8 +238,8 @@ try {
       furn.own = keep;
       furn.group.visible = true;
       scene.add(furn.merged.group);
-    } else if (params.merge) { furn.merged = mergeByMaterial(furn); furn.group.visible = false; scene.add(furn.merged.group); } // one mesh per material: far fewer draw calls
-    else furn.own = new Set(furn.pieces.keys()); // merge=0: every piece is an object of its own
+    } else if (merging) { furn.merged = mergeByMaterial(furn); furn.group.visible = false; scene.add(furn.merged.group); } // one mesh per material: far fewer draw calls
+    else furn.own = new Set(furn.pieces.keys()); // merge=0 (or the intro still plays): every piece is an object of its own
     showFloors();
     stage.refreshShadowCasters(scene);
     onSettled?.();
@@ -274,7 +288,7 @@ try {
   }
   function setPreset(name, keepT) { const p = stage.setPreset(name); S.preset = p.id; if (!keepT) S.t = p.t; applyAll(); ui?.update(S); redraw(); }
   function setTime(t) { S.t = Math.min(1, Math.max(0, t)); applyAll(); ui?.update(S); redraw(); }
-  function setQ(q) { S.q = q; level = resolveQuality(q, env); S.level = level; stage.setQuality(level); furnish(); post.setQuality(level); applyAll(); ui?.update(S); redraw(); }
+  function setQ(q) { intro?.skip('api'); S.q = q; level = resolveQuality(q, env); S.level = level; stage.setQuality(level); furnish(); post.setQuality(level); applyAll(); ui?.update(S); redraw(); }
   function setLang(l) { S.lang = l; ui?.update(S); editBar?.update({ lang: l }); panel?.setLang(l); dock?.setLang(l); }
   // the camera reports every change of the view; a change in the set of near edges re-cuts the walls and the pieces (not every frame of a turn)
   function onCamera(s) {
@@ -284,7 +298,7 @@ try {
     camera.position.set(...positionOf(s, eye)); camera.lookAt(...eye);
     stage.rig.setFillBoost(fillBoost(s.azimuth));
     const n = nearSides(s.azimuth, near);
-    if (!sameSides(n, near)) { near = n; recut(); shell?.hidePatches(); settle(); }
+    if (!introHold && !sameSides(n, near)) { near = n; recut(); shell?.hidePatches(); settle(); } // the intro moves the camera over a build-up that is cut for the view it ends in; the cut is made again when it ends
     redraw();
   }
   let editBar = null, panel = null, dock = null, toggleRooms = null; // dock: the card of a tapped piece and the list of rooms (plain page); toggleRooms: the Rooms button of the bar
@@ -368,6 +382,7 @@ try {
   // scene is released and the model, the automatic layout, the stage and the view are built again, without reloading the page. Nothing is stored.
   let onPlanSwapped = null;
   function applyPlan(next) {
+    intro?.skip('api'); // the intro belongs to the first model only
     // everything new is built first, so a plan that cannot be built leaves the page as it was
     const built = buildPlanParts(next, params.seed, { analyzePlan, modelOf, buildModel, modelExtent, makeScene, autoFurnish, piecesImplemented });
     if (!built) return false;
@@ -421,6 +436,7 @@ try {
   let onFloorChange = null; // set by the editing block: clears the selection that belongs to a floor that is no longer on show
   const shownLevel = (id) => flags[model.levels.findIndex((l) => l.id === id)] !== false; // whether the level with this id is on show (a level that is not known counts as shown)
   function setFloor(next) {
+    intro?.skip('api');
     const want = resolveFloor(next, model.levels.length);
     if (want === floor) return floor;
     floor = want; flags = visibleFlags(floor, model.levels.length); S.floor = floor;
@@ -457,6 +473,7 @@ try {
   }
   function shellGo(open) {
     if (!shell) return;
+    intro?.skip('api');
     if (open && shell.clock === 0) shell.setOrder(viewOf(current)); // the order the walls start in is chosen when the opening begins
     shellTarget = open ? 1 : 0; S.shellOpen = !!open; ui?.update(S);
     if (!shellRaf) { shellLast = 0; shellRaf = requestAnimationFrame(shellTick); }
@@ -894,7 +911,9 @@ try {
     shellGo(act === 'open');
   };
   if (useShell) addEventListener('keydown', onShellKey);
-  addEventListener('resize', () => { W = window.innerWidth; H = window.innerHeight; frameCamera(); coverSeen = cover; post.resize(W, H); redraw(); });
+  // A window that is turned or resized ends the intro (the view it was to end in belongs to the old window); a phone fires resize events of its own at the start and when its address bar moves, which change the
+  // height a little and the width not at all, and those leave it alone.
+  addEventListener('resize', () => { if (intro?.active && introSized(window.innerWidth, window.innerHeight)) intro.skip('resize'); W = window.innerWidth; H = window.innerHeight; frameCamera(); coverSeen = cover; post.resize(W, H); redraw(); });
   window.__planInfo = () => ({ pieces: furn.pieces.size, levels: model.levels.length, rooms: model.levels.reduce((n, l) => n + (l.rooms?.length ?? 0), 0), extent: [ext.minX, ext.maxX, ext.minZ, ext.maxZ].map((v) => +v.toFixed(2)),
     floor, visibleLevels: visibleIndices(floor, model.levels.length) }); // for test tools; floor: 'all' or the index of the level on show
   // For test tools: the floors on show. get() is 'all' or the index of one level, set(v) takes the same (a number, a numeric string or 'all'; anything else counts as all) and
@@ -906,7 +925,7 @@ try {
   window.__share = { build: buildLink, copy: shareLink, last: () => lastLink, get notes() { return startNotes.map((n) => n.slice()); }, get said() { return startNoteText; } };
   // For test tools: the view (turn, tilt, distance and its default), the pan in metres, what the camera looks at, the ground point under a client point, and the plane of the near cut
   window.__camera = { get azimuth() { return cam.state.azimuth; }, get polar() { return cam.state.polar; }, get distance() { return cam.state.distance; }, get base() { return cam.state.base; }, get pan() { return cam.pan; }, get target() { return cam.target; }, get lift() { return cam.lift; },
-    get near() { return sidesKey(near); }, get nearPlane() { return camera.near; }, get busy() { return cam.busy; }, groundAt: (x, y) => cam.groundAt(x, y), set: (azimuth, polar) => cam.set({ azimuth, polar }), reset: () => cam.reset(false) };
+    get near() { return sidesKey(near); }, get nearPlane() { return camera.near; }, get busy() { return cam.busy; }, groundAt: (x, y) => cam.groundAt(x, y), set: (azimuth, polar) => { intro?.skip('api'); cam.set({ azimuth, polar }); }, reset: () => { intro?.skip('api'); cam.reset(false); } };
   // For test tools and the film (there while the shell is built, also while editing): the clock (0 closed, 1 open), the target and the mode, open/close/toggle like the button, the pose of every wall,
   // the camera as three.js holds it, and seek(p) which puts the walls at clock p without any transition and resolves after the frame that shows it.
   if (useShell) {
@@ -937,6 +956,7 @@ try {
         return { half: [sc.right, sc.top], near: sc.near, far: sc.far, worst: +worst.toFixed(4) };
       },
       seek: (p) => new Promise((resolve) => {
+        intro?.skip('api');
         if (shellRaf) { cancelAnimationFrame(shellRaf); shellRaf = 0; }
         const c = Math.min(1, Math.max(0, Number(p) || 0));
         if (c > 0 && shell.clock === 0) shell.setOrder(viewOf(current));
@@ -951,13 +971,19 @@ try {
   }
 
   // ---------- loop: the first N frames (frames=N, 4 by default) are drawn at once and measured, then a frame is drawn whenever the picture changes ----------
+  // With the intro the page is "done" (window.__done, window.__stats, the note of a share link) when the intro is over, not when the first frames are drawn: a tool that waits for it finds the page as it always stands.
+  let framesDrawn = false, noteSaid = false, doneRun = false;
   function frame(n) {
-    if (n === 1) sayStartNote();
     renderer.info.reset(); renderCalls = 0; const t0 = performance.now();
     post.render();
     if (n <= params.frames) { const gl = renderer.getContext(); gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(4)); times.push(performance.now() - t0); } // waits for the GPU: only for the measured frames
     window.__frames = n; // frames drawn so far (tools wait on it after a click)
-    if (n === params.frames) done();
+    if (n === 1) { if (intro?.active) intro.shown(); else leaveLoading('done', intro?.reason || introAsk.why || 'off'); } // the first frame is on its way to the screen: the loading icon goes
+    if (n === params.frames) framesDrawn = true;
+    if (!intro?.active) { // a frame drawn after the intro (or with none): the note of a link and the end of the start-up
+      if (!noteSaid) { noteSaid = true; sayStartNote(); }
+      if (framesDrawn && !doneRun) { doneRun = true; done(); }
+    }
   }
   function luminance() {
     const gl = renderer.getContext(), w = gl.drawingBufferWidth, h = gl.drawingBufferHeight, px = new Uint8Array(w * h * 4);
@@ -989,12 +1015,49 @@ try {
     startNoteText = words[kind] ?? words.link;
     sayLine(startNoteText, '', 9000);
   };
+  // ---------- the intro: the first model builds itself (intro.js has the story, buildup.js moves the scene, introview.js has the words and the skip, introrun.js the clock) ----------
+  // Prepared here, before the first frame, so that the frame the visitor sees first is the empty plan; the clock starts with that frame (frame() above). It ends the
+  // moment anything else needs the scene (a touch or a key, a slow device, a plan, a floor, the quality, a hook of a tool): intro.skip() or its own end. Then the pieces are merged and the
+  // walls cut as on every page (finishScene), the camera is exactly where the page starts, and the control bar, which the style of the page keeps hidden until data-intro is done, fades in.
+  if (introAsk.run) {
+    const endView = { azimuth: cam.state.azimuth, polar: cam.state.polar, distance: cam.state.distance }; // the view the page starts in (a link may name its own)
+    // The first view looks almost straight down, and from there the plan may not fit the window as it does in the starting view (a phone held upright is narrower than a plan is wide): the camera
+    // is taken back, a little at a time, until every corner of the box of the model is inside the window with a margin of 12 px.
+    // The control bar is not there while the intro plays, so the picture stands in the middle of the window and glides up to where the page keeps it (viewLift, see frameCamera) as the camera arrives.
+    const setLift = (k) => { const l = viewLift * k; if (l > 0) camera.setViewOffset(W, H, 0, (l * H) / 2, W, H); else camera.clearViewOffset(); };
+    const introFrom = () => {
+      const from = cameraFrom(endView), bx = (24 / W), by = (24 / H), v = new THREE.Vector3(), along = Array.from({ length: 13 }, (_, i) => i / 12); // the whole way down, not only its first view
+      for (let k = 0; k < 24; k++) {
+        let fits = true;
+        for (const at of along) {
+          setLift(liftAt(at, { readyAt: 1 })); cam.set(cameraAt(at, { readyAt: 1 }, from, endView)); camera.updateMatrixWorld(true); camera.updateProjectionMatrix();
+          for (const x of [ext.minX, ext.maxX]) for (const y of [ext.minY, ext.maxY]) for (const z of [ext.minZ, ext.maxZ]) { v.set(x, y, z).project(camera); if (Math.abs(v.x) > 1 - bx || Math.abs(v.y) > 1 - by) fits = false; }
+        }
+        if (fits) break;
+        from.distance *= 1.05;
+      }
+      setLift(0); cam.set(from);
+      return from;
+    };
+    const build = createBuildUp({ ps, furn, layout: curLayout, ext, scene, lamps: (list) => stage.setEmitters(list) });
+    const view = createIntroView({ doc: document, win: window, lang: S.lang, onSkip: (how) => intro?.skip(how) });
+    intro = createIntroRun({
+      build, view, end: endView, from: introFrom(), guard: window.__introNoGuard !== true,
+      setCamera: (st) => cam.set(st), setLift, render: () => post.render(), invalidate: redraw, nextFrame: () => new Promise((resolve) => { const before = loop.drawn; const wait = () => (loop.drawn > before ? resolve() : requestAnimationFrame(wait)); requestAnimationFrame(wait); }),
+      finishScene: () => { introHold = false; setLift(1); cam.set(endView); recut(); shell?.hidePatches(); settle(); }, // the camera first: the cut and the hidden pieces are worked out for the view the page starts in
+      setState: (state, why) => leaveLoading(state, why ?? ''),
+    });
+    intro.begin();
+  }
+  window.__intro = { get state() { return intro?.state ?? 'off'; }, get reason() { return intro?.reason || introAsk.why; }, get how() { return intro?.how ?? ''; }, get t() { return intro?.t ?? 0; }, get total() { return intro?.total ?? 0; }, get counts() { return intro?.counts ?? { placed: 0, total: 0 }; },
+    get timeline() { return intro?.timeline ?? null; }, seek: (t) => intro?.seek(t) ?? Promise.resolve(false), skip: () => intro?.skip('api') ?? false }; // for test tools: where the intro is, and seek(t) holds it at time t
   loop = createLoop({ draw: frame, frames: params.frames, live: params.live });
   loop.start();
   // Frame hook for screenshots and video capture: window.__frame({ preset, t, az, pol, dist, size }) sets the mood, the time of day (0 to 1), the view
   // (azimuth and tilt in degrees, dist as a multiple of the default distance) and the size of the picture, draws exactly one new frame and resolves
   // after the animation frame that drew it with { frames, drawCalls }. Every field is optional; values are checked in capture.js.
   window.__frame = (args) => new Promise((resolve) => {
+    intro?.skip('api');
     const r = frameRequest(args), before = loop.drawn;
     if (r.preset) { const p = stage.setPreset(r.preset); S.preset = p.id; if (r.t === undefined) S.t = p.t; }
     if (r.t !== undefined) S.t = r.t;

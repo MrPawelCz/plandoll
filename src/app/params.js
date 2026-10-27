@@ -6,6 +6,7 @@
 // the button away and frames the closed model alone. The shell works while editing too (its button is the same with edit=1).
 // share=<text> is the layout (and a plan of your own) of a share link, see share.js; the page takes it with it when it opens.
 // rooms=1 opens the list of rooms (with their areas) when the page opens; the Rooms button of the control bar opens and closes it (dock.js).
+// intro=0 switches the intro off (the first model builds itself in front of the visitor unless the address says intro=0, the page is the editor (edit=1), has no controls (ui=0) or is live=1, or the system asks for less motion; see intro.js).
 // A bare word is the preset name (so "#amber" works). Pure functions, no DOM: tested in Node.
 import { isPreset, getPreset, DEFAULT_PRESET } from '../look/presets.js';
 import { parseQualityParam } from '../look/quality.js';
@@ -57,7 +58,7 @@ export function parseParams(hash, env = {}) {
   // az (degrees round the model, 0 = from the south, 90 = from the east) and pol (degrees from the vertical) set the view the page opens with
   // floor: the floors on show, 'all' or the index of one level (a plan with fewer levels than that shows all of them)
   // share: the text of a share link (share.js unpacks it; null when there is none)
-  return { preset: presetName, t, q: parseQualityParam(kv.q), cam: kv.cam === 'close' ? 'close' : 'main', plan: parsePlanParam(kv.plan), frames, lang, ui: kv.ui !== '0', live: kv.live === '1', tmSet: kv.t !== undefined, seed, merge: kv.merge !== '0', edit: kv.edit === '1', btn: kv.btn !== '0', shell: kv.shell !== '0', az: num(kv.az), pol: num(kv.pol), floor: parseFloorParam(kv.floor), share: kv.share ? kv.share : null, rooms: kv.rooms === '1' };
+  return { preset: presetName, t, q: parseQualityParam(kv.q), cam: kv.cam === 'close' ? 'close' : 'main', plan: parsePlanParam(kv.plan), frames, lang, ui: kv.ui !== '0', live: kv.live === '1', tmSet: kv.t !== undefined, seed, merge: kv.merge !== '0', edit: kv.edit === '1', btn: kv.btn !== '0', shell: kv.shell !== '0', az: num(kv.az), pol: num(kv.pol), floor: parseFloorParam(kv.floor), share: kv.share ? kv.share : null, rooms: kv.rooms === '1', intro: kv.intro !== '0' };
 }
 
 // Hash string for a parameter object (inverse of parseParams for the fields the page changes).
