@@ -2,9 +2,10 @@
 // esbuild is a dev dependency; nothing here runs in the product.
 //   node tools/build.mjs [--out DIR]        (DIR defaults to dist; the tests build into a temporary one)
 import { build } from 'esbuild';
-import { mkdirSync, statSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { MARK_CSS, gitState, markHtml, versionMark } from './version.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const outIdx = process.argv.indexOf('--out');
@@ -12,6 +13,9 @@ if (outIdx >= 0 && !process.argv[outIdx + 1]) { console.error('usage: node tools
 const dist = outIdx >= 0 ? resolve(process.argv[outIdx + 1]) : join(root, 'dist');
 
 const TITLE = 'plandoll';
+
+// The version mark in the corner of the page (tools/version.mjs): the version of package.json and the commit the page is built from.
+const mark = versionMark({ version: JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')).version, ...gitState(root) });
 
 const result = await build({
   entryPoints: [join(root, 'src/app/main.js')],
@@ -63,8 +67,8 @@ ${NOTICE}
 -->
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; connect-src 'none'; base-uri 'none'; form-action 'none'">
 <meta name="viewport" content="width=device-width,initial-scale=1"><title>${TITLE}</title><meta name="description" content="Turn a floor plan into a furnished, lit miniature of the flat, in your browser."><link rel="icon" href="data:,">
-<style>html,body{margin:0;height:100%;background:#e9dfcf;overflow:hidden;overscroll-behavior:none}canvas{display:block}noscript{font:14px/1.4 ui-rounded,system-ui,sans-serif;color:#4a3b2a;display:block;padding:24px}</style>
-</head><body><noscript>This page needs JavaScript. Ta strona potrzebuje JavaScriptu.</noscript><script>${code}</script></body></html>
+<style>html,body{margin:0;height:100%;background:#e9dfcf;overflow:hidden;overscroll-behavior:none}canvas{display:block}noscript{font:14px/1.4 ui-rounded,system-ui,sans-serif;color:#4a3b2a;display:block;padding:24px}${MARK_CSS}</style>
+</head><body><noscript>This page needs JavaScript. Ta strona potrzebuje JavaScriptu.</noscript>${markHtml(mark)}<script>${code}</script></body></html>
 `;
 mkdirSync(dist, { recursive: true });
 const file = join(dist, 'plandoll.html');

@@ -138,12 +138,27 @@ async function open(hash, ready = `!!window.__info || !!window.__edit`) {
   await waitFor('!window.__camera || window.__camera.busy === false', 20000).catch(() => {}); // the first tap of a check is not a race with the camera still settling on its first view
 }
 
+// The version mark (tools/version.mjs): small print in the lower right corner that reads like a version, stands inside the window, and overlaps no bar, card, list or mark of the page.
+async function markCheck(label) {
+  const g = await ev(`(() => {
+    const box = (n) => { if (!n || n.hidden) return null; const r = n.getBoundingClientRect(), cs = getComputedStyle(n); return r.width > 0 && cs.display !== 'none' ? { x: r.left, y: r.top, r: r.right, b: r.bottom } : null; };
+    const m = document.getElementById('ps-version');
+    return { w: innerWidth, h: innerHeight, text: m ? m.textContent : null, mark: box(m),
+      others: ['#ps-ui', '#ps-edit', '#pd-privacy', '#pd-brand', '#ps-piece-card', '#ps-rooms'].map((s) => [s, box(document.querySelector(s))]).filter((p) => p[1]) };
+  })()`);
+  const m = g.mark, hit = m ? g.others.filter(([, r]) => m.x < r.r && r.x < m.r && m.y < r.b && r.y < m.b).map(([s]) => s) : [];
+  check(`${label}: the version mark reads like a version, stands in the lower right corner of the window, and overlaps nothing`,
+    !!m && /^v\d+\.\d+\.\d+ · ([0-9a-f]{7}\+?|dev)$/.test(g.text ?? '') && m.x >= 0 && m.y >= 0 && m.r <= g.w + 1 && m.b <= g.h + 1 && m.r > g.w * 0.5 && m.y > g.h * 0.9 && hit.length === 0,
+    `${g.text}; mark ${m ? `${Math.round(m.x)},${Math.round(m.y)}..${Math.round(m.r)},${Math.round(m.b)}` : 'missing'} of ${g.w}x${g.h}${hit.length ? `; overlaps ${hit.join(', ')}` : ''}`);
+}
+
 async function plainPage(lang) {
   const L = lang === 'pl' ? { rooms: 'Pokoje', total: 'Razem', area: '13,4 m²', dim: ['szer.', 'głęb.', 'wys.'] } : { rooms: 'Rooms', total: 'Total', area: '13.4 m²', dim: ['width', 'depth', 'height'] };
   await open(`lang=${lang}&q=low&live=1`);
   check(`${lang}: the plain page has the hooks of the card, none of the editor, and no editor sheet`, await ev(`!!window.__info && !window.__edit && !document.querySelector('.psp-root') && !!document.getElementById('ps-dock')`));
   const btn = await ev(`(() => { const b = document.querySelector('#ps-ui button.tool[data-tool="rooms"]'); return b ? { text: b.textContent, pressed: b.getAttribute('aria-pressed') } : null; })()`);
   check(`${lang}: the Rooms button is in the bar, not pressed, and the card and the list are hidden`, btn && btn.text === L.rooms && btn.pressed === 'false' && !(await rectOf('#ps-piece-card')).shown && !(await rectOf('#ps-rooms')).shown, JSON.stringify(btn));
+  await markCheck(lang);
   const home = await cam();
 
   // the card
@@ -275,6 +290,7 @@ async function smallWindows() {
     const where = `window ${g.w}x${g.h}, bar from ${Math.round(g.bar.y)}, card ${num(g.card)}, list ${num(g.list)}`;
     check(`${name}: the page publishes the height of the control bar (--ps-stack-h)`, Math.abs(g.stack - Math.round(g.h - g.bar.y)) <= 1, `${g.stack} px; ${where}`);
     check(`${name}: the Rooms button is not under the card or the list`, g.free, where);
+    await markCheck(name);
     check(`${name}: the list is open${p ? ' with the card' : ''}`, !!g.list && (!p || !!g.card), where);
     check(`${name}: the list ends above the control bar`, !g.list || g.list.b <= g.bar.y + 1 || !strict, where);
     check(`${name}: the card ends above the control bar`, !g.card || g.card.b <= g.bar.y + 1 || !strict, where);
@@ -334,7 +350,7 @@ async function otherModes() {
   await send('Page.navigate', { url: 'about:blank' }); await sleep(300);
   await send('Page.navigate', { url: `${page}#lang=en&q=low&live=1&ui=0` });
   await waitFor(`document.readyState === 'complete' && !!document.querySelector('canvas')`, 60000, 'the page without controls'); await sleep(1500);
-  check('ui=0 leaves the picture alone: no dock, no card hook, no bar', await ev(`!document.getElementById('ps-dock') && !window.__info && !document.getElementById('ps-ui')`));
+  check('ui=0 leaves the picture alone: no dock, no card hook, no bar, no version mark', await ev(`!document.getElementById('ps-dock') && !window.__info && !document.getElementById('ps-ui') && !document.getElementById('ps-version')`));
   // the editor: no card, no dock, no button, and a tap still selects a piece
   await open('lang=en&q=low&live=1&edit=1', `!!window.__edit`);
   check('edit=1 builds neither the dock nor the card hook, and the Rooms button leaves the bar', await ev(`!document.getElementById('ps-dock') && !window.__info && getComputedStyle(document.querySelector('#ps-ui button.tool[data-tool="rooms"]')).display === 'none'`));

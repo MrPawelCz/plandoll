@@ -64,6 +64,7 @@ function cameraFor(ext, aspect, mode, focus) {
 (async () => { // async because a share link is unpacked by the browser's own inflate, which is asynchronous, before the page is built
 try {
   const params = parseParams(location.hash, { language: navigator.language });
+  if (!partsOf(params).controls) document.getElementById('ps-version')?.remove(); // ui=0 leaves the picture alone, the version mark of the built page (tools/version.mjs) too
   // A share link (share=, see share.js) carries a layout and maybe a plan of the visitor's own. It is unpacked first and read below with the same checks as a loaded file;
   // what cannot be read is left out, and startNotes says so once the page stands.
   const startNotes = []; // [kind, detail]
