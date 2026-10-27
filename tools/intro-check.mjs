@@ -1,10 +1,10 @@
 // The intro of the page in a real browser (headless Chrome, software GL), with real input. A page that opens with the loading icon (plain CSS) shows data-intro "loading", then "playing"
-// when the first frame is drawn and "done" when the story is over; the first model builds itself in at most 8 seconds: an empty plan, walls, windows and doors, furniture room by room with a
-// counter ("piece N of M" / "mebel N z M") up to M of M, the words in the language of the page, the camera coming down to the view the page starts in. The check runs the story in real time and
-// then holds it at chosen moments (window.__intro.seek) to read the words and to take four screenshots, compares the last frame of the intro with the first frame after it (no jump) and with the
+// when the first frame is drawn and "done" when the story is over; the first model builds itself in at most 8 seconds: an empty plan, walls, windows and doors, furniture room by room, the pieces landed
+// counting up to M of M (window.__intro.counts), no caption on the picture, the camera coming down to the view the page starts in. The check runs the story in real time and
+// then holds it at chosen moments (window.__intro.seek) to read the screen and to take four screenshots, compares the last frame of the intro with the first frame after it (no jump) and with the
 // page without an intro (the scene after the intro is the usual scene), and tries every way of ending or avoiding it: a touch or a click on the picture and on the control bar (nothing else
 // happens), a key (Space does not open the shell), the wheel (it does not zoom), intro=0, a request for less motion, the editor, ui=0, live=1, a frame rate that is too low. It also checks that
-// the words keep clear of the marks of a page in its corners (#pd-brand and #pd-privacy of plandoll.com, when the page has them) and that the page makes no request of its own.
+// the line to skip keeps clear of the marks of a page in its corners (#pd-brand and #pd-privacy of plandoll.com, when the page has them) and that the page makes no request of its own.
 //   node tools/intro-check.mjs [--html dist/plandoll.html | --html https://host/path/] [--out DIR] [--timeout 900] [--phone] [--q low|medium|high] [--only real,held,jump,skips,modes,plans,resized,slow,stuck]
 // --q sets the quality of the page under test (default low, which the software renderer can bear), --only runs some of the parts (the names above) instead of all of them.
 // --phone runs a touch window of 390 x 844 at scale 2. On a small machine run it under the Chrome lock (one browser at a time). CHROME names the browser (chrome-headless-shell is fine).
@@ -150,13 +150,13 @@ const stateNow = () => ev(`({ intro: document.body.dataset.intro, end: document.
 const logOf = () => ev(`JSON.stringify(window.__introLog)`).then(JSON.parse);
 const waitDone = (ms = 40000) => waitFor(`document.body.dataset.intro === 'done'`, ms, 'the end of the intro');
 const barOpacity = () => ev(`getComputedStyle(document.getElementById('ps-ui')).opacity`).then(Number);
-const hookWords = (lang) => (lang === 'pl'
-  ? { chips: ['PUSTY RZUT', 'ŚCIANY', 'OKNA I DRZWI', 'MEBLE', 'GOTOWE'], skip: 'Dotknij, aby pominąć', count: (n, m) => `mebel ${n} z ${m}`, loading: 'Wczytywanie' }
-  : { chips: ['EMPTY PLAN', 'WALLS', 'WINDOWS AND DOORS', 'FURNITURE', 'READY'], skip: 'Tap to skip', count: (n, m) => `piece ${n} of ${m}`, loading: 'Loading' });
-// the words on the screen now
+const hookWords = (lang) => (lang === 'pl' ? { skip: 'Dotknij, aby pominąć', loading: 'Wczytywanie' } : { skip: 'Tap to skip', loading: 'Loading' });
+// the words on the screen now: the line to skip, and any other text that the intro has put on the picture (there must be none: extra lists it)
 const words = () => ev(`(() => { const t = (id) => { const n = document.getElementById(id); return n && getComputedStyle(n).display !== 'none' ? n.textContent : null; };
   const o = (id) => { const n = document.getElementById(id); return n ? Number(getComputedStyle(n).opacity) : null; };
-  return { chip: t('ps-intro-chip'), count: t('ps-intro-count'), hint: t('ps-intro-hint'), hintOpacity: o('ps-intro-hint'), chipOpacity: o('ps-intro-chip') }; })()`);
+  const root = document.getElementById('ps-intro');
+  const extra = root ? Array.from(root.querySelectorAll('*')).filter((n) => n.id !== 'ps-intro-hint' && n.id !== 'ps-intro-shield' && (n.textContent || '').trim() !== '').map((n) => n.id || n.className || n.tagName) : [];
+  return { hint: t('ps-intro-hint'), hintOpacity: o('ps-intro-hint'), extra, kids: root ? root.children.length : 0 }; })()`);
 // where the closed model lands in the picture (px): every corner of its box must be inside the window
 const projectCorners = () => ev(`(() => { const p = window.__shell && window.__shell.project(); if (!p) return null; return JSON.stringify({ w: p.w, h: p.h, pts: p.pts.filter((q) => q.kind === 'closed') }); })()`).then((s) => (s ? JSON.parse(s) : null));
 const insideWindow = (p) => p.pts.every((q) => q.x >= 0 && q.x <= p.w && q.y >= 0 && q.y <= p.h);
@@ -171,15 +171,13 @@ async function realTime(lang) {
   check(`${name}: the page starts as "loading" with the loading icon on screen`, first && first.s === 'loading' && first.loader === true, JSON.stringify(first));
   const READ = `JSON.stringify((() => { const t = (id) => { const n = document.getElementById(id); return n && getComputedStyle(n).display !== 'none' ? n.textContent : null; };
     const o = (id) => { const n = document.getElementById(id); return n ? Number(getComputedStyle(n).opacity) : null; };
-    return { s: document.body.dataset.intro, end: document.body.dataset.introEnd, t: window.__intro.t, chip: t('ps-intro-chip'), count: t('ps-intro-count'), hint: t('ps-intro-hint'), hintOpacity: o('ps-intro-hint'),
+    return { s: document.body.dataset.intro, end: document.body.dataset.introEnd, t: window.__intro.t, placed: window.__intro.counts.placed, text: (document.getElementById('ps-intro') || { textContent: '' }).textContent, hint: t('ps-intro-hint'), hintOpacity: o('ps-intro-hint'),
       bar: o('ps-ui'), shield: !!document.getElementById('ps-intro-shield'), root: !!document.getElementById('ps-intro'), loader: !!document.getElementById('ps-loading') }; })())`;
-  const samples = [], seen = [], counts = [];
-  const t0 = Date.now(); let lastText = null;
+  const samples = [];
+  const t0 = Date.now();
   while (Date.now() - t0 < 60000) {
     const r = JSON.parse(await ev(READ));
     samples.push(r);
-    if (r.chip && r.chip !== lastText) { seen.push(r.chip); lastText = r.chip; }
-    if (r.count) counts.push(r.count);
     if (r.s === 'done') break;
     await sleep(50);
   }
@@ -195,13 +193,13 @@ async function realTime(lang) {
   const span = (done.t - play.t) / 1000;
   check(`${name}: it plays for at most 8 seconds (${span.toFixed(1)} s from the first frame to "done")`, span <= 8.6 && span >= 4, `total ${tlinfo.total.toFixed(2)} s, ${tlinfo.pieces} pieces`);
   check(`${name}: the control bar is hidden while it plays (${playingNow.length} readings)`, playingNow.length > 0 && playingNow.every((r) => r.bar === 0), JSON.stringify(playingNow.filter((r) => r.bar !== 0).slice(0, 2)));
-  check(`${name}: the words that were on screen came in order, in the language of the page, and the last was ${T.chips[4]} (the software renderer draws a frame a second or so: a few words are missed between two frames)`, seen.length >= 2 && seen[seen.length - 1] === T.chips[4] && seen.every((t, i) => T.chips.indexOf(t) >= 0 && (i === 0 || T.chips.indexOf(t) > T.chips.indexOf(seen[i - 1]))), seen.join(' > '));
+  check(`${name}: no caption is on the picture at any reading: the only text of the intro is "${T.skip}" (${samples.length} readings)`, samples.every((r) => !r.root || r.text === '' || r.text === T.skip), JSON.stringify(samples.filter((r) => r.root && r.text !== '' && r.text !== T.skip).slice(0, 2).map((r) => r.text)));
   const hints = samples.filter((r) => r.hint && r.hintOpacity > 0.3);
   check(`${name}: "${T.skip}" is on screen for the first seconds`, hints.length > 0 && hints[0].hint === T.skip, hints[0]?.hint ?? 'never seen');
-  const nums = counts.map((c) => Number(/\d+/.exec(c)[0]));
-  check(`${name}: the counter counts up only, in the language of the page, and says M for the total (${tlinfo.pieces})`, counts.length > 0 && nums.every((n, i) => i === 0 || n >= nums[i - 1]) && counts.every((c) => c === T.count(Number(/\d+/.exec(c)[0]), tlinfo.pieces)), `${counts[0] ?? ''} ... ${counts[counts.length - 1] ?? ''} (${counts.length} readings)`);
+  const placed = samples.filter((r) => r.s === 'playing').map((r) => r.placed);
+  check(`${name}: the pieces landed count up only, never past ${tlinfo.pieces} (${placed[0] ?? ''} ... ${placed[placed.length - 1] ?? ''} in ${placed.length} readings)`, placed.length > 0 && placed.every((n, i) => n <= tlinfo.pieces && (i === 0 || n >= placed[i - 1])), JSON.stringify(placed.slice(-3)));
   const end = await stateNow();
-  check(`${name}: it ends as "finished": the words and the shield are gone, the icon too`, end.intro === 'done' && end.end === 'finished' && end.reason === 'finished' && !end.root && !end.shield && !end.loader, JSON.stringify(end));
+  check(`${name}: it ends as "finished": the line to skip and the shield are gone, the icon too`, end.intro === 'done' && end.end === 'finished' && end.reason === 'finished' && !end.root && !end.shield && !end.loader, JSON.stringify(end));
   const faded = await waitFor(`Number(getComputedStyle(document.getElementById('ps-ui')).opacity) === 1`, 5000, 'the control bar to fade in').then(() => true, () => false);
   check(`${name}: the control bar fades in`, faded, faded ? '' : String(await barOpacity()));
   await shot(`${lang}-after-the-intro`);
@@ -226,8 +224,7 @@ async function held(lang) {
   const got = [];
   for (const [t, label] of moments) {
     const r = await at(t); got.push({ t, label, r });
-    const wantChip = T.chips[['EMPTY', 'WALLS', 'OPENINGS', 'FURNITURE', 'READY'].indexOf(label)];
-    check(`${name}: at ${t.toFixed(1)} s the word is ${wantChip}`, r.w.chip === wantChip, r.w.chip);
+    check(`${name}: at ${t.toFixed(1)} s no caption is on the picture (the shield and the line to skip are all there is)`, r.w.extra.length === 0 && r.w.kids === 2, JSON.stringify(r.w));
     const p = await projectCorners();
     if (p) check(`${name}: at ${t.toFixed(1)} s the whole closed model is inside the window`, insideWindow(p), JSON.stringify(p.pts.filter((q) => q.x < 0 || q.x > p.w || q.y < 0 || q.y > p.h).slice(0, 2)));
     if (label === 'WALLS' || label === 'FURNITURE') await shot(`${lang}-${label.toLowerCase()}`);
@@ -237,10 +234,10 @@ async function held(lang) {
   const strays = [];
   for (const t of fitMoments) { await at(t); const p = await projectCorners(); if (p && !insideWindow(p)) strays.push(`${t} s: ${JSON.stringify(p.pts.filter((q) => q.x < 0 || q.x > p.w || q.y < 0 || q.y > p.h).slice(0, 1).map((q) => [Math.round(q.x), Math.round(q.y)]))}`); }
   check(`${name}: the whole closed model stays inside the window on the way (${fitMoments.length} more moments)`, strays.length === 0, strays.join(', '));
-  check(`${name}: no counter before the furniture, and the counter says "${T.count(0, M)}" or more when it comes`, got[0].r.w.count === null && got[1].r.w.count === null && got[2].r.w.count === null && got[3].r.w.count !== null);
-  const mid = Number(/\d+/.exec(got[3].r.w.count)[0]);
-  check(`${name}: at 3.6 s the counter is in the middle of the story (${got[3].r.w.count})`, mid > 0 && mid < M && got[3].r.w.count === T.count(mid, M));
-  check(`${name}: at Ready the counter says ${T.count(M, M)}`, got[4].r.w.count === T.count(M, M), got[4].r.w.count);
+  check(`${name}: no piece has landed before the furniture part (0 of ${M} until 1.9 s)`, got[0].r.counts.placed === 0 && got[1].r.counts.placed === 0 && got[2].r.counts.placed === 0, JSON.stringify(got.slice(0, 3).map((g) => g.r.counts)));
+  const mid = got[3].r.counts.placed;
+  check(`${name}: at 3.6 s the furniture is in the middle of its story (${mid} of ${M} landed)`, mid > 0 && mid < M && got[3].r.counts.total === M, JSON.stringify(got[3].r.counts));
+  check(`${name}: when the camera has arrived all ${M} pieces have landed`, got[4].r.counts.placed === M && got[4].r.counts.total === M, JSON.stringify(got[4].r.counts));
   check(`${name}: the camera starts above the plan (tilt 13) and has come down to the same view at Ready`, Math.abs(got[0].r.cam.pol - 13) < 0.6 && got[4].r.cam.pol > 40 && got[3].r.cam.pol < got[4].r.cam.pol);
   const hint = got[0].r.w;
   check(`${name}: the line to skip is "${T.skip}"`, hint.hint === T.skip, hint.hint);
@@ -250,12 +247,12 @@ async function held(lang) {
     let clash = [];
     for (const [t] of moments) {
       await at(t);
-      for (const sel of ['#ps-intro-chip', '#ps-intro-count', '#ps-intro-hint']) {
+      for (const sel of ['#ps-intro-hint']) {
         const r = await rectOf(sel);
         if (r && r.shown && Number(r.opacity) > 0.05) for (const [nm, m] of [['brand', await rectOf('#pd-brand')], ['privacy', await rectOf('#pd-privacy')]]) if (m && overlap(r, m)) clash.push(`${sel} over ${nm} at ${t}`);
       }
     }
-    check(`${name}: the words keep clear of #pd-brand and #pd-privacy`, !clash.length && !!brand && !!priv, clash.join('; ') || `brand ${JSON.stringify(brand && [brand.x | 0, brand.y | 0, brand.r | 0, brand.b | 0])}, privacy ${JSON.stringify(priv && [priv.x | 0, priv.y | 0, priv.r | 0, priv.b | 0])}`);
+    check(`${name}: the line to skip keeps clear of #pd-brand and #pd-privacy`, !clash.length && !!brand && !!priv, clash.join('; ') || `brand ${JSON.stringify(brand && [brand.x | 0, brand.y | 0, brand.r | 0, brand.b | 0])}, privacy ${JSON.stringify(priv && [priv.x | 0, priv.y | 0, priv.r | 0, priv.b | 0])}`);
     const icon = await ev(`(() => { const a = document.createElement('div'); a.id = 'ps-loading'; document.body.appendChild(a); const r = a.getBoundingClientRect(), c = getComputedStyle(a); const o = { x: r.left, y: r.top, r: r.right, b: r.bottom, w: r.width, h: r.height, pos: c.position }; a.remove(); return o; })()`);
     check(`${name}: the loading icon (28 px, in the middle) is clear of the marks too`, Math.abs(icon.w - 28) < 1 && Math.abs(icon.x + icon.w / 2 - W / 2) < 1 && !(brand && overlap({ ...icon, shown: true }, brand)) && !(priv && overlap({ ...icon, shown: true }, priv)), JSON.stringify(icon));
   }
@@ -381,8 +378,8 @@ async function otherPlans(lang) {
   const tl = JSON.parse(await ev(`JSON.stringify(window.__intro.timeline)`));
   check(`${name}: the duplex plays too, within 8 seconds (${tl.pieces} pieces, ${tl.total.toFixed(2)} s)`, tl.total <= 8.0001 && tl.total >= 4.2 && tl.pieces > 0);
   await ev(`window.__intro.seek(${tl.total - 0.05})`); await sleep(400);
-  const w = await words();
-  check(`${name}: the counter says M of M at the end`, w.count === hookWords(lang).count(tl.pieces, tl.pieces), w.count);
+  const landed = JSON.parse(await ev(`JSON.stringify(window.__intro.counts)`));
+  check(`${name}: all the pieces have landed at the end (${landed.placed} of ${landed.total}, ${tl.pieces} expected)`, landed.placed === tl.pieces && landed.total === tl.pieces, JSON.stringify(landed));
   await ev(`window.__intro.seek(${tl.total + 1})`); await waitDone(20000);
   check(`${name}: and the duplex ends in the usual state`, (await stateNow()).end === 'finished' && await ev(`window.__floors.count === 2 && window.__floors.get() === 'all'`));
   // a link names its own view: the intro ends there

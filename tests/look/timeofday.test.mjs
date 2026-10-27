@@ -76,8 +76,8 @@ test('colour helpers round-trip', () => {
 });
 
 test('presets: three own names, none of the old identifiers, text in two languages without long dashes', () => {
-  assert.deepEqual([...PRESET_NAMES], ['amber', 'clear', 'lamplit']);
-  assert.deepEqual(Object.keys(PRESETS), ['amber', 'clear', 'lamplit']);
+  assert.deepEqual([...PRESET_NAMES], ['clear', 'amber', 'lamplit']);
+  assert.deepEqual(Object.keys(PRESETS).sort(), [...PRESET_NAMES].sort(), 'the same three moods, by the same ids');
   assert.ok(!JSON.stringify(PRESETS).match(/cozy|bright|moody|mood/i));
   for (const n of PRESET_NAMES) {
     const p = PRESETS[n];
@@ -86,8 +86,9 @@ test('presets: three own names, none of the old identifiers, text in two languag
     assert.ok(!('blurb' in p), 'a mood has no description line: it went stale when the time of day moved');
     for (const hex of [...p.swatch, ...Object.values(p.palette).flat()]) assert.match(hex, /^#[0-9a-f]{6}$/i);
   }
-  assert.deepEqual(['Amber', 'Clear', 'Lamplit'], PRESET_NAMES.map((n) => presetLabel(n, 'en')));
-  assert.deepEqual(['Bursztyn', 'Jasno', 'Lampy'], PRESET_NAMES.map((n) => presetLabel(n, 'pl')));
+  assert.deepEqual(['clear', 'amber', 'lamplit'], [...PRESET_NAMES], 'the order of the buttons is the order of the day');
+  assert.deepEqual(['Day', 'Sunset', 'Night'], PRESET_NAMES.map((n) => presetLabel(n, 'en')));
+  assert.deepEqual(['Dzień', 'Zachód', 'Noc'], PRESET_NAMES.map((n) => presetLabel(n, 'pl')));
   assert.equal(getPreset('nonsense').id, 'amber'); assert.equal(isPreset('cozy'), false);
 });
 

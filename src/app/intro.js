@@ -1,6 +1,6 @@
 // The intro of the plain page: when the page has drawn its first frame the first model builds itself in front of the visitor. The plan is empty, the walls rise, the windows
-// and the doors come, then the furniture drops in room by room with a counter, and the camera comes down from above to the view the page starts with. Pure functions, no DOM and
-// no three.js, tested in Node; src/render/buildup.js moves the scene by them and src/app/introview.js draws the words and takes the skip.
+// and the doors come, then the furniture drops in room by room, and the camera comes down from above to the view the page starts with. Pure functions, no DOM and
+// no three.js, tested in Node; src/render/buildup.js moves the scene by them and src/app/introview.js draws the line to skip and takes the skip.
 // Everything is a function of the time t in seconds since the intro began (never of the number of frames drawn), so a slow device shows the same story, not a longer one.
 // The whole intro lasts at most INTRO.maxS seconds; a plan with fewer or more pieces than the example scales the furniture part, between a floor and a ceiling.
 
@@ -9,7 +9,7 @@ export const INTRO = Object.freeze({
   minS: 4.2, // and the shortest, so that a plan with little furniture does not flash by
   failsafeS: 15, // the page ends the intro by itself after this many seconds, whatever went wrong
   hintS: 3.5, // how long "Tap to skip" stays
-  fadeS: 0.35, // the words fade out and the control bar fades in over this time
+  fadeS: 0.35, // the control bar fades in over the last this many seconds of the intro
   minFps: 15, // below this many frames a second over a second the intro jumps to its end
   azSweep: 24, // degrees the camera turns round the model on its way down
   fromPolar: 13, // the first view looks almost straight down (the camera keeps 12 degrees at least)
@@ -20,7 +20,7 @@ export const INTRO = Object.freeze({
   perPiece: 0.1029, // seconds of the furniture part for each piece (35 pieces take 3.6 s)
   furnitureMin: 1.3, furnitureMax: 4.6,
   piece: Object.freeze({ dropH: 0.9, fall: 0.22, bounce: 0.16, pop: 0.3, roomGap: 0.1, accel: 0.45 }),
-  hold: 1.0, // seconds of "Ready" before the end
+  hold: 1.0, // seconds the finished model rests before the end
 });
 
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
@@ -40,19 +40,20 @@ export function introWanted(params, env = {}) {
 }
 
 // ---------- the words ----------
+// Two lines only: "Tap to skip" and the label of the loading icon. The picture carries no caption of its own: the names of the stages (EMPTY PLAN, WALLS, WINDOWS AND DOORS,
+// FURNITURE, READY) and the counter ("piece 7 of 35") of the first version were taken away on request (27 October 2026): everybody sees what is being built, and the words
+// only took the eye off it.
 export const INTRO_TEXT = Object.freeze({
-  en: Object.freeze({ chips: Object.freeze({ empty: 'EMPTY PLAN', walls: 'WALLS', openings: 'WINDOWS AND DOORS', furniture: 'FURNITURE', ready: 'READY' }), piece: 'piece', of: 'of', skip: 'Tap to skip', loading: 'Loading' }),
-  pl: Object.freeze({ chips: Object.freeze({ empty: 'PUSTY RZUT', walls: 'ŚCIANY', openings: 'OKNA I DRZWI', furniture: 'MEBLE', ready: 'GOTOWE' }), piece: 'mebel', of: 'z', skip: 'Dotknij, aby pominąć', loading: 'Wczytywanie' }),
+  en: Object.freeze({ skip: 'Tap to skip', loading: 'Loading' }),
+  pl: Object.freeze({ skip: 'Dotknij, aby pominąć', loading: 'Wczytywanie' }),
 });
 export const introText = (lang) => INTRO_TEXT[lang === 'pl' ? 'pl' : 'en'];
-// The counter in words: "piece 7 of 35" / "mebel 7 z 35".
-export const counterText = (lang, n, m) => { const T = introText(lang); return `${T.piece} ${n} ${T.of} ${m}`; };
 
 // ---------- the timeline ----------
 // pieces: how many pieces of furniture the picture shows when the intro is over. Returns the times (seconds) of every stage:
 //   walls / openings: { start, wave, dur, power } as in INTRO (a wall starts at start + wave * its place in the wave and takes dur to rise),
-//   furniture: { start, end } (end is when the last piece has landed), chips: [{ t, key }] the words in the corner, counterFrom: when the counter shows (null: no furniture),
-//   readyAt: when "Ready" shows and the camera has arrived, total: when the intro ends (INTRO.minS to INTRO.maxS).
+//   furniture: { start, end } (end is when the last piece has landed),
+//   readyAt: when the camera has arrived and the model stands complete, total: when the intro ends (INTRO.minS to INTRO.maxS).
 export function introTimeline(pieces) {
   const n = Math.max(0, Math.floor(Number(pieces)) || 0);
   const W = INTRO.walls, O = INTRO.openings, fStart = INTRO.furnitureStart;
@@ -60,30 +61,9 @@ export function introTimeline(pieces) {
   const fEnd = n ? fStart + span : fStart;
   const readyAt = n ? fEnd + 0.1 : O.start + O.wave + O.dur + 0.1;
   const total = clamp(readyAt + INTRO.hold, INTRO.minS, INTRO.maxS);
-  const chips = [{ t: 0, key: 'empty' }, { t: W.start, key: 'walls' }, { t: O.start, key: 'openings' }];
-  if (n) chips.push({ t: fStart, key: 'furniture' });
-  chips.push({ t: readyAt, key: 'ready' });
-  return { pieces: n, walls: { ...W }, openings: { ...O }, furniture: { start: fStart, end: fEnd }, chips, counterFrom: n ? fStart - 0.1 : null, readyAt, total };
+  return { pieces: n, walls: { ...W }, openings: { ...O }, furniture: { start: fStart, end: fEnd }, readyAt, total };
 }
 
-// The word in the corner at time t: the last chip whose time has come, with the time it came ({ t, key }), or null before the first.
-export function chipAt(t, tl) {
-  let out = null;
-  for (const c of tl.chips) if (t >= c.t) out = c;
-  return out;
-}
-// How the word looks: it pops in over 0.22 s (the first one is there from the start); the last one fades out with the intro.
-export function chipLook(t, chip, first, tl) {
-  if (!chip) return { show: false, opacity: 0, scale: 1 };
-  const k = (t - chip.t) / 0.22;
-  const out = clamp01((tl.total - t) / INTRO.fadeS);
-  return { show: true, opacity: (first ? 1 : clamp01((t - chip.t) / 0.07)) * out, scale: first ? 1 : 0.55 + 0.45 * backOut(k) };
-}
-export function counterLook(t, tl) {
-  if (tl.counterFrom === null || t < tl.counterFrom) return { show: false, opacity: 0, scale: 1 };
-  const out = clamp01((tl.total - t) / INTRO.fadeS);
-  return { show: true, opacity: clamp01((t - tl.counterFrom) / 0.08) * out, scale: 0.5 + 0.5 * backOut((t - tl.counterFrom) / 0.26) };
-}
 // The "Tap to skip" line: there for the first INTRO.hintS seconds, faded in and out.
 export const hintOpacity = (t) => clamp01(t / 0.4) * clamp01((INTRO.hintS - t) / 0.4);
 // 0 before the intro ends, 1 after: how far the control bar has come back (it fades in over the last INTRO.fadeS seconds of the intro).
@@ -100,7 +80,7 @@ export function waveOf(x, z, ext) {
 
 // ---------- the furniture ----------
 // starts: the time every piece lands, in the order of the pieces. first[i] is true for the first piece of a room (a little pause before it). The spacing shrinks along the
-// sequence, so the counter speeds up; the last piece lands at furniture.end.
+// sequence, so the pieces come faster and faster; the last piece lands at furniture.end.
 export function pieceStarts(first, tl) {
   const n = first.length, P = INTRO.piece;
   if (!n) return [];
@@ -151,7 +131,7 @@ export function cameraAt(t, tl, from, to) {
   return { azimuth: from.azimuth + (to.azimuth - from.azimuth) * sine(k), polar: from.polar + (to.polar - from.polar) * sine(kp), distance: from.distance + (to.distance - from.distance) * k };
 }
 // How far the picture has been moved up to leave room for the control bar, as a share of what the page's starting view has (0 to 1): the control bar is not there while the intro plays, so the model
-// stands in the middle of the window, and it glides up into its place in the second half of the way down, as the bar is about to come back. It is exactly 1 at Ready.
+// stands in the middle of the window, and it glides up into its place in the second half of the way down, as the bar is about to come back. It is exactly 1 when the camera has arrived.
 export function liftAt(t, tl) {
   return smooth((t - tl.readyAt * 0.5) / (tl.readyAt * 0.5));
 }

@@ -1,9 +1,9 @@
-// The story of the intro (intro.js): whether it runs, the words in both languages, the timeline for any number of pieces, how a piece drops and settles, the camera on its way down,
+// The story of the intro (intro.js): whether it runs, the two lines of words in both languages, the timeline for any number of pieces, how a piece drops and settles, the camera on its way down,
 // the frame-rate guard and the keys that skip. Pure functions, no browser.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  INTRO, introWanted, INTRO_TEXT, introText, counterText, introTimeline, chipAt, chipLook, counterLook, hintOpacity, wallRise, waveOf, pieceStarts, pieceMotion, pieceRank, pieceOrder,
+  INTRO, introWanted, INTRO_TEXT, introText, introTimeline, hintOpacity, wallRise, waveOf, pieceStarts, pieceMotion, pieceRank, pieceOrder,
   cameraAt, cameraFrom, liftAt, createFpsGuard, skipKey, keyLeftAlone, easeOut, backOut, smooth, sine,
 } from '../../src/app/intro.js';
 import { parseParams } from '../../src/app/params.js';
@@ -33,26 +33,21 @@ test('the intro belongs to the plain page: not the editor, not a picture without
   assert.equal(introWanted(null).run, false, 'no parameters, no intro');
 });
 
-test('the words are the ones that were asked for, in both languages, with no long dash', () => {
-  assert.deepEqual(INTRO_TEXT.pl.chips, { empty: 'PUSTY RZUT', walls: 'ŚCIANY', openings: 'OKNA I DRZWI', furniture: 'MEBLE', ready: 'GOTOWE' });
-  assert.deepEqual(INTRO_TEXT.en.chips, { empty: 'EMPTY PLAN', walls: 'WALLS', openings: 'WINDOWS AND DOORS', furniture: 'FURNITURE', ready: 'READY' });
+test('the words are the two that remain, in both languages, with no long dash; the stage names and the counter are gone', () => {
+  assert.deepEqual(Object.keys(INTRO_TEXT.pl).sort(), ['loading', 'skip']);
+  assert.deepEqual(Object.keys(INTRO_TEXT.en).sort(), ['loading', 'skip']);
   assert.equal(INTRO_TEXT.pl.skip, 'Dotknij, aby pominąć');
   assert.equal(INTRO_TEXT.en.skip, 'Tap to skip');
   assert.equal(INTRO_TEXT.pl.loading, 'Wczytywanie');
   assert.equal(INTRO_TEXT.en.loading, 'Loading');
-  assert.equal(counterText('pl', 7, 35), 'mebel 7 z 35');
-  assert.equal(counterText('en', 7, 35), 'piece 7 of 35');
-  assert.equal(counterText('xx', 1, 2), 'piece 1 of 2', 'an unknown language is English');
   assert.equal(introText('pl'), INTRO_TEXT.pl); assert.equal(introText('de'), INTRO_TEXT.en);
   assert.ok(!LONG_DASH.test(JSON.stringify(INTRO_TEXT)));
 });
 
-test('the timeline of the example (35 pieces) is the one of the approved sample: seven seconds, the furniture from 2.3 to 5.9, Ready at 6.0', () => {
+test('the timeline of the example (35 pieces) is the one of the approved sample: seven seconds, the furniture from 2.3 to 5.9, the camera has arrived at 6.0', () => {
   const tl = introTimeline(35);
   close(tl.furniture.start, 2.3); close(tl.furniture.end, 5.9, 0.01); close(tl.readyAt, 6.0, 0.01); close(tl.total, 7.0, 0.01);
-  assert.deepEqual(tl.chips.map((c) => c.key), ['empty', 'walls', 'openings', 'furniture', 'ready']);
-  assert.deepEqual(tl.chips.slice(0, 4).map((c) => c.t), [0, 0.25, 1.6, 2.3]);
-  close(tl.counterFrom, 2.2);
+  assert.ok(!('chips' in tl) && !('counterFrom' in tl), 'the timeline names no words');
   assert.equal(tl.pieces, 35);
 });
 
@@ -60,36 +55,17 @@ test('whatever the plan, the intro lasts at least minS and at most maxS seconds,
   for (const n of [0, 1, 2, 5, 12, 35, 45, 46, 60, 120, 400, 5000, NaN, -3, 2.7, '40', undefined]) {
     const tl = introTimeline(n);
     assert.ok(tl.total >= INTRO.minS - 1e-9 && tl.total <= INTRO.maxS + 1e-9, `${n}: ${tl.total}`);
-    assert.ok(tl.readyAt <= tl.total, `${n}: Ready before the end`);
-    assert.ok(tl.furniture.end <= tl.readyAt + 1e-9, `${n}: the last piece lands before Ready`);
-    const ts = tl.chips.map((c) => c.t);
-    assert.deepEqual(ts, [...ts].sort((a, b) => a - b), `${n}: the words come in order`);
+    assert.ok(tl.readyAt <= tl.total, `${n}: the camera has arrived before the end`);
+    assert.ok(tl.furniture.end <= tl.readyAt + 1e-9, `${n}: the last piece lands before the camera has arrived`);
     assert.ok(tl.openings.start >= tl.walls.start && tl.furniture.start >= tl.openings.start, `${n}: walls, then openings, then furniture`);
   }
-  assert.equal(introTimeline(0).counterFrom, null, 'no furniture, no counter');
-  assert.ok(!introTimeline(0).chips.some((c) => c.key === 'furniture'), 'and no word for it');
+  assert.equal(introTimeline(0).furniture.end, introTimeline(0).furniture.start, 'no furniture, no furniture part');
   assert.ok(introTimeline(4).furniture.end - introTimeline(4).furniture.start >= INTRO.furnitureMin - 1e-9, 'a small plan does not flash by');
   assert.ok(introTimeline(5000).total <= INTRO.maxS + 1e-9);
   assert.ok(introTimeline(80).total > introTimeline(35).total - 1e-9, 'more pieces never make a shorter intro');
 });
 
-test('the word in the corner is the last one whose time has come, it pops in, and it fades with the end', () => {
-  const tl = introTimeline(35);
-  assert.equal(chipAt(0, tl).key, 'empty'); assert.equal(chipAt(0.24, tl).key, 'empty'); assert.equal(chipAt(0.25, tl).key, 'walls');
-  assert.equal(chipAt(1.7, tl).key, 'openings'); assert.equal(chipAt(3, tl).key, 'furniture'); assert.equal(chipAt(6.5, tl).key, 'ready');
-  assert.equal(chipAt(-1, tl), null);
-  const first = chipLook(0, chipAt(0, tl), true, tl);
-  assert.deepEqual([first.show, first.opacity, first.scale], [true, 1, 1], 'the first word is there from the start');
-  const pop = chipLook(1.6, chipAt(1.6, tl), false, tl);
-  assert.ok(pop.opacity === 0 && pop.scale < 0.6, 'a later word starts small and clear');
-  const set = chipLook(2.0, chipAt(2.0, tl), false, tl);
-  assert.ok(set.opacity === 1 && Math.abs(set.scale - 1) < 0.05);
-  const gone = chipLook(tl.total, chipAt(tl.total, tl), false, tl);
-  assert.equal(gone.opacity, 0, 'nothing is left of the word at the end');
-  assert.equal(chipLook(1, null, false, tl).show, false);
-  const c0 = counterLook(2.0, tl), c1 = counterLook(2.2, tl), c2 = counterLook(4, tl), c3 = counterLook(tl.total, tl);
-  assert.ok(!c0.show && c1.show && c2.opacity === 1 && c3.opacity === 0);
-  assert.equal(counterLook(3, introTimeline(0)).show, false);
+test('the line to skip is there for the first seconds only', () => {
   assert.ok(hintOpacity(0) === 0 && hintOpacity(1) === 1 && hintOpacity(INTRO.hintS) === 0 && hintOpacity(6) === 0, 'the line to skip is there for the first seconds only');
 });
 
@@ -117,7 +93,7 @@ test('the pieces land one after another: first at the start, the last at the end
   close(t[34] + INTRO.piece.fall + INTRO.piece.bounce, tl.furniture.end, 1e-9);
   for (let i = 1; i < 35; i++) assert.ok(t[i] > t[i - 1], `strictly later: ${i}`);
   const gap = (i) => t[i] - t[i - 1];
-  assert.ok(gap(5) > gap(30), 'the counter speeds up');
+  assert.ok(gap(5) > gap(30), 'the pieces come faster and faster');
   assert.ok(gap(12) > gap(11) && gap(12) > gap(13), 'a pause before the first piece of a room');
   assert.deepEqual(pieceStarts([], tl), []);
   assert.deepEqual(pieceStarts([true], tl), [tl.furniture.start]);

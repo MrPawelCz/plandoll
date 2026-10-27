@@ -30,15 +30,15 @@ test('controls: three mood buttons with own names, language switch, no old names
   const state = { preset: 'amber', t: 0.5, q: 'auto', lang: 'en' };
   const ui = createUI({ onPreset: (n) => calls.push(['preset', n]), onTime: (t) => calls.push(['t', t]), onQuality: (q) => calls.push(['q', q]), onLang: (l) => calls.push(['lang', l]) }, state, doc);
   const all = texts(ui.root);
-  for (const s of ['Amber', 'Clear', 'Lamplit', 'Time of day', '14:30', 'PL']) assert.ok(all.includes(s), s);
+  for (const s of ['Day', 'Sunset', 'Night', 'Time of day', '14:30', 'PL']) assert.ok(all.includes(s), s);
   ui.update({ lang: 'pl', preset: 'lamplit', t: 1 });
   const pl = texts(ui.root);
-  for (const s of ['Bursztyn', 'Jasno', 'Lampy', 'Pora dnia', '23:00', 'EN']) assert.ok(pl.includes(s), s);
+  for (const s of ['Dzień', 'Zachód', 'Noc', 'Pora dnia', '23:00', 'EN']) assert.ok(pl.includes(s), s);
   assert.ok(!pl.join(' ').match(/cozy|bright|moody|mood/i));
   const moods = ui.root.children.find((c) => c.className === 'moods').children;
   assert.equal(moods.length, 3);
   assert.deepEqual(moods.map((b) => b.attrs['aria-pressed']), ['false', 'false', 'true']);
-  moods[1].listeners.click(); assert.deepEqual(calls.at(-1), ['preset', 'clear']);
+  moods[0].listeners.click(); assert.deepEqual(calls.at(-1), ['preset', 'clear']);
   assert.equal(doc.documentElement.lang, 'pl');
 });
 

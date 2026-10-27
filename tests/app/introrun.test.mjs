@@ -51,7 +51,7 @@ test('begin() draws one frame with everything on show, then puts the empty plan 
   assert.deepEqual(r.log.slice(0, 5), ['prepare', `apply ${r.tl.total.toFixed(3)}`, 'render', 'apply 0.000', 'arm']);
   assert.equal(r.run.state, 'ready'); assert.equal(r.run.active, true);
   assert.deepEqual(r.cams[0], { azimuth: 35.5 - 24, polar: 13, distance: 18 }, 'the camera starts above, a little nearer');
-  assert.equal(r.looks[0].chip.key, 'empty'); assert.equal(r.looks[0].count.show, false);
+  assert.equal(r.looks[0].hint, 0, 'the line to skip comes in from nothing');
   assert.equal(r.states.length, 0, 'the page says "playing" itself, when the first frame is drawn');
   r.run.shown();
   assert.deepEqual(r.states, [['playing', undefined]]);
@@ -70,7 +70,7 @@ test('the clock begins with the first frame, not before (the page is still being
   assert.equal(r.states.filter(([s]) => s === 'playing').length, 1, 'said once');
 });
 
-test('the story plays to its end, the words and the counter follow the clock, and the end is announced once: scene put back first, then the page told', () => {
+test('the story plays to its end, the line to skip follows the clock, and the end is announced once: scene put back first, then the page told', () => {
   const r = rig();
   r.run.begin(); r.run.shown();
   r.advance(r.tl.total * 1000 + 200);
@@ -78,11 +78,9 @@ test('the story plays to its end, the words and the counter follow the clock, an
   const i = (s) => r.log.indexOf(s);
   assert.ok(i('build.finish') > 0 && i('build.finish') < i('view.end') && i('view.end') < i('finishScene') && i('finishScene') < i('state done finished'), r.log.slice(-8).join(' | '));
   assert.equal(count(r.log, 'finishScene'), 1); assert.equal(count(r.log, 'build.finish'), 1);
-  const keys = new Set(r.looks.map((l) => l.chip.key));
-  for (const k of ['empty', 'walls', 'openings', 'furniture', 'ready']) assert.ok(keys.has(k), `the word ${k} was shown`);
-  const counts = r.looks.filter((l) => l.count.show).map((l) => l.count.n);
-  assert.ok(counts.length > 50, 'the counter was drawn on many frames');
-  for (let k = 1; k < counts.length; k++) assert.ok(counts[k] >= counts[k - 1], 'and only counts up');
+  assert.ok(r.looks.length > 50, 'the line to skip was drawn on many frames');
+  assert.ok(r.looks.every((l) => Object.keys(l).join() === 'hint'), 'and nothing but the line to skip is ever drawn: no stage name, no counter');
+  assert.ok(r.looks.some((l) => l.hint === 1), 'it came in fully');
   assert.equal(r.lifts[0], 0, 'the picture starts in the middle of the window'); assert.equal(r.lifts[r.lifts.length - 1], 1, 'and ends where the page keeps it');
   for (let k = 1; k < r.lifts.length; k++) assert.ok(r.lifts[k] >= r.lifts[k - 1], 'it only goes up');
   const lastCamera = r.cams[r.cams.length - 1];

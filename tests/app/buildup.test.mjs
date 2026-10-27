@@ -149,7 +149,7 @@ test('a scene with no furniture and no openings still plays: walls only', () => 
   for (const g of s.furn.pieces.values()) g.visible = false;
   const info = s.build.prepare();
   assert.equal(info.pieces, 0);
-  assert.equal(info.timeline.counterFrom, null);
+  assert.equal(info.timeline.furniture.end, info.timeline.furniture.start, 'no pieces, no furniture part');
   assert.deepEqual(s.build.apply(info.timeline.total), { placed: 0, total: 0 });
   assert.equal(s.build.contact, null, 'no pieces, no contact mesh');
   s.build.finish();

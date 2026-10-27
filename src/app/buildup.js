@@ -88,7 +88,7 @@ export function createBuildUp({ ps, furn, layout, ext, scene, lamps = () => {} }
     place(m, c.y0, Math.max(Math.min(end.y1, H), c.y0 + 0.002)); m.visible = true;
   }
 
-  // Puts the scene at time t (seconds since the intro began). Returns { placed, total } for the counter.
+  // Puts the scene at time t (seconds since the intro began). Returns { placed, total }: how many pieces stand on the plan at that time, of how many.
   function apply(t) {
     if (!active) return { placed: 0, total: 0 };
     const W = tl.walls, O = tl.openings;

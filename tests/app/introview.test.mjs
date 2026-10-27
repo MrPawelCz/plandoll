@@ -1,4 +1,4 @@
-// The words and the skip of the intro (introview.js) against a small DOM stub: the word and the counter in both languages, the line to skip, and the shield that takes the first touch, key
+// The skip of the intro (introview.js) against a small DOM stub: the line to skip in both languages (and no other caption), and the shield that takes the first touch, key
 // or turn of the wheel (and the click that follows a touch) so that nothing else on the page sees it.
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -37,7 +37,7 @@ function makeWin() {
 }
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const LONG_DASH = new RegExp(`[${String.fromCharCode(0x2013, 0x2014)}]`);
-const look = (o = {}) => ({ chip: { show: true, key: 'walls', opacity: 1, scale: 1 }, count: { show: false, opacity: 0, scale: 1, n: 0, m: 0 }, hint: 0.5, ...o });
+const look = (o = {}) => ({ hint: 0.5, ...o });
 
 test('the view builds its own style once, a root that no pointer reaches except the shield, and says nothing to a screen reader', () => {
   const doc = makeDoc(), win = makeWin();
@@ -46,27 +46,23 @@ test('the view builds its own style once, a root that no pointer reaches except 
   const css = doc.getElementById(INTRO_STYLE_ID).textContent;
   assert.match(css, /#ps-intro\{position:fixed;inset:0;z-index:40;pointer-events:none/, 'the root lets everything through');
   assert.match(css, /#ps-intro-shield\{position:absolute;inset:0;pointer-events:auto/, 'and the shield takes it');
-  assert.match(css, /\.psi-hud\{position:absolute;top:14px;right:14px/, 'the words are in the top right corner, away from the marks of a page in the other corners');
+  assert.ok(!/psi-hud|psi-pill|ps-intro-chip|ps-intro-count/.test(css), 'no caption styles: the picture carries no words but the line to skip');
   assert.ok(!LONG_DASH.test(css) && !/fetch|XMLHttpRequest|localStorage|cookie/.test(css));
   assert.equal(a.element.attrs['aria-hidden'], 'true');
   createIntroView({ doc, win: makeWin(), lang: 'pl' });
   assert.equal(doc.head.children.filter((n) => n.id === INTRO_STYLE_ID).length, 1, 'the style is added once');
 });
 
-test('the word, the counter and the line to skip are drawn in the language of the page', () => {
-  for (const [lang, chip, count, skip] of [['pl', 'ŚCIANY', 'mebel 7 z 35', 'Dotknij, aby pominąć'], ['en', 'WALLS', 'piece 7 of 35', 'Tap to skip']]) {
+test('the line to skip is drawn in the language of the page, and nothing else on the picture carries words', () => {
+  for (const [lang, skip] of [['pl', 'Dotknij, aby pominąć'], ['en', 'Tap to skip'], ['de', 'Tap to skip']]) {
     const doc = makeDoc(), v = createIntroView({ doc, win: makeWin(), lang });
-    v.show(look({ count: { show: true, opacity: 0.5, scale: 0.8, n: 7, m: 35 } }));
-    assert.equal(doc.getElementById('ps-intro-chip').textContent, chip);
-    assert.equal(doc.getElementById('ps-intro-count').textContent, count);
-    assert.equal(doc.getElementById('ps-intro-hint').textContent, skip);
-    assert.equal(doc.getElementById('ps-intro-chip').style.opacity, '1'); assert.equal(doc.getElementById('ps-intro-count').style.transform, 'scale(0.8000)');
+    v.show(look());
+    assert.equal(doc.getElementById('ps-intro-hint').textContent, skip, lang === 'de' ? 'an unknown language is English' : lang);
     assert.equal(doc.getElementById('ps-intro-hint').style.opacity, '0.5');
-    v.show(look({ chip: { show: false, key: 'x', opacity: 0, scale: 1 } }));
-    assert.equal(doc.getElementById('ps-intro-chip').style.display, 'none'); assert.equal(doc.getElementById('ps-intro-count').style.display, 'none');
+    assert.deepEqual(v.text, { hint: skip });
+    assert.equal(doc.getElementById('ps-intro-chip'), null); assert.equal(doc.getElementById('ps-intro-count'), null);
+    assert.deepEqual(doc.getElementById('ps-intro').children.map((n) => n.id), ['ps-intro-shield', 'ps-intro-hint'], 'the shield and the line to skip are all there is');
   }
-  const doc = makeDoc(), v = createIntroView({ doc, win: makeWin(), lang: 'de' });
-  v.show(look()); assert.equal(doc.getElementById('ps-intro-chip').textContent, 'WALLS', 'an unknown language is English');
 });
 
 test('the first touch ends the intro and the page under it sees nothing; the click that follows goes nowhere; the shield stays until the touch is over', async () => {
@@ -115,7 +111,7 @@ test('the wheel ends the intro and does not zoom; the right button and the conte
   assert.equal(win.ls.length, 0); assert.equal(doc.getElementById('ps-intro'), null);
 });
 
-test('an intro that ends by itself takes the words and the shield away at once, and arm() after the end does nothing', () => {
+test('an intro that ends by itself takes the line to skip and the shield away at once, and arm() after the end does nothing', () => {
   const doc = makeDoc(), win = makeWin(), v = createIntroView({ doc, win, lang: 'en' });
   v.arm();
   assert.equal(win.count('pointerdown'), 1); assert.equal(win.count('keydown'), 1); assert.equal(win.count('wheel'), 1);

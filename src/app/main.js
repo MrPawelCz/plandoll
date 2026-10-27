@@ -901,7 +901,7 @@ try {
   addEventListener('keydown', (e) => {
     if (isFormTarget(e.target) || e.ctrlKey || e.metaKey || e.altKey) return; // typing a size in the panel must not change the mood or the time
     if (e.shiftKey && e.key === 'ArrowRight') setTime(S.t + 0.02); else if (e.shiftKey && e.key === 'ArrowLeft') setTime(S.t - 0.02);
-    else if (['1', '2', '3'].includes(e.key)) setPreset(['amber', 'clear', 'lamplit'][Number(e.key) - 1]);
+    else if (['1', '2', '3'].includes(e.key)) setPreset(['clear', 'amber', 'lamplit'][Number(e.key) - 1]); // the keys follow the buttons: Day, Sunset, Night
   });
   // Open shell: Space opens or closes it, Escape closes it (shellKey in shell.js decides: a held key counts once, a form field keeps both keys, a button or a link keeps Space).
   const onShellKey = (e) => {
@@ -1015,7 +1015,7 @@ try {
     startNoteText = words[kind] ?? words.link;
     sayLine(startNoteText, '', 9000);
   };
-  // ---------- the intro: the first model builds itself (intro.js has the story, buildup.js moves the scene, introview.js has the words and the skip, introrun.js the clock) ----------
+  // ---------- the intro: the first model builds itself (intro.js has the story, buildup.js moves the scene, introview.js has the line to skip, introrun.js the clock) ----------
   // Prepared here, before the first frame, so that the frame the visitor sees first is the empty plan; the clock starts with that frame (frame() above). It ends the
   // moment anything else needs the scene (a touch or a key, a slow device, a plan, a floor, the quality, a hook of a tool): intro.skip() or its own end. Then the pieces are merged and the
   // walls cut as on every page (finishScene), the camera is exactly where the page starts, and the control bar, which the style of the page keeps hidden until data-intro is done, fades in.
