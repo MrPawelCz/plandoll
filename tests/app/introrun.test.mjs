@@ -5,8 +5,9 @@ import assert from 'node:assert/strict';
 import { createIntroRun } from '../../src/app/introrun.js';
 import { introTimeline } from '../../src/app/intro.js';
 
-function rig({ pieces = 35, guard = false, failPrepare = false } = {}) {
+function rig({ pieces = 35, guard = false, failPrepare = false, boom = '' } = {}) {
   const log = [], tl = introTimeline(pieces);
+  const bang = (name) => { if (boom === name) throw new Error(`boom in ${name}`); }; // a step that throws, to see what the end does about it ('apply' throws on the frames of the run, not on the two calls of begin())
   let now = 0, id = 0, tid = 0;
   const frames = new Map(), timers = new Map();
   const r = {
@@ -14,10 +15,10 @@ function rig({ pieces = 35, guard = false, failPrepare = false } = {}) {
     build: {
       timeline: tl, active: false,
       prepare() { if (failPrepare) throw new Error('no scene'); log.push('prepare'); this.active = true; return { pieces }; },
-      apply(t) { log.push(`apply ${t.toFixed(3)}`); return { placed: Math.min(pieces, Math.floor((t / tl.total) * pieces)), total: pieces }; },
-      finish() { log.push('build.finish'); this.active = false; },
+      apply(t) { log.push(`apply ${t.toFixed(3)}`); if (boom === 'apply' && t > 1 && t < tl.total) throw new Error('boom in apply'); return { placed: Math.min(pieces, Math.floor((t / tl.total) * pieces)), total: pieces }; },
+      finish() { log.push('build.finish'); this.active = false; bang('build.finish'); },
     },
-    view: { arm() { log.push('arm'); }, show(look) { r.looks.push(look); }, end() { log.push('view.end'); }, dispose() { log.push('view.dispose'); } },
+    view: { arm() { log.push('arm'); }, show(look) { r.looks.push(look); }, end() { log.push('view.end'); bang('view.end'); }, dispose() { log.push('view.dispose'); } },
     looks: [], cams: [], lifts: [], states: [],
     run: null,
     // a clock that the test moves by hand: frames and timers run when it is advanced
@@ -37,7 +38,7 @@ function rig({ pieces = 35, guard = false, failPrepare = false } = {}) {
   r.run = createIntroRun({
     build: r.build, view: r.view, end: { azimuth: 35.5, polar: 50, distance: 20 }, guard,
     setCamera: (s) => r.cams.push(s), setLift: (k) => r.lifts.push(k), render: () => log.push('render'), invalidate: () => log.push('invalidate'), nextFrame: () => Promise.resolve(),
-    finishScene: () => log.push('finishScene'), setState: (s, why) => { r.states.push([s, why]); log.push(`state ${s} ${why ?? ''}`.trim()); },
+    finishScene: () => { log.push('finishScene'); bang('finishScene'); }, setState: (s, why) => { r.states.push([s, why]); log.push(`state ${s} ${why ?? ''}`.trim()); if (s === 'done') bang('setState'); },
     request: (f) => { frames.set(++id, f); return id; }, cancel: (h) => frames.delete(h), setTimeout: (f, ms) => { timers.set(++tid, { f, at: now + ms }); return tid; }, clearTimeout: (h) => timers.delete(h),
   });
   return r;
@@ -196,4 +197,33 @@ test('seek() holds the story at a time and ends it at the end, for a test tool',
   assert.equal(r.run.state, 'done'); assert.equal(r.run.reason, 'finished');
   assert.equal(await r.run.seek(1), false);
   assert.deepEqual(r.run.counts.total, 35);
+});
+
+test('a step of the end that throws does not keep the others from running: the scene is put right, the bar comes back, the page is told, and the reason is "error"', () => {
+  for (const boom of ['build.finish', 'view.end', 'finishScene']) {
+    const r = rig({ boom });
+    r.run.begin(); r.run.shown(); r.advance(1500);
+    assert.equal(r.run.skip('pointer'), true, boom);
+    assert.equal(r.run.state, 'done', boom); assert.equal(r.run.reason, 'error', boom);
+    for (const s of ['build.finish', 'view.end', 'finishScene']) assert.equal(count(r.log, s), 1, `${boom}: ${s} ran once`);
+    assert.deepEqual(r.states[r.states.length - 1], ['done', 'error'], `${boom}: the page is told`);
+    assert.ok(r.log.lastIndexOf('invalidate') > r.log.indexOf('state done error'), `${boom}: and asked for a frame`);
+    assert.equal(r.run.skip('key'), false, `${boom}: nothing ends it twice`);
+    const n = r.log.length; r.advance(30000);
+    assert.equal(r.log.length, n, `${boom}: nothing runs after the end, and the failsafe is gone`);
+  }
+  const r = rig({ boom: 'setState' }); // the page itself fails to take the news: the scene is right by then, and the run is over all the same
+  r.run.begin(); r.run.shown(); r.advance(1500);
+  assert.equal(r.run.skip('key'), true); assert.equal(r.run.state, 'done'); assert.equal(r.run.reason, 'skipped');
+  for (const s of ['build.finish', 'view.end', 'finishScene']) assert.equal(count(r.log, s), 1, s);
+});
+
+test('a frame that cannot be painted ends the intro at once with the reason "error" instead of freezing it half way', () => {
+  const r = rig({ boom: 'apply' });
+  r.run.begin(); r.run.shown();
+  assert.doesNotThrow(() => r.advance(4000));
+  assert.equal(r.run.state, 'done'); assert.equal(r.run.reason, 'error');
+  for (const s of ['build.finish', 'view.end', 'finishScene', 'state done error']) assert.equal(count(r.log, s), 1, s);
+  const n = r.log.length; r.advance(30000);
+  assert.equal(r.log.length, n, 'and nothing runs after it');
 });

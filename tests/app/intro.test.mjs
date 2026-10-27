@@ -4,7 +4,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   INTRO, introWanted, INTRO_TEXT, introText, counterText, introTimeline, chipAt, chipLook, counterLook, hintOpacity, wallRise, waveOf, pieceStarts, pieceMotion, pieceRank, pieceOrder,
-  cameraAt, cameraFrom, liftAt, createFpsGuard, skipKey, easeOut, backOut, smooth, sine,
+  cameraAt, cameraFrom, liftAt, createFpsGuard, skipKey, keyLeftAlone, easeOut, backOut, smooth, sine,
 } from '../../src/app/intro.js';
 import { parseParams } from '../../src/app/params.js';
 
@@ -216,4 +216,12 @@ test('a key skips the intro, except the modifier keys on their own and any short
   assert.equal(skipKey({ key: 'Tab', altKey: true }), false);
   assert.equal(skipKey({ key: 'a', shiftKey: true }), true);
   assert.equal(skipKey(null), false); assert.equal(skipKey({}), false);
+});
+
+test('the keys that belong to the browser still skip the intro but are left alone, and the keys the page uses are not', () => {
+  for (const key of ['F1', 'F5', 'F11', 'F12', 'F24', 'Tab', 'ContextMenu', 'PrintScreen', 'Dead', 'Process', 'Unidentified', 'AudioVolumeUp', 'VolumeDown', 'MediaPlayPause', 'BrowserBack', 'LaunchMail']) {
+    assert.equal(keyLeftAlone({ key }), true, key); assert.equal(skipKey({ key }), true, `${key} still skips`);
+  }
+  for (const key of ['a', ' ', 'Enter', 'Escape', 'ArrowLeft', 'ArrowDown', 'Backspace', 'Delete', 'Home', '1', 'F', 'F0', 'F25', 'F123', 'Fn', 'Shift']) assert.equal(keyLeftAlone({ key }), false, key);
+  assert.equal(keyLeftAlone(null), false); assert.equal(keyLeftAlone({}), false); assert.equal(keyLeftAlone({ key: 5 }), false);
 });

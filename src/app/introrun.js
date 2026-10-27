@@ -1,6 +1,6 @@
 // The clock of the intro: begins it (the empty plan is put on the stage before the first frame), runs it from the first frame drawn on, and ends it exactly once, whatever ends it:
 // the end of the story (reason 'finished'), a touch or a key (the page calls skip: 'skipped'), frames that come too slowly ('slow'), or the failsafe ('timeout'; 'error' when the
-// scene could not be prepared). It knows nothing of three.js or the DOM: the page hands it what moves the scene (buildup.js), what draws the words (introview.js) and a few
+// scene could not be prepared, a frame could not be painted or a step of the end threw). It knows nothing of three.js or the DOM: the page hands it what moves the scene (buildup.js), what draws the words (introview.js) and a few
 // functions, and a test hands it fakes (src/app/introrun.js is run in Node with a clock of its own).
 import { INTRO, chipAt, chipLook, counterLook, hintOpacity, cameraAt, cameraFrom, liftAt, createFpsGuard } from './intro.js';
 
@@ -63,21 +63,23 @@ export function createIntroRun(deps) {
     const t = (ts - t0) / 1000;
     if (guard && guard.push(ts)) { finish('slow'); return; }
     if (t >= tl.total) { finish('finished'); return; }
-    paint(t); invalidate();
+    try { paint(t); invalidate(); } catch { finish('error'); return; } // a frame that cannot be painted ends the intro, it does not freeze it half way
     rafId = raf(tick);
   }
 
-  // Ends the intro once: the scene goes back to what the page always shows, the words and the shield go, the control bar comes back.
+  // Ends the intro once: the scene goes back to what the page always shows, the words and the shield go, the control bar comes back. Every step has a try of its own: nothing can end the intro
+  // again once it is 'done', so a step that throws (a box the scene did not expect) must not leave the others undone, with the bar hidden, the camera in the air and the words on the screen.
+  // The page is then told 'error' as the reason.
   function finish(why) {
     if (state === 'done' || state === 'idle') return false;
     state = 'done'; reason = why;
     if (rafId) { caf(rafId); rafId = 0; }
     unlater(timer);
-    build.finish();
-    view.end();
-    finishScene();
-    setState('done', why);
-    invalidate();
+    let failed = false;
+    for (const step of [() => build.finish(), () => view.end(), () => finishScene()]) { try { step(); } catch { failed = true; } }
+    if (failed) reason = 'error';
+    try { setState('done', reason); } catch { /* the page has what it was told */ }
+    try { invalidate(); } catch { /* the loop of the page asks again */ }
     return true;
   }
   // A touch, a key or the wheel (how), or anything else that needs the scene as it is: the intro ends now.

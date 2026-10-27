@@ -131,3 +131,15 @@ test('every listener of the skip is in the capture phase, so no handler of the p
   assert.ok(win.ls.length >= 6);
   assert.ok(win.ls.every((l) => l.capture), win.ls.filter((l) => !l.capture).map((l) => l.type).join());
 });
+
+test('a key of the browser (F5, F12, Tab, the menu key) ends the intro and is left to the browser, while Space, Escape and an arrow are taken', () => {
+  for (const [key, taken] of [['F5', false], ['F12', false], ['Tab', false], ['ContextMenu', false], [' ', true], ['Escape', true], ['ArrowLeft', true]]) {
+    const doc = makeDoc(), win = makeWin(), got = [];
+    const v = createIntroView({ doc, win, lang: 'en', onSkip: (how) => { got.push(how); v.end(); } });
+    v.arm();
+    const e = win.send('keydown', { key });
+    assert.deepEqual(got, ['key'], `${key} ends the intro`);
+    assert.equal(e.defaultPrevented, taken, `${key}: default prevented`); assert.equal(e.stopped, taken, `${key}: stopped`);
+    assert.equal(doc.getElementById('ps-intro'), null, `${key}: everything goes at once`); assert.equal(win.ls.length, 0, `${key}: no listener is left`);
+  }
+});

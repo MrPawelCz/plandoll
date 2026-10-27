@@ -182,3 +182,10 @@ const MODIFIERS = new Set(['Shift', 'Control', 'Alt', 'Meta', 'AltGraph', 'CapsL
 export function skipKey(e) {
   return !!e && !e.ctrlKey && !e.metaKey && !e.altKey && typeof e.key === 'string' && !MODIFIERS.has(e.key);
 }
+
+// Keys that belong to the browser or the system: F1 to F24 (reload, full screen, the tools), Tab (the focus), the menu and print keys, the media, volume and browser keys, and the keys that a layout or a phone's
+// keyboard reports without a name (dead keys, composition). They still end the intro (the visitor is here and doing something) but the page does not take them: F5 reloads, F12 opens the tools, Tab moves the focus.
+const OWN_KEYS = /^(F([1-9]|1\d|2[0-4])|Tab|ContextMenu|PrintScreen|Dead|Process|Unidentified|Audio\w+|Volume\w+|Media\w+|Browser\w+|Launch\w+)$/;
+export function keyLeftAlone(e) {
+  return !!e && typeof e.key === 'string' && OWN_KEYS.test(e.key);
+}

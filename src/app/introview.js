@@ -3,7 +3,7 @@
 // the bottom left (the brand and the privacy button of plandoll.com) are; "Tap to skip" stands at the bottom, clear of the corners. A shield covers the whole window while the intro
 // plays: the first touch, click, key or turn of the wheel ends the intro and nothing else happens (the shield takes the event, and the click that follows a touch, before the page under it
 // could get it). The control bar is hidden by the page's own style while data-intro on the body is "loading" or "playing" (see tools/build.mjs), so it is not here.
-import { introText, counterText, skipKey } from './intro.js';
+import { introText, counterText, skipKey, keyLeftAlone } from './intro.js';
 
 export const INTRO_STYLE_ID = 'ps-intro-style';
 
@@ -31,15 +31,15 @@ export function createIntroView({ doc = document, win = window, lang = 'en', onS
 
   let armed = false, swallow = false, ended = false, releaseTimer = 0, chipText = '', countText = '';
   const stop = (e) => { try { e.preventDefault?.(); e.stopImmediatePropagation?.(); } catch { /* an event that cannot be stopped is left alone */ } };
-  const skip = (how, e) => {
+  const skip = (how, e, take = true) => { // take: whether the event is taken (a key of the browser, F5 or Tab, ends the intro and is left to the browser)
     if (!armed) return;
-    armed = false; swallow = true; stop(e);
+    armed = false; swallow = true; if (take) stop(e);
     clearTimeout(releaseTimer); releaseTimer = setTimeout(() => release(), how === 'wheel' ? 600 : 1500); // a touch that never lifts (or lifts elsewhere) does not hold the shield for good
     onSkip(how);
     if (how === 'key') release(); // a key has no click that follows
   };
   const onDown = (e) => { if (!armed && !swallow) return; if (armed) { skip('pointer', e); return; } stop(e); };
-  const onKey = (e) => { if (!armed) return; if (skipKey(e)) skip('key', e); };
+  const onKey = (e) => { if (!armed) return; if (skipKey(e)) skip('key', e, !keyLeftAlone(e)); };
   const onWheel = (e) => { if (armed) skip('wheel', e); else if (swallow) stop(e); };
   const onUp = (e) => { if (!swallow) return; stop(e); clearTimeout(releaseTimer); releaseTimer = setTimeout(() => release(), 450); };
   const onClick = (e) => { if (swallow) stop(e); }; // the click of a touch tap goes to whatever is under the finger: here it goes nowhere
