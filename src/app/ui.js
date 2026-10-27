@@ -5,6 +5,7 @@ import { QUALITY_LEVELS } from '../look/quality.js';
 import { clock } from '../look/timeofday.js';
 import { PLAN_NAMES } from './params.js';
 import { floorChoices } from './floors.js';
+import { INFO_TEXT } from './info.js';
 
 const STR = {
   en: { time: 'Time of day', quality: 'Image quality', auto: 'Auto', high: 'High', medium: 'Medium', low: 'Low', lang: 'PL', reset: 'Reset view', resetTitle: 'Back to the starting view', hint: 'Drag to turn',
@@ -118,8 +119,8 @@ export function showErrorCard(detail = '', doc = document) {
 }
 
 // state: { preset, t, q ('auto' or a level), autoLevel (what Auto picks here, shown beside Auto; the level in use when missing), level, lang };
-// handlers: { onPreset(name), onTime(t), onQuality(q), onLang(lang), onReset(), onEdit(), onSaveImage(), onLoadPlan(), onPlan(name), onShell() }; the returned object has hideHint() for the first-visit hint and say(text) for one short result line.
-// state.tools shows the extra buttons (the example plans, the open shell, edit mode, save the picture, copy a link, load a plan; hidden by btn=0 in the address); state.editing turns the edit button into "Done" and hides
+// handlers: { onPreset(name), onTime(t), onQuality(q), onLang(lang), onReset(), onEdit(), onSaveImage(), onLoadPlan(), onPlan(name), onShell(), onRooms() }; the returned object has hideHint() for the first-visit hint and say(text) for one short result line.
+// state.tools shows the extra buttons (the example plans, the open shell, the list of rooms, edit mode, save the picture, copy a link, load a plan; hidden by btn=0 in the address; state.rooms says the list is open); state.editing turns the edit button into "Done" and hides
 // the example plans, Save image, Copy link and Load plan (the shell button stays and works; the link is in the File menu of the edit bar). state.plan names the example on show (null: none), state.shell adds the shell button, state.shellOpen says it is open.
 export function createUI(handlers, state, doc = document) {
   injectStyles(doc);
@@ -167,7 +168,7 @@ export function createUI(handlers, state, doc = document) {
   tools.append(floors);
   let floorSig = '', floorBtns = [];
   const toolBtns = {};
-  for (const [key, handler] of [...(state.shell ? [['shell', 'onShell']] : []), ['edit', 'onEdit'], ['saveImage', 'onSaveImage'], ['share', 'onShare'], ['loadPlan', 'onLoadPlan']]) {
+  for (const [key, handler] of [...(state.shell ? [['shell', 'onShell']] : []), ['rooms', 'onRooms'], ['edit', 'onEdit'], ['saveImage', 'onSaveImage'], ['share', 'onShare'], ['loadPlan', 'onLoadPlan']]) {
     const b = doc.createElement('button'); b.type = 'button'; b.className = 'tool'; b.dataset.tool = key;
     b.addEventListener('click', () => handlers[handler]?.());
     tools.append(b); toolBtns[key] = b;
@@ -193,6 +194,9 @@ export function createUI(handlers, state, doc = document) {
     tools.style.display = state.tools ? '' : 'none';
     const editLabel = state.editing ? L.editDone : L.edit, editTitle = state.editing ? L.editDoneTitle : L.editTitle;
     toolBtns.edit.textContent = editLabel; toolBtns.edit.title = editTitle; toolBtns.edit.setAttribute('aria-label', editTitle);
+    const R = INFO_TEXT[state.lang === 'pl' ? 'pl' : 'en']; // the button of the list of rooms (dock.js): pressed while the list is open; the list belongs to the plain page, so editing hides it
+    toolBtns.rooms.textContent = R.rooms; toolBtns.rooms.title = R.roomsTitle; toolBtns.rooms.setAttribute('aria-label', R.roomsTitle); toolBtns.rooms.setAttribute('aria-pressed', String(!!state.rooms));
+    toolBtns.rooms.style.display = state.editing ? 'none' : '';
     toolBtns.saveImage.textContent = L.saveImage; toolBtns.saveImage.title = L.saveImageTitle; toolBtns.saveImage.setAttribute('aria-label', L.saveImageTitle);
     toolBtns.saveImage.style.display = state.editing ? 'none' : '';
     toolBtns.share.textContent = L.share; toolBtns.share.title = L.shareTitle; toolBtns.share.setAttribute('aria-label', L.shareTitle);

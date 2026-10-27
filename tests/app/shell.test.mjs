@@ -42,10 +42,13 @@ test('planChoice: the injected plan only with plan=ext, duplex-1 by name, anythi
 
 test('startState: the preset, the time, the quality, the language, the buttons and the edit mode come from the address', () => {
   const s = startState(parseParams('#clear&t=0.4&q=low&lang=pl&edit=1', {}));
-  assert.deepEqual(s, { preset: 'clear', t: 0.4, q: 'low', lang: 'pl', tools: true, editing: true, shell: true, shellOpen: false, plan: 'flat-1' });
+  assert.deepEqual(s, { preset: 'clear', t: 0.4, q: 'low', lang: 'pl', tools: true, editing: true, shell: true, shellOpen: false, rooms: false, plan: 'flat-1' });
   const d = startState(parseParams('', { language: 'en-GB' }));
   assert.equal(d.tools, true); assert.equal(d.editing, false); assert.equal(d.lang, 'en'); assert.equal(d.q, 'auto');
   assert.equal(startState(parseParams('#btn=0', {})).tools, false);
+  assert.equal(d.rooms, false, 'the list of rooms starts closed');
+  assert.equal(startState(parseParams('#rooms=1', {})).rooms, true, 'rooms=1 opens it');
+  assert.equal(startState(parseParams('#rooms=0', {})).rooms, false);
 });
 
 test('partsOf: ui=0 builds no bars, btn=0 hides only the extra buttons, edit=1 adds the edit bar and the sheet', () => {
@@ -127,9 +130,10 @@ test('isFormTarget: form fields and editable text keep their keys, the page, the
 test('both key listeners of the page (the editor keys and the mood and time keys) leave form fields alone', () => {
   const src = readFileSync(new URL('../../src/app/main.js', import.meta.url), 'utf8');
   const listeners = src.split("addEventListener('keydown', (e) => {").slice(1);
-  assert.equal(listeners.length, 2, 'main.js has two key listeners');
+  assert.equal(listeners.length, 3, 'main.js has three key listeners: the editor keys, the Escape of the card and the list, and the mood and time keys');
   for (const body of listeners) assert.match(body.slice(0, 260), /isFormTarget\(e\.target\)/);
-  assert.match(listeners[1].slice(0, 260), /e\.ctrlKey \|\| e\.metaKey \|\| e\.altKey/, 'the mood keys ignore Ctrl, Cmd and Alt');
+  assert.match(listeners[1].slice(0, 260), /e\.key !== 'Escape' \|\| e\.defaultPrevented/, 'the Escape of the card leaves a key that something else took alone');
+  assert.match(listeners[2].slice(0, 260), /e\.ctrlKey \|\| e\.metaKey \|\| e\.altKey/, 'the mood keys ignore Ctrl, Cmd and Alt');
 });
 
 test('strayClick: the click of a touch tap that lands on something other than the picture, near where the finger lifted and soon after, is stray', () => {

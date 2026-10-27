@@ -1253,7 +1253,7 @@ try {
     const CLASSIC = ['edit', 'saveImage', 'share', 'loadPlan'];
     const classic = toolInfo.filter((b) => CLASSIC.includes(b.name)), extra = toolInfo.filter((b) => !CLASSIC.includes(b.name));
     record('buttons: Edit, Save image, Copy link and Load plan are on screen, at least 44 px', classic.length === 4 && classic.every(onScreen), { buttons: classic.map((b) => `${b.text} ${Math.round(b.w)}x${Math.round(b.h)} at ${Math.round(b.x)},${Math.round(b.y)}`) });
-    record('buttons: the example plans and the open shell are on screen, at least 44 px', extra.length === 3 && extra.every(onScreen), { buttons: extra.map((b) => `${b.text} ${Math.round(b.w)}x${Math.round(b.h)} at ${Math.round(b.x)},${Math.round(b.y)}`) });
+    record('buttons: the example plans, the open shell and Rooms are on screen, at least 44 px', extra.length === 4 && extra.every(onScreen), { buttons: extra.map((b) => `${b.text} ${Math.round(b.w)}x${Math.round(b.h)} at ${Math.round(b.x)},${Math.round(b.y)}`) });
 
     // the camera steps (pan, pinch, wheel, double tap) on the flat, then on the duplex below
     await cameraBlock('flat-1');

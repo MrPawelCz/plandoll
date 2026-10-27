@@ -417,8 +417,8 @@ function spend(n) {
 }
 
 // Tolerances of the semantic checks (fractions of an area, or metres).
-const AREA_TOL = 0.05; // W102: declared area against the polygon along the wall centerlines
-const NET_AREA_TOL = 0.1; // W102: against the polygon net of the walls (printed areas are net and wall thickness is only read off the drawing)
+export const AREA_TOL = 0.05; // W102: declared area against the polygon along the wall centerlines
+export const NET_AREA_TOL = 0.1; // W102: against the polygon net of the walls (printed areas are net and wall thickness is only read off the drawing)
 const GAP_MAX = 0.5; // W106: a free wall end this close to another wall is probably a corner that was meant to close
 const OPEN_MIN = 0.7; // roomGraph: shared boundary without a wall that counts as an opening between two rooms
 // Plausible sizes in metres (W112 to W115): outside them the numbers are most likely in the wrong unit.

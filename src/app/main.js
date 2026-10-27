@@ -26,6 +26,8 @@ import { createAddressSync, leaveAdvice } from './addrsync.js';
 import { pickPiece, floorHit, slidePoint } from './pick.js';
 import { createOutline, createOutlineFrame, createRoomOutline, outlineKind } from '../render/outline.js';
 import { createPanel } from './panel.js';
+import { createDock } from './dock.js';
+import { pieceInfo, roomsData } from './info.js';
 import { saveTextFile, saveBlobFile, readTextFile, askForText, refusalText, copyText, showLinkDialog, LAYOUT_FILENAME, IMAGE_FILENAME } from './files.js';
 import { promptFor } from './prompts.js';
 import { roomAt, serializeLayout, parseLayout } from '../editor/index.js';
@@ -193,6 +195,7 @@ try {
   const recut = () => applyWallCut(ps, ext, near, shell ? { height: shell.heightFor } : undefined);
   recut();
 
+  let onSettled = null; // set by the plain page (below): called after every settle, the card of a piece that the cutaway has taken away goes with it
   let furn = null, curLayout = layout, sigs = new Map(), live = new Set(); // live: ids of the pieces kept out of the merged meshes (the one being dragged); curLayout is the layout on the stage (the editor replaces it); sigs the build signature of each piece
   const sigOf = (p) => `${p.type}|${p.size.join(',')}|${JSON.stringify(p.colors ?? {})}`;
   const sigsOf = (lay) => { const m = new Map(); for (const lc of lay.levels) for (const p of lc.pieces) m.set(p.id, sigOf(p)); return m; };
@@ -224,6 +227,7 @@ try {
     else furn.own = new Set(furn.pieces.keys()); // merge=0: every piece is an object of its own
     showFloors();
     stage.refreshShadowCasters(scene);
+    onSettled?.();
   }
   // The floors on show (flags): the other levels vanish with their walls, floors, stairs and window light (PlanScene.setLevelVisible), their pieces drawn as objects of
   // their own and the pieces hung on their walls (shell.setLevels), and their stretch of the merged meshes (the draw range only, nothing is merged again); the stage
@@ -270,7 +274,7 @@ try {
   function setPreset(name, keepT) { const p = stage.setPreset(name); S.preset = p.id; if (!keepT) S.t = p.t; applyAll(); ui?.update(S); redraw(); }
   function setTime(t) { S.t = Math.min(1, Math.max(0, t)); applyAll(); ui?.update(S); redraw(); }
   function setQ(q) { S.q = q; level = resolveQuality(q, env); S.level = level; stage.setQuality(level); furnish(); post.setQuality(level); applyAll(); ui?.update(S); redraw(); }
-  function setLang(l) { S.lang = l; ui?.update(S); editBar?.update({ lang: l }); panel?.setLang(l); }
+  function setLang(l) { S.lang = l; ui?.update(S); editBar?.update({ lang: l }); panel?.setLang(l); dock?.setLang(l); }
   // the camera reports every change of the view; a change in the set of near edges re-cuts the walls and the pieces (not every frame of a turn)
   function onCamera(s) {
     current = s;
@@ -282,7 +286,7 @@ try {
     if (!sameSides(n, near)) { near = n; recut(); shell?.hidePatches(); settle(); }
     redraw();
   }
-  let editBar = null, panel = null;
+  let editBar = null, panel = null, dock = null, toggleRooms = null; // dock: the card of a tapped piece and the list of rooms (plain page); toggleRooms: the Rooms button of the bar
   const sayLine = (text, detail, ms) => (editBar ? editBar.say(text, ms, detail) : ui?.say(text, ms, detail)); // one short result line: above the edit bar, or above the controls on the plain page
   // The extra buttons of the control bar (btn=1): edit mode on or off (the page reloads with edit=1 added or removed, the mood, the time of day, the
   // quality and the language kept), and the picture of the current view as a PNG. The address follows the layout (addr below), so Done keeps every change; only a layout that
@@ -458,7 +462,7 @@ try {
   }
   S.floor = floor; S.levels = model.levels.map((l) => ({ id: l.id, name: l.name })); // the floor buttons (two or more levels)
   const ui = parts.controls ? createUI({ onPreset: (n) => setPreset(n), onTime: setTime, onQuality: setQ, onLang: setLang, onReset: () => cam?.reset(true), onEdit: toggleEdit, onSaveImage: saveImage, onShare: shareLink, onLoadPlan: loadPlan, onPlan: pickExample, onFloor: (k) => setFloor(k),
-    onShell: () => { if (shell) shellGo(shellTarget !== 1); } }, S) : null;
+    onShell: () => { if (shell) shellGo(shellTarget !== 1); }, onRooms: () => toggleRooms?.() }, S) : null;
   // The first one-finger turn on a touch screen says how to zoom and move (one short line, about 6 seconds, once per page load).
   let touchHinted = false;
   const onGesture = (g) => {
@@ -755,9 +759,121 @@ try {
       hostOf: (id) => { const h = shell?.hostOf(id); return h ? { wall: h.wall, matrix: [...h.matrix] } : null; },
     };
   }
+  // ---------- the plain page: a tap on a piece shows its card, and the list of rooms (dock.js, info.js) ----------
+  // Only without editing (the editor has its own sheet) and with the controls (ui=0 leaves the picture alone). A tap is what the camera calls a tap: one finger or the left
+  // mouse button, moving less than the slop and lifting within 350 ms; the second tap of a double tap (the view goes back) changes nothing here. The piece under the tap is
+  // found the way the editor finds it (pick.js) and left out when the cutaway hides it or its floor is not on show; it gets the copper outline and the card. A tap on anything
+  // else, the close button of the card or Escape takes both away. The list shows the rooms of the floors on show; a row puts the outline of that room on its floor.
+  if (parts.controls && !params.edit) {
+    const dom = renderer.domElement, baseOf = (id) => Number(model.levels.find((l) => l.id === id)?.elevation) || 0;
+    const outline = createOutline(), outlineFrame = createOutlineFrame(outline), roomOutline = createRoomOutline();
+    scene.add(outlineFrame.group); scene.add(roomOutline.group);
+    const PAD = { mouse: 0.02, touch: 0.06, pen: 0.04 }; // metres of margin round every piece when picking: a fingertip is wider than a mouse pointer
+    let shownPiece = null; // { id, level } of the piece that has the card
+    const followHinge = () => outlineFrame.follow(shownPiece ? shell?.hostMatrix(shownPiece.id) ?? null : null); // a piece that hangs on a turned wall (shell open) takes its outline with it
+    onHinge = followHinge;
+    const levelIds = () => { const m = new Map(); for (const lc of curLayout.levels) for (const p of lc.pieces) m.set(p.id, lc.id); return m; };
+    const pieceOf = (id) => { for (const lc of curLayout.levels) { const p = lc.pieces.find((q) => q.id === id); if (p) return p; } return null; };
+    // hidden pieces cannot be tapped: the ones the cutaway hides (furn.cutOff, also for the merged ones), those of a floor that is not on show, and a piece that hangs on a turned wall is as visible as its own object
+    const hidden = (lv) => (id) => !shownLevel(lv.get(id)) || (shell?.hostMatrix(id) ? !furn.pieces.get(id)?.visible : furn.cutOff.has(id));
+    const hitAt = (e) => pickPiece(curLayout, cam.pointerToRay(e), { levelBase: baseOf, pad: PAD[e.pointerType] ?? PAD.mouse, skip: hidden(levelIds()), frameOf: (id) => shell?.hostMatrix(id) ?? null });
+    function closeCard() {
+      if (!shownPiece) return;
+      shownPiece = null; dock.hideCard(); outline.hide(); followHinge(); redraw();
+    }
+    function openCard(id, levelId) {
+      const piece = pieceOf(id), info = piece ? pieceInfo(piece, levelId, model) : null;
+      if (!info) { closeCard(); return; }
+      shownPiece = { id, level: levelId };
+      dock.showCard(info); ui?.hideHint();
+      outline.set(piece, baseOf(levelId), 'ok'); followHinge(); redraw();
+    }
+    const clearRoom = () => { dock.setPickedRoom(null); roomOutline.hide(); redraw(); };
+    function pickRoom(ref) {
+      const room = ref ? model.levels.find((l) => l.id === ref.level)?.rooms?.find((r) => r.id === ref.id) : null;
+      if (room && Array.isArray(room.polygon)) roomOutline.set(room.polygon, baseOf(ref.level)); else roomOutline.hide();
+      redraw();
+    }
+    // the list is worked out while it is open (a plan of 500 rooms takes a moment to add up), and when it opens after a change under it (a floor, a plan)
+    let roomsStale = true;
+    const refreshRooms = () => { if (S.rooms) { dock.setRooms(roomsData(model, flags)); roomsStale = false; } else roomsStale = true; };
+    dock = createDock({ doc: document, host: document.body, lang: S.lang, onCardClose: closeCard, onRoomsClose: () => toggleRooms(), onRoomPick: pickRoom });
+    refreshRooms(); dock.setRoomsOpen(!!S.rooms);
+    toggleRooms = () => { S.rooms = !S.rooms; if (S.rooms && roomsStale) refreshRooms(); dock.setRoomsOpen(S.rooms); if (!S.rooms) clearRoom(); ui?.update(S); };
+
+    // taps on the picture: the camera keeps its own gestures; this only watches for a tap
+    const down = new Set(); let tapG = null, lastTap = null, lift = null; // lift: where and when a tap that left a card on show lifted (see the click listener below)
+    const slopOf = (e) => (e.pointerType === 'mouse' ? SLOP_MOUSE : SLOP_TOUCH);
+    dom.addEventListener('pointerdown', (e) => {
+      if (e.isPrimary) down.clear(); // a pointerup that never came (a system gesture) must not make every later tap a two-finger one
+      if (e.pointerType === 'mouse' && (e.button !== 0 || e.shiftKey)) { tapG = null; return; } // the right and the middle button, and Shift with the left one, move the view
+      down.add(e.pointerId);
+      tapG = down.size > 1 ? null : { id: e.pointerId, x0: e.clientX, y0: e.clientY, t0: performance.now(), moved: 0 };
+    });
+    dom.addEventListener('pointermove', (e) => { if (tapG && tapG.id === e.pointerId) tapG.moved = Math.max(tapG.moved, Math.hypot(e.clientX - tapG.x0, e.clientY - tapG.y0)); });
+    const lifted = (e, cancelled) => {
+      down.delete(e.pointerId);
+      const g = tapG; if (!g || g.id !== e.pointerId) return;
+      tapG = null;
+      const t = performance.now();
+      if (cancelled || g.moved >= slopOf(e) || Math.hypot(e.clientX - g.x0, e.clientY - g.y0) >= slopOf(e) || t - g.t0 >= 350) return;
+      if (lastTap && t - lastTap.t < 350 && Math.hypot(e.clientX - lastTap.x, e.clientY - lastTap.y) < 30) { lastTap = null; return; } // the second tap of a double tap: the view goes back (camera.js)
+      lastTap = { t, x: e.clientX, y: e.clientY };
+      const hit = hitAt(e);
+      if (hit) openCard(hit.id, hit.level); else closeCard();
+      lift = shownPiece ? { x: e.clientX, y: e.clientY, t: performance.now(), type: e.pointerType } : null;
+    };
+    dom.addEventListener('pointerup', (e) => lifted(e, false));
+    dom.addEventListener('pointercancel', (e) => lifted(e, true));
+    addEventListener('blur', () => { down.clear(); tapG = null; });
+    // the click of a touch tap goes to whatever is under the finger when it lifts; the card that a tap opens must not catch it (strayClick in shell.js). Only a tap that left a
+    // card on show is marked: the end of a drag or a pinch opens nothing, and a button pressed a moment later is pressed
+    addEventListener('click', (e) => {
+      if (!strayClick(lift, { x: e.clientX, y: e.clientY, onPicture: e.target === dom }, performance.now())) return;
+      lift = null; e.stopPropagation(); e.preventDefault();
+    }, true);
+    // Escape takes the card away, or else the outline of a room; this listener comes before the shell's, and an Escape that did something is marked as taken, so the open shell stays open
+    addEventListener('keydown', (e) => {
+      if (e.key !== 'Escape' || e.defaultPrevented || isFormTarget(e.target)) return;
+      if (shownPiece) { closeCard(); e.preventDefault(); } else if (dock.picked) { clearRoom(); e.preventDefault(); }
+    });
+    // what changes under the card and the list
+    onFloorChange = () => {
+      if (shownPiece && !shownLevel(shownPiece.level)) closeCard();
+      if (dock.picked && !shownLevel(dock.picked.level)) clearRoom();
+      refreshRooms();
+    };
+    onPlanSwapped = () => { closeCard(); clearRoom(); refreshRooms(); };
+    onSettled = () => { if (shownPiece && hidden(levelIds())(shownPiece.id)) closeCard(); }; // the cutaway took the piece away, so does the card
+    // for test tools: the card, the list, the piece under a client point, and where a piece is drawn (client pixels)
+    const v3 = new THREE.Vector3();
+    window.__info = {
+      cardOpen: () => dock.cardOpen, card: () => dock.card, shown: () => (shownPiece ? { ...shownPiece } : null), roomsOpen: () => dock.roomsOpen, pickedRoom: () => dock.picked,
+      outlineOn: () => outline.visible, roomOutlineOn: () => roomOutline.visible,
+      hit: (x, y, type = 'touch') => hitAt({ clientX: x, clientY: y, pointerType: type })?.id ?? null,
+      pieces: () => curLayout.levels.flatMap((lc) => lc.pieces.map((p) => ({ id: p.id, type: p.type, level: lc.id, room: p.room, size: [...p.size], hidden: hidden(levelIds())(p.id) }))),
+      screenOf(id) {
+        const p = pieceOf(id), lv = levelIds().get(id); if (!p) return null;
+        camera.updateMatrixWorld(true);
+        const g = furn.pieces.get(id);
+        if (g && shell?.hostMatrix(id)) { g.updateWorldMatrix(true, false); v3.set(0, p.size[2] * 0.75, 0).applyMatrix4(g.matrixWorld); }
+        else v3.set(p.x, baseOf(lv) + p.elev + p.size[2] * 0.75, p.y);
+        v3.project(camera);
+        const r = dom.getBoundingClientRect();
+        return { x: r.left + (v3.x * 0.5 + 0.5) * r.width, y: r.top + (-v3.y * 0.5 + 0.5) * r.height };
+      },
+    };
+  }
   // The bars exist now: the view is framed again above them, and again whenever they change size (a wrapped row, another language, a turned screen).
   let coverSeen = 0;
+  // The edit bar publishes the height of what is stacked at the bottom as --ps-stack-h while editing; on the plain page the control bar does, so that the card and the list of the
+  // dock end above it (a small phone has no room for both the dock and the bar otherwise).
+  function publishStack() {
+    const top = ui?.root?.getBoundingClientRect?.().top;
+    if (!params.edit && Number.isFinite(top) && innerHeight > 0 && top > 0) document.documentElement.style.setProperty('--ps-stack-h', `${Math.round(innerHeight - top)}px`);
+  }
   function restack() {
+    publishStack();
     const c = barsCover(); if (Math.abs(c - coverSeen) < 0.002) return;
     coverSeen = c; frameCamera(); redraw();
   }
