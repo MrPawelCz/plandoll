@@ -60,9 +60,12 @@ const mouseTap = async (x, y, o = {}) => {
   await send('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: o.button ?? 'left', buttons: o.button === 'right' ? 2 : 1, clickCount: 1, modifiers: o.modifiers ?? 0 }); await sleep(50);
   await send('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button: o.button ?? 'left', buttons: 0, clickCount: 1, modifiers: o.modifiers ?? 0 }); await sleep(o.settle ?? 200);
 };
+// The touch and the lift go out together, as in doubleTap: the page counts a tap only when the lift comes within 350 ms of the touch (as the camera does for its double tap), and on the
+// software renderer the frames just after a load are so slow that, with a wait of 60 ms between the two events, the page saw the lift 1025 ms after the touch with no stall of its own thread
+// (this check printed it on the first tap of the English run, three runs in a row): no tap, no card. A phone with a graphics chip draws a frame in 16 ms and never sees that.
 const touchTap = async (x, y, o = {}) => {
-  await send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y }] }); await sleep(60);
-  await send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] }); await sleep(o.settle ?? 250);
+  await Promise.all([send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y }] }), send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] })]);
+  await sleep(o.settle ?? 250);
 };
 const tap = (x, y, o) => (phone ? touchTap(x, y, o) : mouseTap(x, y, o));
 const drag = async (x0, y0, x1, y1, n = 8) => {
@@ -98,6 +101,7 @@ const cam = () => ev(`({ az: window.__camera.azimuth, pol: window.__camera.polar
 const sameCam = (a, b) => Math.abs(a.az - b.az) < 1e-6 && Math.abs(a.pol - b.pol) < 1e-6 && Math.abs(a.dist - b.dist) < 1e-6;
 const texts = (sel) => ev(`[...document.querySelectorAll(${JSON.stringify(sel)})].map((n) => n.textContent.trim().replace(/\\s+/g, ' '))`);
 const inside = (r) => r && r.x >= 0 && r.y >= 0 && r.r <= W + 1 && r.b <= H + 1;
+const dockTop = async () => parseFloat(await ev(`getComputedStyle(document.documentElement).getPropertyValue('--psd-top')`)) || 10; // where the dock starts on a narrow window: 10 px, or more on a page with marks of its own in the corner
 const overlap = (a, b) => a.shown && b.shown && a.x < b.r && b.x < a.r && a.y < b.b && b.y < a.b;
 
 // A piece that can be tapped now: not hidden by the cutaway, drawn on the picture (not under a bar, the card or the list), and the one that a tap there finds.
@@ -108,6 +112,7 @@ const findPiece = async (o = {}) => JSON.parse(await ev(`(() => {
   for (const p of list) {
     const s = I.screenOf(p.id); if (!s) continue;
     if (s.x < 30 || s.x > innerWidth - 30 || s.y < 30 || s.y > innerHeight - 30) continue;
+    if (want.avoid && s.x > want.avoid.x - 12 && s.x < want.avoid.r + 12 && s.y > want.avoid.y - 12 && s.y < want.avoid.b + 12) continue; // under where the card of the first tap stands: the second tap of a double tap would land on the card
     if (document.elementFromPoint(s.x, s.y) !== canvas) continue;
     if (I.hit(s.x, s.y, ${JSON.stringify(PTR)}) !== p.id) continue;
     return JSON.stringify({ id: p.id, type: p.type, level: p.level, size: p.size, x: s.x, y: s.y });
@@ -130,6 +135,7 @@ async function open(hash, ready = `!!window.__info || !!window.__edit`) {
   await waitFor(`document.readyState === 'complete' && !!document.querySelector('canvas')`, 60000, 'the page');
   await waitFor(ready, 60000, 'the hooks of the page');
   await sleep(1200);
+  await waitFor('!window.__camera || window.__camera.busy === false', 20000).catch(() => {}); // the first tap of a check is not a race with the camera still settling on its first view
 }
 
 async function plainPage(lang) {
@@ -144,14 +150,19 @@ async function plainPage(lang) {
   const p = await findPiece();
   check(`${lang}: a piece can be tapped on the picture`, !!p, p ? `${p.type} at ${Math.round(p.x)},${Math.round(p.y)}` : 'none found');
   if (!p) throw new Error('no piece to tap');
+  // what the page sees of this first tap, for the line of the step below: the time between its touch and its lift (a tap is under 350 ms) and the stalls of its main thread (a stall between the two stretches the tap)
+  await ev(`(() => { const L = window.__tapLog = { ev: [], long: [] }; for (const t of ['pointerdown', 'pointerup']) addEventListener(t, () => L.ev.push([t, Math.round(performance.now())]), true);
+    try { new PerformanceObserver((l) => { for (const x of l.getEntries()) L.long.push([Math.round(x.startTime), Math.round(x.duration)]); }).observe({ entryTypes: ['longtask'] }); } catch { /* a browser with no long task entries */ } return true; })()`);
   await tap(p.x, p.y);
+  const seen = await ev(`(() => { const L = window.__tapLog, d = L.ev.find((e) => e[0] === 'pointerdown'), u = L.ev.find((e) => e[0] === 'pointerup');
+    return d && u ? 'the page saw ' + Math.round(u[1] - d[1]) + ' ms from touch to lift' + (L.long.length ? ', main thread stalls: ' + L.long.map((x) => x[1] + ' ms at ' + (x[0] - Math.round(d[1]))).join(', ') : ', no stall') : 'the page saw no ' + (d ? 'lift' : 'touch'); })()`);
   const card = await rectOf('#ps-piece-card');
   const info = await ev(`({ open: window.__info.cardOpen(), shown: window.__info.shown(), outline: window.__info.outlineOn(), title: document.querySelector('.psd-title').textContent, where: document.querySelector('.psd-where').textContent,
     labels: [...document.querySelectorAll('.psd-dim dt')].map((n) => n.textContent), values: [...document.querySelectorAll('.psd-dim dd')].map((n) => n.textContent), unit: document.querySelector('.psd-unit').textContent, aria: document.getElementById('ps-piece-card').getAttribute('aria-label') })`);
-  check(`${lang}: a tap on a piece opens its card, outlines the piece and says what it is`, info.open && info.shown?.id === p.id && info.outline && info.title.length > 1, JSON.stringify(info).slice(0, 220));
+  check(`${lang}: a tap on a piece opens its card, outlines the piece and says what it is`, info.open && info.shown?.id === p.id && info.outline && info.title.length > 1, `${seen} | ${JSON.stringify(info).slice(0, 170)}`);
   check(`${lang}: the card gives the size in whole millimetres, width then depth then height`, JSON.stringify(info.values) === JSON.stringify(p.size.map((v) => String(Math.round(v * 1000)))) && JSON.stringify(info.labels) === JSON.stringify(L.dim) && info.unit === 'mm', `${info.values} ${info.labels}`);
   check(`${lang}: the card names the room`, info.where.length > 1 && info.aria.includes(info.title), `${info.where} | ${info.aria}`);
-  check(`${lang}: the card is on the picture (${phone ? 'at the top, nearly the width of the window' : 'at the right'})`, inside(card) && (phone ? card.y < 24 && card.w > W - 40 : card.r > W - 30 && card.w < 320), JSON.stringify(card));
+  check(`${lang}: the card is on the picture (${phone ? 'at the top, nearly the width of the window' : 'at the right'})`, inside(card) && (phone ? card.y < (await dockTop()) + 14 && card.w > W - 40 : card.r > W - 30 && card.w < 320), JSON.stringify(card));
   check(`${lang}: the tap did not move the view`, sameCam(home, await cam()));
   await shot(`${lang}-1-card`);
 
@@ -182,7 +193,7 @@ async function plainPage(lang) {
   // the double tap that takes the view back goes on working, and does not toggle the card
   await ev(`window.__camera.set(window.__camera.azimuth + 40, window.__camera.polar)`); await sleep(500);
   await waitFor('window.__camera.busy === false', 15000).catch(() => {}); // a double tap that lands while the camera still moves to the view just set is a race of the check, not of the page
-  const p4 = await findPiece();
+  const p4 = await findPiece({ avoid: card.shown ? { x: card.x, y: card.y, r: card.r, b: card.b } : undefined });
   const before = await cam();
   await doubleTap(p4.x, p4.y);
   const after = await cam();
@@ -206,7 +217,7 @@ async function plainPage(lang) {
   check(`${lang}: the Rooms button opens the list, pressed`, opened && list.shown && await ev(`document.querySelector('#ps-ui button.tool[data-tool="rooms"]').getAttribute('aria-pressed') === 'true' && window.__info.roomsOpen()`), JSON.stringify(list));
   check(`${lang}: the list has the five rooms with their areas, and the total under them`, rows.length === 5 && rows[0].endsWith(L.area) && (await texts('.psd-total')).join('').includes(L.total) && (await texts('.psd-total')).join('').includes('42 m²'), `${rows.join(' | ')} | ${(await texts('.psd-total')).join('')}`);
   const rowRect = await rectOf('.psd-row');
-  check(`${lang}: the list is on the picture (${phone ? 'at the top' : 'at the left'}) and a row is a comfortable target`, inside(list) && (phone ? list.y < 90 && list.w > W - 40 : list.x < 24 && list.w < 320) && rowRect.h >= (phone ? 43.5 : 34), `${JSON.stringify(list)} row ${rowRect.h}`);
+  check(`${lang}: the list is on the picture (${phone ? 'at the top' : 'at the left'}) and a row is a comfortable target`, inside(list) && (phone ? list.y < (await dockTop()) + 80 && list.w > W - 40 : list.x < 24 && list.w < 320) && rowRect.h >= (phone ? 43.5 : 34), `${JSON.stringify(list)} row ${rowRect.h}`);
   if (phone) { const bar = await rectOf('#ps-ui'); check(`${lang}: the list stops above the control bar`, list.b <= bar.y + 1, `list bottom ${Math.round(list.b)}, bar top ${Math.round(bar.y)}`); }
   await shot(`${lang}-2-rooms`);
   await tapSel('.psd-row');
