@@ -62,16 +62,17 @@ THE SOFTWARE.`;
 
 // The loading icon is plain CSS in the HTML, so it turns before the script runs; the page takes it away when the first frame is drawn (main.js, leaveLoading). data-intro on the body says where the
 // page is: "loading" (until the first frame), "playing" (the intro) and "done". The control bar and its hint stay hidden in the first two and fade in at "done"; the two animations at the end of
-// the rules are the failsafe of the style alone: whatever happens to the script, the icon is gone after 60 s, and the bar is back after 40 s of "loading" or 20 s of "playing" (two animations with
-// two names, so the clock starts over when the state changes; a slow device has the script's own failsafe, 15 s after the first frame at the most, first). A request for less motion stops the icon turning.
+// the rules are the failsafe of the style alone: whatever happens to the script, the icon is gone after 60 s, and the bar is back after 90 s of "loading" or 40 s of "playing" (two animations with
+// two names, so the clock starts over when the state changes). The script has its own failsafe, 15 s after the first frame, which comes first; these are long because the clock of an animation runs
+// with the frames, and a thread that was blocked for seconds (the shaders of a slow device) has made it jump ahead by ten seconds and more: 20 s was seen to run out 6 s into an intro that played. A request for less motion stops the icon turning.
 const LOADING_CSS = [
   '#ps-loading{position:fixed;left:50%;top:50%;z-index:50;width:28px;height:28px;margin:-14px 0 0 -14px;box-sizing:border-box;border:3px solid rgba(74,59,42,.18);border-top-color:#c8793a;border-radius:50%;pointer-events:none;animation:ps-spin .8s linear infinite,ps-load-off 0s linear 60s forwards}',
   '@keyframes ps-spin{to{transform:rotate(360deg)}}@keyframes ps-load-off{to{opacity:0;visibility:hidden}}@keyframes ps-show-wait{to{opacity:1;pointer-events:auto}}@keyframes ps-show-play{to{opacity:1;pointer-events:auto}}',
   '@media (prefers-reduced-motion:reduce){#ps-loading{animation:ps-load-off 0s linear 60s forwards}}',
   'body[data-intro-fade] #ps-ui,body[data-intro-fade] #ps-hint{transition:opacity .45s ease}',
   'body[data-intro=loading] #ps-ui,body[data-intro=loading] #ps-hint,body[data-intro=playing] #ps-ui,body[data-intro=playing] #ps-hint{opacity:0;pointer-events:none}',
-  'body[data-intro=loading] #ps-ui,body[data-intro=loading] #ps-hint{animation:ps-show-wait 0s linear 40s forwards}',
-  'body[data-intro=playing] #ps-ui,body[data-intro=playing] #ps-hint{animation:ps-show-play 0s linear 20s forwards}',
+  'body[data-intro=loading] #ps-ui,body[data-intro=loading] #ps-hint{animation:ps-show-wait 0s linear 90s forwards}',
+  'body[data-intro=playing] #ps-ui,body[data-intro=playing] #ps-hint{animation:ps-show-play 0s linear 40s forwards}',
 ].join('');
 
 const html = `<!doctype html>

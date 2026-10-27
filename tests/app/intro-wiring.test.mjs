@@ -103,8 +103,8 @@ test('the HTML of the page: the loading icon is plain CSS, the body says where t
     assert.match(head, /@media \(prefers-reduced-motion:reduce\)\{#ps-loading\{animation:ps-load-off 0s linear 60s forwards\}\}/, 'a request for less motion stops it turning');
     assert.match(head, /body\[data-intro-fade\] #ps-ui,body\[data-intro-fade\] #ps-hint\{transition:opacity \.45s ease\}/, 'the bar fades in after an intro that played, and shows at once on a page that had none');
     assert.match(head, /body\[data-intro=loading\] #ps-ui,body\[data-intro=loading\] #ps-hint,body\[data-intro=playing\] #ps-ui,body\[data-intro=playing\] #ps-hint\{opacity:0;pointer-events:none\}/);
-    assert.match(head, /body\[data-intro=loading\] #ps-ui,body\[data-intro=loading\] #ps-hint\{animation:ps-show-wait 0s linear 40s forwards\}/, 'the bar is back after 40 s of loading...');
-    assert.match(head, /body\[data-intro=playing\] #ps-ui,body\[data-intro=playing\] #ps-hint\{animation:ps-show-play 0s linear 20s forwards\}/, '...or 20 s of playing, even if the script never says done (two names: the clock starts over with the state)');
+    assert.match(head, /body\[data-intro=loading\] #ps-ui,body\[data-intro=loading\] #ps-hint\{animation:ps-show-wait 0s linear 90s forwards\}/, 'the bar is back after 90 s of loading...');
+    assert.match(head, /body\[data-intro=playing\] #ps-ui,body\[data-intro=playing\] #ps-hint\{animation:ps-show-play 0s linear 40s forwards\}/, '...or 40 s of playing, even if the script never says done (two names: the clock starts over with the state)');
     assert.match(head, /@keyframes ps-show-wait\{to\{opacity:1;pointer-events:auto\}\}@keyframes ps-show-play\{to\{opacity:1;pointer-events:auto\}\}/);
     assert.match(head, /<noscript><style>#ps-loading\{display:none\}<\/style><\/noscript>/, 'and without scripts the icon does not turn for ever');
     assert.equal((html.match(/<script>/g) ?? []).length, 1, 'still one script (the overlay of plandoll.com looks for it)');

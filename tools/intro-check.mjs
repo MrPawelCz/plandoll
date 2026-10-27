@@ -5,7 +5,8 @@
 // page without an intro (the scene after the intro is the usual scene), and tries every way of ending or avoiding it: a touch or a click on the picture and on the control bar (nothing else
 // happens), a key (Space does not open the shell), the wheel (it does not zoom), intro=0, a request for less motion, the editor, ui=0, live=1, a frame rate that is too low. It also checks that
 // the words keep clear of the marks of a page in its corners (#pd-brand and #pd-privacy of plandoll.com, when the page has them) and that the page makes no request of its own.
-//   node tools/intro-check.mjs [--html dist/plandoll.html | --html https://host/path/] [--out DIR] [--timeout 900] [--phone]
+//   node tools/intro-check.mjs [--html dist/plandoll.html | --html https://host/path/] [--out DIR] [--timeout 900] [--phone] [--q low|medium|high] [--only real,held,jump,skips,modes,plans,resized,slow,stuck]
+// --q sets the quality of the page under test (default low, which the software renderer can bear), --only runs some of the parts (the names above) instead of all of them.
 // --phone runs a touch window of 390 x 844 at scale 2. On a small machine run it under the Chrome lock (one browser at a time). CHROME names the browser (chrome-headless-shell is fine).
 // Exits 1 when a step fails.
 import { spawn } from 'node:child_process';
@@ -16,14 +17,16 @@ import { pathToFileURL, fileURLToPath } from 'node:url';
 import { inflateSync } from 'node:zlib';
 
 const argv = process.argv.slice(2);
-const opt = { html: null, out: null, timeout: 900 };
+const opt = { html: null, out: null, timeout: 900, q: 'low', only: null };
 let phone = false;
 for (let i = 0; i < argv.length; i++) {
   if (argv[i] === '--phone') phone = true;
   else if (argv[i].startsWith('--') && argv[i].slice(2) in opt && argv[i + 1] !== undefined) opt[argv[i].slice(2)] = argv[++i];
-  else { console.error('usage: node tools/intro-check.mjs [--html dist/plandoll.html | --html https://host/path/] [--out DIR] [--timeout S] [--phone]'); process.exit(2); }
+  else { console.error('usage: node tools/intro-check.mjs [--html dist/plandoll.html | --html https://host/path/] [--out DIR] [--timeout S] [--phone] [--q low|medium|high] [--only real,held,jump,skips,modes,plans,resized,slow,stuck]'); process.exit(2); }
 }
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
+const Q = ['low', 'medium', 'high'].includes(opt.q) ? opt.q : 'low'; // the quality of the page under test (low keeps the software renderer bearable)
+const want = (k) => !opt.only || opt.only.split(',').includes(k);
 const live = /^https?:\/\//i.test(opt.html ?? '');
 const page = live ? opt.html : pathToFileURL(resolve(opt.html ?? join(root, 'dist/plandoll.html'))).href;
 const ownOrigin = live ? new URL(opt.html).origin : 'file://';
@@ -159,43 +162,44 @@ const projectCorners = () => ev(`(() => { const p = window.__shell && window.__s
 const insideWindow = (p) => p.pts.every((q) => q.x >= 0 && q.x <= p.w && q.y >= 0 && q.y <= p.h);
 
 // ---------- the real-time run ----------
+// The software renderer draws a frame a second or so and a call to the page can wait for one, so the page is read once per round trip, from the first moment it is "playing" to the end, and every
+// check is made on those readings afterwards (a check made after a few calls would find the intro over).
 async function realTime(lang) {
   const T = hookWords(lang), name = `real-time run, ${lang}`;
-  await open(`lang=${lang}&q=low&guard=off`);
+  await open(`lang=${lang}&q=${Q}&guard=off`);
   const first = (await logOf())[0];
   check(`${name}: the page starts as "loading" with the loading icon on screen`, first && first.s === 'loading' && first.loader === true, JSON.stringify(first));
-  const log0 = await logOf();
-  const playing = log0.find((e) => e.s === 'playing');
-  check(`${name}: when the first frame is drawn the icon goes and the state is "playing"`, playing && playing.loader === false, JSON.stringify(playing));
-  const icon = await ev(`(() => { const a = document.getElementById('ps-loading'); return a ? 'present' : 'gone'; })()`);
-  check(`${name}: the loading icon is no longer in the page`, icon === 'gone');
-  const s0 = await stateNow();
-  check(`${name}: the intro is playing, with the skip shield over the page`, s0.intro === 'playing' && s0.state === 'playing' && s0.shield && s0.root, JSON.stringify(s0));
-  check(`${name}: the control bar is hidden while it plays`, (await barOpacity()) === 0);
-  // sample the words until the end
-  const seen = [], counts = [], bars = [], hints = [];
+  const READ = `JSON.stringify((() => { const t = (id) => { const n = document.getElementById(id); return n && getComputedStyle(n).display !== 'none' ? n.textContent : null; };
+    const o = (id) => { const n = document.getElementById(id); return n ? Number(getComputedStyle(n).opacity) : null; };
+    return { s: document.body.dataset.intro, end: document.body.dataset.introEnd, t: window.__intro.t, chip: t('ps-intro-chip'), count: t('ps-intro-count'), hint: t('ps-intro-hint'), hintOpacity: o('ps-intro-hint'),
+      bar: o('ps-ui'), shield: !!document.getElementById('ps-intro-shield'), root: !!document.getElementById('ps-intro'), loader: !!document.getElementById('ps-loading') }; })())`;
+  const samples = [], seen = [], counts = [];
   const t0 = Date.now(); let lastText = null;
-  while (Date.now() - t0 < 40000) {
-    const w = await words(), s = await ev(`document.body.dataset.intro`);
-    if (w.chip && w.chip !== lastText) { seen.push(w.chip); lastText = w.chip; }
-    if (w.count) counts.push(w.count);
-    if (w.hint && w.hintOpacity > 0.3) hints.push(w.hint);
-    if (s === 'playing') bars.push(await barOpacity());
-    if (s === 'done') break;
-    await sleep(70);
+  while (Date.now() - t0 < 60000) {
+    const r = JSON.parse(await ev(READ));
+    samples.push(r);
+    if (r.chip && r.chip !== lastText) { seen.push(r.chip); lastText = r.chip; }
+    if (r.count) counts.push(r.count);
+    if (r.s === 'done') break;
+    await sleep(50);
   }
-  const wall = (Date.now() - t0) / 1000;
   await waitDone(5000);
-  const tlinfo = await ev(`({ total: window.__intro.total, pieces: window.__intro.timeline.pieces, ready: window.__intro.timeline.readyAt })`);
+  const playingNow = samples.filter((r) => r.s === 'playing');
   const log = await logOf();
   const done = log.find((e) => e.s === 'done'), play = log.find((e) => e.s === 'playing');
+  check(`${name}: when the first frame is drawn the icon goes and the state is "playing"`, play && play.loader === false, JSON.stringify(play));
+  check(`${name}: the loading icon is no longer in the page`, samples.every((r) => !r.loader));
+  const s0 = playingNow[0];
+  check(`${name}: the intro is playing, with the skip shield over the page`, !!s0 && s0.shield && s0.root, JSON.stringify(s0));
+  const tlinfo = await ev(`({ total: window.__intro.total, pieces: window.__intro.timeline.pieces, ready: window.__intro.timeline.readyAt })`);
   const span = (done.t - play.t) / 1000;
   check(`${name}: it plays for at most 8 seconds (${span.toFixed(1)} s from the first frame to "done")`, span <= 8.6 && span >= 4, `total ${tlinfo.total.toFixed(2)} s, ${tlinfo.pieces} pieces`);
+  check(`${name}: the control bar is hidden while it plays (${playingNow.length} readings)`, playingNow.length > 0 && playingNow.every((r) => r.bar === 0), JSON.stringify(playingNow.filter((r) => r.bar !== 0).slice(0, 2)));
   check(`${name}: the words that were on screen came in order, in the language of the page, and the last was ${T.chips[4]} (the software renderer draws a frame a second or so: a few words are missed between two frames)`, seen.length >= 2 && seen[seen.length - 1] === T.chips[4] && seen.every((t, i) => T.chips.indexOf(t) >= 0 && (i === 0 || T.chips.indexOf(t) > T.chips.indexOf(seen[i - 1]))), seen.join(' > '));
-  check(`${name}: "${T.skip}" is on screen for the first seconds`, hints.includes(T.skip), hints[0] ?? 'never seen');
+  const hints = samples.filter((r) => r.hint && r.hintOpacity > 0.3);
+  check(`${name}: "${T.skip}" is on screen for the first seconds`, hints.length > 0 && hints[0].hint === T.skip, hints[0]?.hint ?? 'never seen');
   const nums = counts.map((c) => Number(/\d+/.exec(c)[0]));
   check(`${name}: the counter counts up only, in the language of the page, and says M for the total (${tlinfo.pieces})`, counts.length > 0 && nums.every((n, i) => i === 0 || n >= nums[i - 1]) && counts.every((c) => c === T.count(Number(/\d+/.exec(c)[0]), tlinfo.pieces)), `${counts[0] ?? ''} ... ${counts[counts.length - 1] ?? ''} (${counts.length} readings)`);
-  check(`${name}: the control bar stayed hidden until the end`, bars.every((b) => b === 0), `${bars.length} readings`);
   const end = await stateNow();
   check(`${name}: it ends as "finished": the words and the shield are gone, the icon too`, end.intro === 'done' && end.end === 'finished' && end.reason === 'finished' && !end.root && !end.shield && !end.loader, JSON.stringify(end));
   const faded = await waitFor(`Number(getComputedStyle(document.getElementById('ps-ui')).opacity) === 1`, 5000, 'the control bar to fade in').then(() => true, () => false);
@@ -209,13 +213,13 @@ async function realTime(lang) {
   const home = await camState();
   check(`${name}: the camera ends exactly in the view that Reset view goes back to`, sameCam(after, home), `${JSON.stringify(after)} vs ${JSON.stringify(home)}`);
   check(`${name}: nothing else was opened: no card, no list, the shell is closed`, await ev(`!window.__info.cardOpen() && !window.__info.roomsOpen() && window.__shell.target === 0`));
-  return { stats, tl: tlinfo, wall };
+  return { stats, tl: tlinfo };
 }
 
 // ---------- the story held at chosen moments ----------
 async function held(lang) {
   const T = hookWords(lang), name = `held story, ${lang}`;
-  await open(`lang=${lang}&q=low&guard=off`);
+  await open(`lang=${lang}&q=${Q}&guard=off`);
   const tl = JSON.parse(await ev(`JSON.stringify(window.__intro.timeline)`)), M = tl.pieces;
   const at = async (t) => { await ev(`window.__intro.seek(${t})`); await sleep(350); return { w: await words(), s: await stateNow(), cam: await camState(), counts: JSON.parse(await ev(`JSON.stringify(window.__intro.counts)`)) }; };
   const moments = [[0.05, 'EMPTY'], [0.8, 'WALLS'], [1.9, 'OPENINGS'], [3.6, 'FURNITURE'], [tl.readyAt + 0.2, 'READY']], fitMoments = [0.3, 1.2, 2.6, 3.0, 4.2, 4.8, 5.4, 5.8];
@@ -262,7 +266,7 @@ async function held(lang) {
 async function noJump(lang) {
   const name = `the end of the intro, ${lang}`;
   const HIDE = `(() => { const s = document.createElement('style'); s.id = 'hide-ui'; s.textContent = '#ps-intro,#ps-ui,#ps-hint,#ps-ui-msg,[id^=pd-]{visibility:hidden!important;transition:none!important}'; document.head.appendChild(s); })()`;
-  await open(`lang=${lang}&q=low&guard=off`);
+  await open(`lang=${lang}&q=${Q}&guard=off`);
   await ev(HIDE);
   const tl = JSON.parse(await ev(`JSON.stringify(window.__intro.timeline)`));
   await ev(`window.__intro.seek(${tl.total - 0.05})`); await sleep(900);
@@ -279,7 +283,7 @@ async function noJump(lang) {
   const d = diff(a, b);
   check(`${name}: no jump from the last frame of the intro to the first frame after it`, d.mean < 1.5 && d.big < 0.015, fmt(d));
   // the page without an intro, in the same window, with the same view: the scene after the intro is the usual scene
-  await open(`lang=${lang}&q=low&intro=0`, `document.body.dataset.intro === 'done' && window.__done === true`);
+  await open(`lang=${lang}&q=${Q}&intro=0`, `document.body.dataset.intro === 'done' && window.__done === true`);
   await ev(HIDE); await sleep(1200);
   const c = await shot(`${lang}-no-intro`);
   const e = diff(b, c), plainStats = await statsOf();
@@ -293,7 +297,7 @@ async function skips(lang) {
   const T = hookWords(lang), name = `skip, ${lang}`;
   const reach = async (hash) => { await open(hash); const s = await stateNow(); return s.intro === 'playing'; };
   // a touch or a click on the picture
-  check(`${name}: the intro is playing before a tap`, await reach(`lang=${lang}&q=low&guard=off`));
+  check(`${name}: the intro is playing before a tap`, await reach(`lang=${lang}&q=${Q}&guard=off`));
   await tap(W / 2, H * 0.4);
   await waitDone(15000);
   let s = await stateNow();
@@ -307,7 +311,7 @@ async function skips(lang) {
   check(`${name}: the tap did nothing else: no card, no turn of the camera, no list, the shell closed`, await ev(`!window.__info.cardOpen() && !window.__info.roomsOpen() && window.__shell.target === 0 && !window.__info.shown()`) && sameCam(home, after));
   check(`${name}: the control bar is back`, (await waitFor(`Number(getComputedStyle(document.getElementById('ps-ui')).opacity) === 1`, 5000).then(() => true, () => false)));
   // a touch on a button of the bar, which is hidden but under the shield: the intro ends and the button is not pressed
-  check(`${name}: the intro is playing before a tap on the bar`, await reach(`lang=${lang}&q=low&guard=off`));
+  check(`${name}: the intro is playing before a tap on the bar`, await reach(`lang=${lang}&q=${Q}&guard=off`));
   const rooms = await rectOf('#ps-ui button.tool[data-tool="rooms"]');
   check(`${name}: the Rooms button has a place under the shield`, !!rooms && rooms.w > 10, JSON.stringify(rooms));
   await tap(rooms.x + rooms.w / 2, rooms.y + rooms.h / 2, { settle: 900 });
@@ -319,7 +323,7 @@ async function skips(lang) {
   await tap(rooms2.x + rooms2.w / 2, rooms2.y + rooms2.h / 2, { settle: 600 });
   check(`${name}: and the same button works as always afterwards`, await ev(`window.__info.roomsOpen()`));
   // a key
-  check(`${name}: the intro is playing before a key`, await reach(`lang=${lang}&q=low&guard=off`));
+  check(`${name}: the intro is playing before a key`, await reach(`lang=${lang}&q=${Q}&guard=off`));
   await pressKey('Shift', 'ShiftLeft', 16, { settle: 500 });
   check(`${name}: Shift on its own does not end it`, (await stateNow()).intro === 'playing');
   await pressKey(' ', 'Space', 32, { text: ' ', settle: 600 });
@@ -331,7 +335,7 @@ async function skips(lang) {
   await pressKey(' ', 'Space', 32, { text: ' ', settle: 900 });
   check(`${name}: the next Space opens the shell as always`, await ev(`window.__shell.target === 1`));
   // the arrow key does not turn the view, and Escape ends it
-  check(`${name}: the intro is playing before an arrow key`, await reach(`lang=${lang}&q=low&guard=off`));
+  check(`${name}: the intro is playing before an arrow key`, await reach(`lang=${lang}&q=${Q}&guard=off`));
   await pressKey('ArrowRight', 'ArrowRight', 39, { settle: 600 });
   await waitDone(15000);
   await ev('window.__camera.reset()'); await sleep(250);
@@ -340,7 +344,7 @@ async function skips(lang) {
   check(`${name}: the arrow key ended it (by a key) and did not turn the view`, sA.how === 'key' && sA.end === 'skipped' && sameCam(cA, h2), `${JSON.stringify(sA)} ${JSON.stringify(cA)} vs ${JSON.stringify(h2)}`);
   // the wheel
   if (!phone) {
-    check(`${name}: the intro is playing before the wheel`, await reach(`lang=${lang}&q=low&guard=off`));
+    check(`${name}: the intro is playing before the wheel`, await reach(`lang=${lang}&q=${Q}&guard=off`));
     await wheel(W / 2, H / 2, -240);
     await waitDone(15000);
     s = await stateNow();
@@ -351,7 +355,7 @@ async function skips(lang) {
 }
 
 async function modes(lang) {
-  const base = `lang=${lang}&q=low`;
+  const base = `lang=${lang}&q=${Q}`;
   const never = async (what, hash, end) => {
     await open(hash, `document.body.dataset.intro === 'done'`);
     const log = await logOf(), s = await stateNow();
@@ -373,7 +377,7 @@ async function modes(lang) {
 
 async function otherPlans(lang) {
   const name = `other models, ${lang}`;
-  await open(`lang=${lang}&q=low&plan=duplex-1&guard=off`);
+  await open(`lang=${lang}&q=${Q}&plan=duplex-1&guard=off`);
   const tl = JSON.parse(await ev(`JSON.stringify(window.__intro.timeline)`));
   check(`${name}: the duplex plays too, within 8 seconds (${tl.pieces} pieces, ${tl.total.toFixed(2)} s)`, tl.total <= 8.0001 && tl.total >= 4.2 && tl.pieces > 0);
   await ev(`window.__intro.seek(${tl.total - 0.05})`); await sleep(400);
@@ -382,13 +386,13 @@ async function otherPlans(lang) {
   await ev(`window.__intro.seek(${tl.total + 1})`); await waitDone(20000);
   check(`${name}: and the duplex ends in the usual state`, (await stateNow()).end === 'finished' && await ev(`window.__floors.count === 2 && window.__floors.get() === 'all'`));
   // a link names its own view: the intro ends there
-  await open(`lang=${lang}&q=low&az=120&pol=40&guard=off`);
+  await open(`lang=${lang}&q=${Q}&az=120&pol=40&guard=off`);
   const t2 = JSON.parse(await ev(`JSON.stringify(window.__intro.timeline)`));
   await ev(`window.__intro.seek(${t2.total + 1})`); await waitDone(20000);
   const c = await camState();
   check(`${name}: with az=120 and pol=40 in the address the intro ends in that view`, Math.abs(c.az - 120) < 1e-6 && Math.abs(c.pol - 40) < 1e-6, JSON.stringify(c));
   // one floor only
-  await open(`lang=${lang}&q=low&plan=duplex-1&floor=1&guard=off`);
+  await open(`lang=${lang}&q=${Q}&plan=duplex-1&floor=1&guard=off`);
   const t3 = JSON.parse(await ev(`JSON.stringify(window.__intro.timeline)`));
   const allOf = await ev(`window.__planInfo().pieces`);
   check(`${name}: with floor=1 only the pieces of that floor are built in (${t3.pieces} of ${allOf})`, t3.pieces > 0 && t3.pieces < allOf);
@@ -398,7 +402,7 @@ async function otherPlans(lang) {
 
 // A clock that stops (a script that never gets another animation frame): the intro ends by itself, the page is whole. The test takes the frames away after the first one.
 async function stuck() {
-  await open('lang=en&q=low&guard=off');
+  await open(`lang=en&q=${Q}&guard=off`);
   await ev(`window.requestAnimationFrame = () => 0`);
   const t0 = Date.now();
   await waitDone(40000);
@@ -409,7 +413,7 @@ async function stuck() {
 
 // A window that is turned or resized while the intro plays ends it (the view it was to end in belongs to the old window), and the page frames itself for the new one.
 async function resized() {
-  await open('lang=en&q=low&guard=off');
+  await open(`lang=en&q=${Q}&guard=off`);
   await send('Emulation.setDeviceMetricsOverride', { width: phone ? H : 900, height: phone ? W : 600, deviceScaleFactor: SCALE, mobile: phone });
   await waitDone(20000);
   const s = await stateNow();
@@ -420,7 +424,7 @@ async function resized() {
 }
 
 async function slowDevice() {
-  await open('lang=en&q=low');
+  await open(`lang=en&q=${Q}`);
   const t0 = Date.now();
   await waitDone(40000);
   const s = await stateNow();
@@ -450,16 +454,15 @@ try {
   else await send('Emulation.setDeviceMetricsOverride', { width: W, height: H, deviceScaleFactor: SCALE, mobile: false });
   const timer = setTimeout(async () => { console.error(`FAIL timeout after ${opt.timeout} s`); await cleanup(); process.exit(1); }, Number(opt.timeout) * 1000);
   const first = phone ? 'pl' : 'en', second = phone ? 'en' : 'pl';
-  await realTime(first);
-  await held(first);
-  await held(second);
-  await noJump(first);
-  await skips(first);
-  await modes(second);
-  await otherPlans(second);
-  await resized();
-  await slowDevice();
-  await stuck();
+  if (want('real')) await realTime(first);
+  if (want('held')) { await held(first); await held(second); }
+  if (want('jump')) await noJump(first);
+  if (want('skips')) await skips(first);
+  if (want('modes')) await modes(second);
+  if (want('plans')) await otherPlans(second);
+  if (want('resized')) await resized();
+  if (want('slow')) await slowDevice();
+  if (want('stuck')) await stuck();
   clearTimeout(timer);
   const foreign = [...requests].filter((u) => !(u.startsWith(ownOrigin) || u.startsWith('data:') || u.startsWith('blob:') || u === 'about:blank'));
   check('the page made no request of its own to anywhere else', foreign.length === 0, foreign.slice(0, 3).join(' '));
