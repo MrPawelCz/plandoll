@@ -3,6 +3,9 @@
 // Texts in English and Polish (info.js); the styles are one <style id="ps-dock-style">. On a wide window the list sits at the left and the card at the right; on a narrow
 // one both stack at the top, the card first, and the empty space between them lets the finger through to the model. A page that has its own marks in a corner moves the
 // dock clear of them with three variables on the root element: --psd-top (the stack on a narrow window), --psd-list-top and --psd-card-top (the list and the card on a wide one).
+// Both end above the control bar, which the page publishes as --ps-stack-h, except in a window lower than 480 px (a phone on its side): the bar takes nearly all of such a window, so
+// the dock would be squeezed to a few pixels with its text spilling out, and there it floats over the bar instead (the close buttons give the bar back), leaving 64 px at the bottom
+// for a mark of the page in that corner.
 import { INFO_TEXT, cardView, roomsView } from './info.js';
 
 export const DOCK_STYLE_ID = 'ps-dock-style';
@@ -46,6 +49,12 @@ const CSS = `
 .psd-root{display:contents}
 .psd-rooms{position:fixed;z-index:30;left:14px;top:var(--psd-list-top,14px);width:288px;max-height:min(60vh,calc(100vh - var(--ps-stack-h,150px) - var(--psd-list-top,14px) - 20px));max-height:min(60dvh,calc(100dvh - var(--ps-stack-h,150px) - var(--psd-list-top,14px) - 20px))}
 .psd-card{position:fixed;z-index:31;right:14px;top:var(--psd-card-top,14px);width:288px}
+}
+@media (max-height:480px){
+.psd-root{max-height:calc(100vh - var(--psd-top,10px) - 64px);max-height:calc(100dvh - var(--psd-top,10px) - 64px)}
+}
+@media (max-height:480px) and (min-width:761px){
+.psd-rooms{max-height:min(60vh,calc(100vh - var(--psd-list-top,14px) - 64px));max-height:min(60dvh,calc(100dvh - var(--psd-list-top,14px) - 64px))}
 }
 `;
 

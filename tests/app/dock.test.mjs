@@ -58,6 +58,12 @@ test('the dock is added to the page once with its style, and both parts start hi
   assert.match(css, /max-height:calc\(100vh - var\(--ps-stack-h,0px\)[^;]*\);max-height:calc\(100dvh - var\(--ps-stack-h,0px\)/, 'the dock ends above the bars; dvh follows what a phone shows while its address bar comes and goes, vh stays for browsers without it');
   assert.match(css, /max-height:46vh;max-height:46dvh/);
   assert.match(css, /@media \(min-width:761px\)/);
+  // a window lower than 480 px (a phone on its side) has the bar over nearly all of it: the dock stops subtracting the bar there, or it would be a few pixels high with its text spilling out
+  const low = css.slice(css.indexOf('@media (max-height:480px){'));
+  assert.ok(css.includes('@media (max-height:480px){') && css.indexOf('@media (max-height:480px){') > css.indexOf('@media (min-width:761px){'), 'the rules for a low window come after those of a wide one, so they win');
+  assert.match(low, /\.psd-root\{max-height:calc\(100vh - var\(--psd-top,10px\) - 64px\);max-height:calc\(100dvh - var\(--psd-top,10px\) - 64px\)\}/, 'on a narrow low window the stack of the dock has the window to itself, less 64 px at the bottom for a mark of the page');
+  assert.match(low, /@media \(max-height:480px\) and \(min-width:761px\)\{\n\.psd-rooms\{max-height:min\(60vh,calc\(100vh - var\(--psd-list-top,14px\) - 64px\)\);max-height:min\(60dvh,calc\(100dvh - var\(--psd-list-top,14px\) - 64px\)\)\}/, 'and on a wide low one the list has up to 60 percent of the window, and the same 64 px stay free');
+  assert.doesNotMatch(low, /--ps-stack-h/, 'neither of them subtracts the bar');
   for (const v of ['--psd-top', '--psd-list-top', '--psd-card-top']) assert.match(css, new RegExp(`var\\(${v},\\d+px\\)`), `${v} moves the dock clear of the marks of a page that has its own`);
   assert.doesNotMatch(css, LONG_DASH);
 });
