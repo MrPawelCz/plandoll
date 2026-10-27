@@ -2,6 +2,7 @@
 // (English or Polish), a refused clipboard leaves the prompt open to copy by hand, a plan that does not pass stays in the box with its message and a button that copies it, a good plan loads,
 // the box fits a desktop and a phone window, and the page makes no request of its own.
 //   node tools/help-check.mjs [--html dist/plandoll.html | --html https://host/path/] [--out DIR] [--timeout 150] [--phone]
+// The English run opens the page with live=1 (no intro); the Polish run opens it as a visitor gets it and waits for the intro to end (data-intro="done") before the box is opened.
 // On a small machine run it under tools/chrome-lock.sh (one browser at a time). CHROME names the browser (chrome-headless-shell is fine). Exits 1 when a step fails.
 import { spawn } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -70,11 +71,13 @@ const setBox = (text) => ev(`(() => { const a = document.getElementById('ps-file
 const fits = () => ev(`(() => { const d = document.querySelector('.ps-files-dialog'); const r = d.getBoundingClientRect();
   return { dialogW: d.scrollWidth <= d.clientWidth + 1, page: document.documentElement.scrollWidth <= innerWidth + 1, inside: r.left >= 0 && r.right <= innerWidth + 1 && r.top >= 0 && r.bottom <= innerHeight + 1 }; })()`);
 
-async function run(lang) {
+// withIntro: the page is opened as a visitor gets it (no live=1): the intro plays, or the frame-rate guard ends it (this software renderer is far below 15 frames a second), and the box is opened after it
+async function run(lang, withIntro = false) {
   const T = LANGS[lang];
   await send('Page.navigate', { url: 'about:blank' }); await sleep(300); // a change of the part after # alone would not reload the page: the second language would keep the first
-  await send('Page.navigate', { url: `${page}#lang=${lang}&q=low&live=1` });
+  await send('Page.navigate', { url: `${page}#lang=${lang}&q=low${withIntro ? '' : '&live=1'}` });
   await waitFor(`document.readyState === 'complete' && !!document.querySelector('canvas')`, 60000, 'the page');
+  if (withIntro) await waitFor(`document.body.dataset.intro === 'done'`, 90000, 'the end of the intro');
   await sleep(1500);
   const opened = await ev(`(() => { const b = [...document.querySelectorAll('button')].find((x) => x.textContent.trim() === ${JSON.stringify(T.load)}); if (!b) return false; b.click(); return true; })()`);
   check(`${lang}: the ${T.load} button opens the box`, opened && await ev(`!!document.getElementById('ps-files-overlay')`));
@@ -144,7 +147,8 @@ try {
   await send('Page.enable'); await send('Runtime.enable'); await send('Network.enable');
   if (phone) await send('Emulation.setDeviceMetricsOverride', { width: W, height: H, deviceScaleFactor: 2, mobile: true });
   const timer = setTimeout(async () => { console.error(`FAIL timeout after ${opt.timeout} s`); await cleanup(); process.exit(1); }, Number(opt.timeout) * 1000);
-  for (const lang of ['en', 'pl']) await run(lang);
+  await run('en');
+  await run('pl', true);
   clearTimeout(timer);
   const foreign = [...requests].filter((u) => !(u.startsWith(ownOrigin) || u.startsWith('data:') || u.startsWith('blob:') || u === 'about:blank'));
   check('the page made no request of its own to anywhere else', foreign.length === 0, foreign.slice(0, 3).join(' '));

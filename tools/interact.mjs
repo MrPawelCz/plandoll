@@ -623,7 +623,8 @@ try {
   await send('Page.enable'); await send('Runtime.enable'); await send('Network.enable');
   await send('Emulation.setDeviceMetricsOverride', { width: W, height: H, deviceScaleFactor: opt.desktop ? 1 : Number(opt.scale), mobile: !opt.desktop });
   if (!opt.desktop) await send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 });
-  const hash = [opt.hash, opt.edit ? 'edit=1' : '', opt.btn ? 'btn=1' : ''].filter(Boolean).join('&');
+  // the page opens with the intro unless the address says intro=0; this tool clicks through the page, so the intro is off unless the hash names it (intro=1)
+  const hash = [opt.hash, opt.edit ? 'edit=1' : '', opt.btn ? 'btn=1' : '', /(^|&)intro=/.test(opt.hash ?? '') ? '' : 'intro=0'].filter(Boolean).join('&');
   const url = `${target}${hash ? `#${hash}` : ''}`;
   await send('Page.navigate', { url });
 

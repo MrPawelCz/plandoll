@@ -66,9 +66,13 @@ async function waitFor(expr, secs) {
 }
 const T = Number(opt.timeout);
 // A fresh load of the page at an address (a blank page in between, so that a change of the hash alone never counts as a load).
-async function load(hashOrUrl) {
+// The page opens with the intro unless the address says intro=0: loads switch it off (the checks click at once), except where withIntro is true; then the load waits for the intro to end
+// (window.__done is set when it has), which is the path of a visitor who opens a link.
+async function load(hashOrUrl, withIntro = false) {
   await send('Page.navigate', { url: 'about:blank' }); await sleep(250);
-  await send('Page.navigate', { url: /^(file|https?):/.test(hashOrUrl) ? hashOrUrl : `${html}${hashOrUrl ? `#${hashOrUrl}` : ''}` });
+  const full = /^(file|https?):/.test(hashOrUrl) ? hashOrUrl : `${html}${hashOrUrl ? `#${hashOrUrl}` : ''}`;
+  const addr = withIntro || /[#&]intro=/.test(full) ? full : `${full}${full.includes('#') ? '&' : '#'}intro=0`;
+  await send('Page.navigate', { url: addr });
   const ok = await waitFor('window.__done === true || !!window.__fail', T);
   const fail = await ev('window.__fail || null').catch(() => 'no page');
   return ok && !fail;
@@ -184,7 +188,7 @@ try {
   record('the address bar follows the button', /share=z1\./.test(sA.hash) && /plan=duplex-1/.test(sA.hash), { hash: sA.hash.slice(0, 80) });
   const decA = await decodeShare(shareOf(linkA));
   record('the link unpacks to a layout and no plan (an example plan is named in the address)', decA.ok && decA.plan === null && decA.layout?.levels?.length === 2, { error: decA.error });
-  record('the link opens the same page: same pieces, and the link made there is the same link', await load(linkA));
+  record('the link opens the same page: same pieces, and the link made there is the same link', await load(linkA, true));
   const rA = await pageState();
   const relinked = await ev('window.__share.build().then((r) => r.url)');
   record('opened from the link, the page builds the very same link again', rA.pieces === base.pieces && rA.notes.length === 0 && shareOf(relinked) === shareOf(linkA), { pieces: `${base.pieces} -> ${rA.pieces}`, sameShare: shareOf(relinked) === shareOf(linkA) });

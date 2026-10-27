@@ -3,6 +3,7 @@
 // opens the list with the areas (one total, a heading per floor on a duplex, the floors on show only), a row outlines its room, the language and the plan change what both say, the shell
 // opens with the card still tappable, rooms=1 opens the list at start, ui=0 and edit=1 build none of it and the editor still selects a piece by a tap, and the page makes no request of its own.
 //   node tools/info-check.mjs [--html dist/plandoll.html | --html https://host/path/] [--out DIR] [--timeout 240] [--phone | --small]
+// Every step opens the page with live=1 (no intro), except the last one, which opens it as a visitor gets it and waits for the intro to end (data-intro="done").
 // --small (a touch window as --phone) runs only the check of small and low windows: the card and the list open together and end above the control bar, the Rooms button stays free.
 // On a small machine run it under tools/chrome-lock.sh (one browser at a time). CHROME names the browser (chrome-headless-shell is fine). Exits 1 when a step fails.
 import { spawn } from 'node:child_process';
@@ -369,6 +370,21 @@ async function otherModes() {
   } else check('in the editor a piece is free to tap', false, 'none found');
 }
 
+// The page as a visitor gets it: no live=1 and no intro=0 (the other steps switch the intro off, or never get it). The intro plays (or the frame-rate guard ends it: this software renderer is far below
+// 15 frames a second), and the page is whole after it: the intro is over, the bar is back, and a tap on a piece opens its card and a tap on Rooms the list.
+async function afterIntro() {
+  await open('lang=en&q=low', `document.body.dataset.intro === 'done' && window.__done === true`);
+  check('after the intro: the page is done, the intro is over (no words, no shield) and the bar is back', await ev(`!document.getElementById('ps-intro') && !document.getElementById('ps-intro-shield') && Number(getComputedStyle(document.getElementById('ps-ui')).opacity) > 0.5`), await ev(`document.body.dataset.introEnd`));
+  const p = await findPiece();
+  check('after the intro: a piece can be tapped on the picture', !!p, p ? `${p.type} at ${Math.round(p.x)},${Math.round(p.y)}` : 'none found');
+  if (!p) return;
+  await tap(p.x, p.y);
+  check('after the intro: a tap on a piece opens its card', await ev(`window.__info.cardOpen() && window.__info.shown().id === ${JSON.stringify(p.id)}`));
+  await tap(1, 1); // anything else takes the card away
+  check('after the intro: the Rooms button opens the list', (await tapSel('#ps-ui button.tool[data-tool="rooms"]')) && await waitFor('window.__info.roomsOpen()', 3000).then(() => true, () => false));
+  await shot('8-after-intro');
+}
+
 try {
   let target = null;
   for (let i = 0; i < 100 && !target; i++) {
@@ -395,6 +411,7 @@ try {
     await languageAndPlan();
     await shellOpen();
     await otherModes();
+    await afterIntro();
   }
   clearTimeout(timer);
   const foreign = [...requests].filter((u) => !(u.startsWith(ownOrigin) || u.startsWith('data:') || u.startsWith('blob:') || u === 'about:blank'));

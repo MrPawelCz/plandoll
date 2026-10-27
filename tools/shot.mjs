@@ -77,7 +77,8 @@ try {
     const hash = co >= 0 ? rest.slice(0, co) : rest, frames = co >= 0 ? rest.slice(co + 1) : '3';
     await send('Page.navigate', { url: 'about:blank' }); await sleep(300);
     const t0 = Date.now();
-    await send('Page.navigate', { url: `${live ? html : pathToFileURL(html).href}#${hash}${hash ? '&' : ''}frames=${frames}` });
+    // the page opens with the intro unless the address says intro=0; a picture is wanted of the page as it stands, so the intro is switched off unless the job asks for it (intro=1)
+    await send('Page.navigate', { url: `${live ? html : pathToFileURL(html).href}#${hash}${hash ? '&' : ''}frames=${frames}${/(^|&)intro=/.test(hash) ? '' : '&intro=0'}` });
     let done = false;
     for (let k = 0; k < Number(opt.timeout) * 2 && !done; k++) {
       await sleep(500);
