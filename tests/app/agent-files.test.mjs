@@ -4,7 +4,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -117,12 +117,22 @@ test('llmsTxt: every link into the repository leads to a file that is there, and
   assert.ok(text.includes(`(${REPO_URL})`));
 });
 
+test('llmsTxt: it does not call two instructions the same while their texts differ, and it says what a link cannot do', () => {
+  const text = llmsTxt({ base: PAGES_URL });
+  if (read('docs/PROMPT.md') !== read('docs/PROMPT.pl.md')) assert.ok(!/same instruction/i.test(text), 'the Polish instruction is not the English one translated line by line');
+  assert.ok(/own always goes in through Load plan/.test(text), 'a plan of the visitor\'s own cannot be put in a link by hand');
+  assert.ok(/ui=0 hides all controls and btn=0 the row of buttons, Load plan included/.test(text), 'the two parameters that take Load plan away say so');
+  assert.equal(parseParams('plan=my-own-plan').plan.name, 'flat-1', 'a link names one of the examples only: anything else opens the first one');
+});
+
 test('llmsTxt: the example link and the parameters it names are the ones the page and the README have', () => {
   const text = llmsTxt({ base: PAGES_URL });
   const p = parseParams('plan=duplex-1&amber&floor=0');
   assert.equal(p.plan.name, 'duplex-1'); assert.equal(p.preset, 'amber'); assert.equal(p.floor, 0);
   assert.deepEqual(PRESET_NAMES.map((n) => presetLabel(n, 'en')), ['Day', 'Sunset', 'Night'], 'the moods in the order of the sentence');
-  assert.ok(text.includes(`${PRESET_NAMES.join(', ').replace(/, (\w+)$/, ' or $1')}: the mood (Day, Sunset, Night)`));
+  const moods = PRESET_NAMES.map((n) => `${n} (${presetLabel(n, 'en')})`);
+  assert.ok(text.includes(`${moods.slice(0, -1).join(', ')} or ${moods.at(-1)}`), 'the moods with the names the page shows, in the order of the page');
+  assert.equal(parseParams('preset=lamplit').preset, 'lamplit', 'preset= works as the text says');
   const readme = read('README.md');
   for (const name of ['plan', 'floor', 'lang', 'intro', 'ui', 'btn', 't']) {
     assert.ok(readme.includes(`| \`${name}\` |`), `the README has no row for ${name}`);
@@ -153,6 +163,15 @@ test('the tool writes both files for an address, refuses a bad one and says how 
     assert.equal(existsSync(join(dir, 'c')), false, 'nothing is written for a bad address');
     r = run();
     assert.equal(r.status, 2); assert.match(r.stderr, /usage: node tools\/agent-files\.mjs/);
+    r = run('--out', join(dir, 'd'), '--base');
+    assert.equal(r.status, 2, '--base without its value is a mistake, not a request for the default'); assert.equal(existsSync(join(dir, 'd')), false);
+    r = run('--base', '--out', join(dir, 'd'));
+    assert.equal(r.status, 2, 'an option that swallows the next option is a mistake too');
+    // by a path that goes through a symbolic link the command still does its work
+    symlinkSync(join(root, 'tools/agent-files.mjs'), join(dir, 'link.mjs'));
+    r = spawnSync(process.execPath, [join(dir, 'link.mjs'), '--out', join(dir, 'e')], { encoding: 'utf8' });
+    assert.equal(r.status, 0, r.stderr);
+    assert.equal(readFileSync(join(dir, 'e/llms.txt'), 'utf8'), llmsTxt({ base: PAGES_URL }));
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 

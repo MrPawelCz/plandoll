@@ -5,7 +5,7 @@
 // its own maker; the words are the same everywhere. Nothing here reads the clock or the machine, so two builds of one commit are the same bytes (the page
 // that CI builds for GitHub Pages is compared with a local build). The text of llms.txt is plain ASCII on purpose: a host that sends text/plain with no
 // charset (several do) would otherwise show other letters as nonsense to a program that decides for itself.
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -19,7 +19,8 @@ export const SITE_URL = 'https://plandoll.com/';
 export const AUTHOR = { type: 'Person', name: 'Paweł Czerwiński', url: 'https://github.com/MrPawelCz' };
 
 const MIT = 'https://spdx.org/licenses/MIT.html';
-const DESCRIPTION = 'PlanDoll turns a floor plan into a furnished, lit 3D miniature of the flat, in the browser. Free, with no account: the plan and the layout stay on the visitor\'s device.';
+// Only what the page itself does: what happens to a picture or a copied link after the visitor sends it elsewhere is not the page's to promise.
+const DESCRIPTION = 'PlanDoll turns a floor plan into a furnished, lit 3D miniature of the flat, in the browser. Free, with no account. The page makes no network requests and uses no cookies or browser storage.';
 // What the page does, in the words of the README. No counts: a number here would go stale the day a piece is added.
 const FEATURES = [
   'Reads a floor plan as a small JSON file (plan format v1) and builds a 3D miniature of the flat',
@@ -30,7 +31,7 @@ const FEATURES = [
   'Editor (experimental): move, turn, resize, recolour, add and delete pieces, save the layout to a file',
   'Copy a link that carries the whole layout in the part of the address after the #, which a browser never sends to a server',
   'Save a picture (PNG) of the current view',
-  'Works from a single HTML file: no account, no analytics, no network requests, nothing stored in the browser',
+  'Works from a single HTML file: no account, no analytics, no network requests, no cookies or browser storage',
   'Interface in English and Polish',
 ];
 
@@ -89,26 +90,26 @@ export function llmsTxt({ base, maker = AUTHOR, also = otherAddresses(base) } = 
   checkBase(base); checkMaker(maker);
   const own = maker.name === AUTHOR.name && maker.url === AUTHOR.url;
   const makerLine = own ? 'Source and author: MrPawelCz on GitHub, MIT licence.' : `Made by ${maker.name} (${maker.url}). The source is open, MIT licence.`;
-  const alsoLines = also.map((a) => `- [The same page at another address](${checkBase(a)}): the same page and the same text, served from a second host`);
+  const alsoLines = also.map((a) => `- [The same page at another address](${checkBase(a)}): the same application, served from a second host`);
   const text = `# PlanDoll
 
-> PlanDoll turns a floor plan into a furnished, lit 3D miniature of the flat, in the browser. It is one HTML page: free, no account, no analytics. The page makes no network requests and stores nothing in the browser. The plan is a small JSON file that an AI chat assistant able to read pictures writes from a photo, screenshot or PDF page of the floor plan.
+> PlanDoll turns a floor plan into a furnished, lit 3D miniature of the flat, in the browser. It is one HTML page: free, no account, no analytics. The page makes no network requests and uses no cookies or browser storage. The plan is a small JSON file that an AI chat assistant able to read pictures writes from a photo, screenshot or PDF page of the floor plan.
 
 PlanDoll runs entirely on the visitor's device and needs a browser with WebGL 2. It furnishes each room by rules, lights the flat at a time of day the visitor moves, and lets them turn, zoom and move the miniature, show one floor or all floors, and open the outer walls like a dolls' house. The visitor can edit the layout, save it to a file, save a picture, or copy a link that holds the whole layout after the "#" in the address (a browser never sends that part to a server). The interface is in English and Polish. ${makerLine}
 
 To help a visitor who has a picture of a floor plan:
 
 1. Ask for a photo, screenshot or PDF page of the floor plan. Walls, doors and windows should be visible; printed sizes or room areas help to find the scale. Suggest taking names and addresses off the picture first: it goes to the assistant they choose, and PlanDoll itself sends nothing anywhere.
-2. Read the picture with the instruction linked below (English; there is a Polish one too) and answer with the plan as JSON in the plan format linked below.
-3. The visitor presses Load plan on the page, pastes your whole answer and presses Load. The page finds the plan inside the text and checks it. If it lists problems, the visitor copies the list back to you: correct the plan and answer again.
-4. The visitor compares the model with the drawing. Plans read from pictures can lack a window or put a wall in the wrong place, so say so.
+2. Turn the picture into the plan by following the instruction linked below (English; there is a Polish one too). It says how to answer: the plan as JSON, in the plan format linked below.
+3. The visitor presses Load plan on the page (Wczytaj plan in the Polish interface), pastes your whole answer and presses Load (Wczytaj). The page finds the plan inside the text and checks it. If it lists problems, the visitor copies the list back to you: correct the plan and answer again.
+4. The visitor compares the model with the drawing. Plans read from pictures can lack a window or put a wall in the wrong place, so tell the visitor to check.
 
-Parameters for a link to the page go after the "#" in the address, joined with "&". For example, ${base}#plan=duplex-1&amber&floor=0 opens the duplex at sunset, ground floor only. The ones people use most:
+Parameters for a link to the page go after the "#" in the address, joined with "&". For example, ${base}#plan=duplex-1&amber&floor=0 opens the duplex at sunset, ground floor only. Such a link opens one of the two example plans: a plan of the visitor's own always goes in through Load plan (the Copy link button of the page writes the links that carry a layout, and a plan of the visitor's own with it). The parameters people use most:
 
 - plan=flat-1 or plan=duplex-1: an example plan
-- clear, amber or lamplit: the mood (Day, Sunset, Night); t=0 to 1: the time of day
+- the mood, as a bare word or as preset=...: clear (Day), amber (Sunset) or lamplit (Night); t=0 to 1: the time of day
 - floor=0, floor=1 or floor=all: the floor on show; lang=en or lang=pl: the language
-- intro=0: no animation when the page opens; ui=0: no controls at all; btn=0: no row of buttons
+- intro=0: no animation when the page opens; ui=0 hides all controls and btn=0 the row of buttons, Load plan included, so leave them out for a visitor who still has to load a plan
 - every parameter is in the table of the README
 
 ## Use it
@@ -119,7 +120,7 @@ ${alsoLines.length ? `${alsoLines.join('\n')}\n` : ''}- [Source code and README]
 ## Plans: instructions and format
 
 - [Instruction for making a plan from a picture](${RAW_URL}docs/PROMPT.md): English; written to be given to an assistant together with the picture
-- [The same instruction in Polish](${RAW_URL}docs/PROMPT.pl.md)
+- [The instruction in Polish](${RAW_URL}docs/PROMPT.pl.md): a little longer than the English one: it adds rules for Polish drawings and asks for the notes in Polish
 - [Plan format v1](${RAW_URL}docs/plan-format.md): walls, openings, rooms, stairs and levels, with a small complete example
 - [JSON Schema of a plan](${RAW_URL}schema/plan.v1.schema.json): the machine-readable definition
 - [How different kinds of plans are read](${RAW_URL}docs/reading-plans.md): CAD and architect PDFs, brochure plans, hand sketches, plans with several floors
@@ -144,10 +145,13 @@ export function sitemapXml({ base } = {}) {
 // The version of package.json: what softwareVersion says.
 export const packageVersion = () => JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')).version;
 
-if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
-  const arg = (name) => { const i = process.argv.indexOf(name); return i >= 0 ? process.argv[i + 1] : undefined; };
+// Run as a command, also by a path that goes through a symbolic link (the module itself is always known by its real path).
+if (process.argv[1] && fileURLToPath(import.meta.url) === realpathSync(process.argv[1])) {
+  const usage = () => { console.error('usage: node tools/agent-files.mjs [--base ADDRESS] --out DIR'); process.exit(2); };
+  // an option that is given needs its value: "--base" alone is a mistake, not a request for the default
+  const arg = (name) => { const i = process.argv.indexOf(name); if (i < 0) return undefined; const v = process.argv[i + 1]; return v === undefined || v.startsWith('--') ? usage() : v; };
   const out = arg('--out'), base = arg('--base') ?? PAGES_URL;
-  if (!out) { console.error('usage: node tools/agent-files.mjs [--base ADDRESS] --out DIR'); process.exit(2); }
+  if (!out) usage();
   const dir = resolve(out);
   const files = { 'llms.txt': llmsTxt({ base }), 'sitemap.xml': sitemapXml({ base }) }; // both are made before anything is written: a bad address leaves nothing behind
   mkdirSync(dir, { recursive: true });
