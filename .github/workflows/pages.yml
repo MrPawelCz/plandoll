@@ -26,6 +26,7 @@ jobs:
           mkdir site
           cp dist/plandoll.html site/index.html
           cp -r examples site/examples
+          node tools/agent-files.mjs --out site
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

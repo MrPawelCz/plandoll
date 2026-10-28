@@ -1,6 +1,6 @@
 {
   "name": "plandoll",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "Turn a floor plan into a furnished, lit miniature of the flat. Work in progress.",
   "type": "module",
   "license": "MIT",
