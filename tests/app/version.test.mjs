@@ -78,7 +78,7 @@ test('the style keeps the mark small, inert and under the bars of the page', () 
   assert.match(MARK_CSS, /pointer-events:none/, 'it never covers a button or takes a gesture from the camera');
   assert.doesNotMatch(MARK_CSS, /z-index/, 'it comes first in the page, and the bars that the page builds later paint over it');
   const size = /font:600 (\d+)px\/(\d+)px/.exec(MARK_CSS);
-  assert.ok(size && Number(size[1]) <= 11 && Number(size[2]) <= 13, 'a small print');
+  assert.ok(size && Number(size[1]) >= 11 && Number(size[1]) <= 12 && Number(size[2]) <= 13, 'a small print, but not under the 11 px that text which carries information gets');
 });
 
 test('package.json and the lock file carry the same version, a number like 1.2.3', () => {

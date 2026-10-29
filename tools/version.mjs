@@ -32,7 +32,7 @@ export function gitState(root, run = execFileSync) {
 
 // The element of the page. The mark is inert (it takes no pointer, so it never covers a button or a gesture) and sits under the bars: it comes first in the
 // document, and the bars that the page builds later paint over it.
-export const MARK_CSS = '#ps-version{position:fixed;right:10px;bottom:4px;padding:0 7px;border-radius:6px;background:rgba(250,244,232,.62);color:rgba(74,59,42,.82);font:600 10px/12px ui-rounded,"SF Pro Rounded","Avenir Next","Segoe UI",system-ui,sans-serif;letter-spacing:.02em;white-space:nowrap;pointer-events:none;-webkit-user-select:none;user-select:none}';
+export const MARK_CSS = '#ps-version{position:fixed;right:10px;bottom:4px;padding:0 7px;border-radius:6px;background:rgba(250,244,232,.62);color:rgba(74,59,42,.82);font:600 11px/13px ui-rounded,"SF Pro Rounded","Avenir Next","Segoe UI",system-ui,sans-serif;letter-spacing:.02em;white-space:nowrap;pointer-events:none;-webkit-user-select:none;user-select:none}';
 
 const escapeHtml = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
