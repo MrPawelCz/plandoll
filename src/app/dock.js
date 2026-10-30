@@ -22,7 +22,7 @@ const CSS = `
 .psd-title,.psd-rooms-title{margin:0;font-size:15px;font-weight:800;line-height:1.25;overflow-wrap:anywhere}
 .psd-where{margin:1px 0 0;font-size:12px;opacity:.72;overflow-wrap:anywhere}
 .psd-close{flex:none;min-width:44px;min-height:44px;margin:-6px 0 -6px 0;padding:0;border:0;background:none;color:inherit;font:inherit;font-size:22px;line-height:1;border-radius:12px;cursor:pointer;touch-action:manipulation}
-.psd-close:hover{background:rgba(200,121,58,.14)}
+@media (hover:hover) and (pointer:fine){.psd-close:hover{background:rgba(200,121,58,.14)}}
 .psd-close:focus-visible,.psd-row:focus-visible{outline:2px solid var(--accent,#c8793a);outline-offset:2px}
 .psd-dimrow{display:flex;align-items:center;gap:8px;margin:8px 8px 0 0}
 .psd-dims{display:flex;flex:1;min-width:0;gap:8px;margin:0;padding:0}
@@ -37,7 +37,10 @@ const CSS = `
 .psd-list{list-style:none;margin:0;padding:0}
 .psd-row{all:unset;box-sizing:border-box;display:flex;align-items:center;justify-content:space-between;gap:12px;width:100%;min-height:36px;padding:4px 8px;border-radius:10px;cursor:pointer;touch-action:manipulation}
 @media (pointer:coarse){.psd-row{min-height:44px}}
-.psd-row:hover{background:rgba(200,121,58,.12)}
+@media (hover:hover) and (pointer:fine){.psd-row:hover{background:rgba(200,121,58,.12)}}
+.psd-close,.psd-row{transition:transform .12s cubic-bezier(.23,1,.32,1)}
+.psd-close:active{transform:scale(.97)}
+.psd-row:active{transform:scale(.985)}
 .psd-row[aria-pressed="true"]{background:#fffaf0;box-shadow:inset 0 0 0 1px var(--accent,#c8793a)}
 .psd-row-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600}
 .psd-row-area{flex:none;font-weight:800;font-variant-numeric:tabular-nums}

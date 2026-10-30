@@ -39,7 +39,7 @@ const CSS = `
 #ps-ui{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);display:flex;align-items:center;gap:16px;padding:8px 14px;border-radius:20px;background:var(--paper);box-shadow:0 10px 30px rgba(40,28,12,.28),0 1px 0 rgba(255,255,255,.6) inset;border:1px solid var(--line);-webkit-backdrop-filter:blur(14px);backdrop-filter:blur(14px);max-width:calc(100vw - 20px);box-sizing:border-box}
 #ps-ui .moods{display:flex;gap:6px}
 #ps-ui button.mood{all:unset;cursor:pointer;display:flex;align-items:center;gap:8px;padding:6px 12px 6px 8px;border-radius:14px;border:1px solid transparent;font-weight:600;letter-spacing:.01em}
-#ps-ui button.mood:hover{background:rgba(200,121,58,.1)}
+@media (hover:hover) and (pointer:fine){#ps-ui button.mood:hover{background:rgba(200,121,58,.1)}}
 #ps-ui button.mood[aria-pressed=true]{background:#fffaf0;border-color:var(--line);box-shadow:0 2px 8px rgba(70,48,20,.14)}
 #ps-ui button.mood:focus-visible,#ps-ui select:focus-visible,#ps-ui input:focus-visible,#ps-ui button.lang:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 #ps-ui .dot{width:18px;height:18px;border-radius:6px;box-shadow:0 0 0 1px rgba(0,0,0,.12) inset}
@@ -58,14 +58,14 @@ const CSS = `
 #ps-ui button.lang{all:unset;cursor:pointer;font-weight:700;font-size:11px;letter-spacing:.08em;padding:5px 8px;border-radius:8px;border:1px solid var(--line)}
 #ps-ui label.quality{display:flex;align-items:center;gap:6px;font-size:11px;font-weight:600;letter-spacing:.02em}
 #ps-ui button.reset{all:unset;cursor:pointer;font-weight:600;font-size:12px;padding:5px 10px;border-radius:10px;border:1px solid var(--line);white-space:nowrap}
-#ps-ui button.reset:hover{background:rgba(200,121,58,.1)}
+@media (hover:hover) and (pointer:fine){#ps-ui button.reset:hover{background:rgba(200,121,58,.1)}}
 #ps-ui button.reset:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 #ps-ui-msg{position:absolute;left:50%;bottom:calc(100% + 40px);transform:translateX(-50%);max-width:calc(100vw - 24px);box-sizing:border-box;padding:5px 12px;border-radius:12px;background:var(--paper);border:1px solid var(--line);box-shadow:0 6px 18px rgba(40,28,12,.22);font-weight:600;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;pointer-events:none}
 #ps-ui-msg:empty{display:none}
 #ps-ui .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
 #ps-ui .tools{display:flex;flex-wrap:wrap;justify-content:center;gap:6px}
 #ps-ui button.tool{all:unset;cursor:pointer;box-sizing:border-box;min-width:44px;min-height:44px;padding:0 12px;display:flex;align-items:center;justify-content:center;text-align:center;font-weight:600;font-size:12px;border-radius:12px;border:1px solid var(--line);white-space:nowrap;touch-action:manipulation}
-#ps-ui button.tool:hover{background:rgba(200,121,58,.1)}
+@media (hover:hover) and (pointer:fine){#ps-ui button.tool:hover{background:rgba(200,121,58,.1)}}
 #ps-ui button.tool:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 #ps-hint{position:fixed;left:50%;top:14px;transform:translateX(-50%);font:600 13px/1.3 ui-rounded,"SF Pro Rounded","Avenir Next","Segoe UI",system-ui,sans-serif;color:var(--ink);background:var(--paper);padding:6px 14px;border-radius:16px;border:1px solid var(--line);box-shadow:0 6px 18px rgba(40,28,12,.22);-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px);pointer-events:none;max-width:calc(100vw - 24px);box-sizing:border-box;text-align:center}
 @media (min-width:761px) and (max-width:1380px){#ps-ui{flex-wrap:wrap;justify-content:center}#ps-ui .tools{flex-basis:100%}#ps-ui .sep{display:none}}
@@ -79,8 +79,10 @@ const CSS = `
 @media (max-width:760px){#ps-ui.editing label.quality,#ps-ui.editing .sep{display:none}}
 #ps-edit{position:fixed;z-index:40;left:50%;bottom:96px;transform:translateX(-50%);display:flex;gap:6px;padding:6px 8px;border-radius:18px;background:var(--paper);border:1px solid var(--line);box-shadow:0 8px 24px rgba(40,28,12,.26);-webkit-backdrop-filter:blur(12px);backdrop-filter:blur(12px);max-width:calc(100vw - 12px);box-sizing:border-box;font:600 12px/1.2 ui-rounded,"SF Pro Rounded","Avenir Next","Segoe UI",system-ui,sans-serif;color:var(--ink)}
 #ps-edit button{all:unset;cursor:pointer;box-sizing:border-box;min-width:44px;min-height:44px;padding:0 9px;display:flex;align-items:center;justify-content:center;text-align:center;border-radius:12px;border:1px solid var(--line);background:#fffaf0;font-weight:600;touch-action:manipulation;white-space:nowrap}
-#ps-edit button:hover:not([disabled]){background:rgba(200,121,58,.14)}
+@media (hover:hover) and (pointer:fine){#ps-edit button:hover:not([disabled]){background:rgba(200,121,58,.14)}}
 #ps-edit button[disabled]{opacity:.36;cursor:default}
+#ps-ui button.mood,#ps-ui button.lang,#ps-ui button.reset,#ps-ui button.tool,#ps-edit button{transition:transform .12s cubic-bezier(.23,1,.32,1)}
+#ps-ui button.mood:active,#ps-ui button.lang:active,#ps-ui button.reset:active,#ps-ui button.tool:active,#ps-edit button:active:not([disabled]){transform:scale(.97)}
 #ps-edit button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 @media (max-width:560px){#ps-edit{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:4px;padding:6px;width:calc(100vw - 12px)}#ps-edit button{padding:0 2px;font-size:11px;line-height:1.1;white-space:normal;overflow-wrap:anywhere}}
 #ps-edit-hint{position:absolute;left:50%;bottom:calc(100% + 8px);transform:translateX(-50%);width:max-content;max-width:calc(100vw - 24px);box-sizing:border-box;padding:6px 12px;border-radius:12px;background:var(--paper);border:1px solid var(--line);box-shadow:0 6px 18px rgba(40,28,12,.22);font-weight:600;text-align:center;pointer-events:none}
@@ -90,7 +92,7 @@ const CSS = `
 #ps-edit-menu button{justify-content:flex-start;padding:0 14px}
 #ps-edit-msg{position:absolute;left:50%;bottom:calc(100% + 8px);transform:translateX(-50%);max-width:calc(100vw - 24px);padding:5px 12px;border-radius:12px;background:var(--paper);border:1px solid var(--line);box-shadow:0 6px 18px rgba(40,28,12,.22);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;pointer-events:none}
 #ps-edit-msg:empty{display:none}
-#ps-edit-panel{position:fixed;right:10px;top:10px;max-width:calc(100vw - 20px);max-height:calc(100vh - 140px);overflow:auto}
+#ps-edit-panel{position:fixed;right:10px;top:10px;max-width:calc(100vw - 20px);max-height:calc(100vh - 140px);max-height:calc(100dvh - 140px);overflow:auto}
 #ps-edit-panel:empty{display:none}
 #ps-card{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:#efe6d4;padding:24px;box-sizing:border-box}
 #ps-card .box{max-width:520px;padding:28px 30px;border-radius:22px;background:#fffaf0;border:1px solid var(--line);box-shadow:0 14px 40px rgba(60,40,10,.2)}

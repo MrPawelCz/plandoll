@@ -56,7 +56,9 @@ const CSS = `
 [aria-expanded="true"]>.psp-chev{transform:rotate(-135deg);margin:4px 4px 0 0}
 .psp-items{display:grid;grid-template-columns:minmax(0,1fr);gap:6px;padding:2px 0 10px}
 .psp-item{display:grid;grid-template-columns:minmax(0,1fr) auto;grid-template-areas:"n t" "r r";align-items:center;gap:0 8px;width:100%;min-height:44px;padding:6px 10px;text-align:left;background:#fffaf0;border:1px solid var(--line,rgba(120,96,64,.22));border-radius:12px}
-.psp-item:hover{background:#fff3df}
+@media (hover:hover) and (pointer:fine){.psp-item:hover{background:#fff3df}}
+.psp-item{transition:transform .12s cubic-bezier(.23,1,.32,1)}
+.psp-item:active{transform:scale(.985)}
 .psp-item-name{grid-area:n;font-weight:700;overflow-wrap:anywhere}
 .psp-tag{grid-area:t;font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;background:rgba(200,121,58,.18);color:#80441a;padding:1px 7px;border-radius:8px}
 .psp-item-rooms{grid-area:r;font-size:11px;opacity:.72;overflow-wrap:anywhere}

@@ -110,7 +110,8 @@ export function planHash(hash, name) {
 }
 
 // The address hash for switching edit mode on or off: every other parameter stays, edit=1 is added or removed, and the mood, the time of day,
-// the quality and the language of the page (`state`) replace the old values, so the reloaded page opens as the visitor left it.
+// the quality and the language of the page (`state`) replace the old values, so the reloaded page opens as the visitor left it. Leaving the editor also adds
+// intro=0: the page that comes back is the one the visitor has just seen, and what happens many times is not played again (the plain link of Copy link never has it).
 export function editHash(hash, on, state = {}) {
   const { bare, kv } = splitHash(hash);
   const out = { ...kv };
@@ -120,7 +121,7 @@ export function editHash(hash, on, state = {}) {
   if (state.lang === 'pl' || state.lang === 'en') out.lang = state.lang;
   if (state.floor !== undefined) { delete out.floor; const f = parseFloorParam(String(state.floor)); if (f !== ALL) out.floor = String(f); } // the floors on show stay
   delete out.edit;
-  if (on) out.edit = '1';
+  if (on) out.edit = '1'; else out.intro = '0';
   const parts = bare.filter((b) => !isPreset(b) || !out.preset).map(encodeURIComponent);
   for (const [k, v] of Object.entries(out)) parts.push(`${k}=${encodeURIComponent(v)}`);
   return parts.join('&');

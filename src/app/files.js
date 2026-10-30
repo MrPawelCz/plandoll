@@ -170,7 +170,9 @@ const CSS = `
 #ps-files-overlay .ps-files-actions{display:flex;flex-wrap:wrap;gap:10px;margin-top:14px}
 #ps-files-overlay button{flex:1 1 130px;min-height:44px;padding:8px 16px;border-radius:12px;border:1px solid rgba(255,255,255,.2);background:rgba(255,255,255,.08);color:inherit;font:inherit;font-weight:600;cursor:pointer}
 #ps-files-overlay button.ps-files-load{background:#c8793a;border-color:#c8793a;color:#1c130a}
-#ps-files-overlay button:hover{filter:brightness(1.15)}
+@media (hover:hover) and (pointer:fine){#ps-files-overlay button:hover{filter:brightness(1.15)}}
+#ps-files-overlay button{transition:transform .12s cubic-bezier(.23,1,.32,1)}
+#ps-files-overlay button:active{transform:scale(.97)}
 #ps-files-overlay textarea:focus-visible,#ps-files-overlay button:focus-visible{outline:2px solid #ffb680;outline-offset:2px}
 #ps-files-overlay .ps-files-error{white-space:pre-wrap;overflow-wrap:anywhere}
 #ps-files-overlay .ps-files-help{margin:0 0 12px;padding:2px 12px 10px;border-radius:12px;border:1px solid rgba(255,255,255,.16);background:rgba(255,255,255,.05)}
