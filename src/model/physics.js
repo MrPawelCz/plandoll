@@ -1,6 +1,8 @@
 // Ported from planwalk viewer/src/physics.js (MIT, same author), source commit fa1a280 (v0.3.2).
 // Spacer physics: 2D circle against oriented rectangles, stair ramps, jumps and doors, deterministic. No DOM, no three.js.
 // The player walks through furniture: only walls, window gaps, stairs with their rails and shut doors stop it.
+// Differs from planwalk fa1a280 in defaultSpawn: the start is a point with room around it (0.8 m from the walls) instead of the nearest clear
+// point, and the view is turned to the middle of the opening it runs through.
 import { PLAYER, STAIR_SWITCH, JUMP, DOOR_REACH, DOOR_CONE_DEG, DOOR_SECONDS, roomAt } from './geometry.js';
 import { pointInPolygon } from '../core/geom2d.js';
 
@@ -307,7 +309,8 @@ export function longestView(level, x, y, bounds, preferDeg = 0) {
   return yaw > 180 ? yaw - 360 : yaw;
 }
 
-// Where Spacer starts: the room with an exterior door, else the largest room (lowest level first), looking along its longest free view.
+// Where Spacer starts: the room with an exterior door, else the largest room (lowest level first), at a point with room around it near the
+// label point, looking along the longest free view.
 export function defaultSpawn(model) {
   let found = null;
   for (const lv of model.levels) {
@@ -341,9 +344,12 @@ export function defaultSpawn(model) {
   const ring = [[0, 0], ...Array.from({ length: 8 }, (_, i) => [Math.cos((i * Math.PI) / 4) * 0.5, Math.sin((i * Math.PI) / 4) * 0.5])];
   const onStair = (x, y) => model.stairs.some((st) => (st.lower === found.level || st.upper === found.level) && ring.some(([dx, dy]) => pointInPolygon([x + dx, y + dy], st.footprint)));
   const clear = (x, y) => pointInPolygon([x, y], found.room.polygon) && maxPenetration(lv, x, y, PLAYER.radius + 0.25) === 0 && !onStair(x, y);
-  let [sx, sy] = found.room.label;
-  if (!clear(sx, sy)) {
-    let best = null, bestD = Infinity;
+  // The first view is taken from a point with room around it: keeping 0.65 m and 0.8 m from every collider is worth 3 m of walk each away
+  // from the label point, so a start squeezed beside a stair run (1.1 m of floor between rail and wall) moves to the open part of the room.
+  const [lx, ly] = found.room.label;
+  const rate = (x, y) => (clear(x, y) ? ((maxPenetration(lv, x, y, 0.65) === 0) + (maxPenetration(lv, x, y, 0.8) === 0)) * 3 - Math.hypot(x - lx, y - ly) : -Infinity);
+  let sx = lx, sy = ly, top = rate(lx, ly);
+  if (top < 6) { // a label point with both margins (6) cannot be beaten, so the room is searched only otherwise
     const poly = found.room.polygon;
     const xs = poly.map((q) => q[0]), ys = poly.map((q) => q[1]);
     const x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys);
@@ -353,15 +359,23 @@ export function defaultSpawn(model) {
       const x = x0 + i * step;
       for (let j = 0; j <= ny; j++) {
         const y = y0 + j * step;
-        if (!clear(x, y)) continue;
-        const d = Math.hypot(x - sx, y - sy);
-        if (d < bestD) { bestD = d; best = [x, y]; }
+        const s = rate(x, y);
+        if (s > top) { top = s; sx = +x.toFixed(3); sy = +y.toFixed(3); } // a plain number (1.2, not 1.2000000000000002), a hair from the point that was rated
       }
     }
-    if (best) [sx, sy] = best;
   }
   const lookAt = found.door ?? [(b.minX + b.maxX) / 2, (b.minY + b.maxY) / 2];
   let yaw = Math.atan2(sy - lookAt[1], sx - lookAt[0]);
   if (Math.hypot(sx - lookAt[0], sy - lookAt[1]) < 0.05) yaw = 0;
-  return { level: found.level, roomId: found.room.id, x: sx, y: sy, yawDeg: longestView(lv, sx, sy, b, (yaw * 180) / Math.PI) };
+  const view = longestView(lv, sx, sy, b, (yaw * 180) / Math.PI);
+  // That view is turned to the middle of the opening it runs through (within 12 degrees), so a door stands in the middle of the picture. A
+  // ray that reaches the middle of the gap takes it for one that can be walked through: the gap of a window or of a high sill is solid.
+  let aim = view, off = 12;
+  for (const op of lv.openings) {
+    const w = lv.wallById.get(op.wallId), um = (op.u0 + op.u1) / 2;
+    const mx = w.from[0] + w.dir[0] * um - sx, my = w.from[1] + w.dir[1] * um - sy, d = Math.hypot(mx, my), a = (Math.atan2(my, mx) * 180) / Math.PI;
+    const o = Math.abs(((a - view + 540) % 360) - 180);
+    if (d > 0.3 && o < off && freeDistance(lv, sx, sy, mx / d, my / d, d) >= d - 0.03) { off = o; aim = a; }
+  }
+  return { level: found.level, roomId: found.room.id, x: sx, y: sy, yawDeg: aim };
 }

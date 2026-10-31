@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { buildModel, levelOffsets, modelExtent, EXPLODE_FACTOR } from '../../src/model/geometry.js';
 import { createWorld, createPlayer, stepPlayer, teleport, defaultSpawn, maxPenetration, freeDistance, longestView } from '../../src/model/physics.js';
-import { fileModel, planModel } from '../helpers/walk-model.mjs';
+import { fileModel, planModel, twoRooms } from '../helpers/walk-model.mjs';
 
 const modelOf = fileModel;
 const flat = () => modelOf('examples/flat-1.plan.json');
@@ -157,6 +157,71 @@ test('the start of Spacer looks along the longest free view in every example and
     assert.deepEqual(defaultSpawn(m), sp, `${file}: the same answer every time`);
     assert.ok(sp.yawDeg > -180 && sp.yawDeg <= 180, `${file}: yaw ${sp.yawDeg} is a plain angle in degrees`);
   }
+});
+
+test('the first view is taken from a point with room around it, so no bare wall fills the frame', () => {
+  // [file, the share of the picture (103 degrees: 16:9 at 70 degrees of height) that may end within 1.2 m]. The old start of duplex-1 stood in the
+  // strip of 1.1 m between the stair rail and the wall (0.46 m from a collider): 42 percent of the frame was that wall, all of it on the left.
+  for (const [file, most] of [['examples/flat-1.plan.json', 0.1], ['examples/duplex-1.plan.json', 0.05], ['tests/fixtures/duplex-min.plan.json', 0.05], ['tests/fixtures/flat-stairs-out.plan.json', 0.3]]) {
+    const m = modelOf(file), sp = defaultSpawn(m), lv = m.levels[sp.level];
+    assert.equal(maxPenetration(lv, sp.x, sp.y, 0.8), 0, `${file}: at least 0.8 m from every collider`);
+    let near = 0, n = 0;
+    for (let a = -51; a <= 51; a++, n++) if (ahead(m, sp, sp.yawDeg + a) < 1.2) near++;
+    assert.ok(near / n <= most, `${file}: ${Math.round((100 * near) / n)} percent of the frame ends within 1.2 m, at most ${most * 100}`);
+  }
+});
+
+test('a start that already has room stays on the label point of the room, one that has not moves to the open part of it', () => {
+  for (const file of ['examples/flat-1.plan.json', 'tests/fixtures/duplex-min.plan.json', 'tests/fixtures/flat-stairs-out.plan.json']) {
+    const m = modelOf(file), sp = defaultSpawn(m);
+    assert.deepEqual([sp.x, sp.y], m.levels[sp.level].rooms.find((r) => r.id === sp.roomId).label, `${file}: the label point has 0.8 m of room`);
+  }
+  // duplex-1: the label point of the hall (1.4, 3.2) is on the stair run, and the free floor beside it is 1.1 m wide; the start is in the
+  // part of the hall north of the stair (y under 2.29 less the 0.5 m ring), 1 m or more from the label point and not further than 2.5 m
+  const m = modelOf('examples/duplex-1.plan.json'), sp = defaultSpawn(m), hall = m.levels[0].rooms.find((r) => r.id === 'hall');
+  assert.equal(sp.roomId, 'hall');
+  assert.ok(sp.y < 2.29 - 0.5 + 1e-9, `y = ${sp.y}`);
+  const away = Math.hypot(sp.x - hall.label[0], sp.y - hall.label[1]);
+  assert.ok(away > 1 && away < 2.5, `${away.toFixed(2)} m from the label point`);
+});
+
+// the angle (degrees) from the start to the middle of an opening of its level
+const toMiddle = (m, sp, op) => {
+  const w = m.levels[sp.level].wallById.get(op.wallId), um = (op.u0 + op.u1) / 2;
+  return (Math.atan2(w.from[1] + w.dir[1] * um - sp.y, w.from[0] + w.dir[0] * um - sp.x) * 180) / Math.PI;
+};
+const offMiddle = (m, sp, op) => Math.abs(((toMiddle(m, sp, op) - sp.yawDeg + 540) % 360) - 180);
+
+test('the start looks at the middle of the door or passage its longest view runs through, not at its edge', () => {
+  for (const file of ['examples/flat-1.plan.json', 'examples/duplex-1.plan.json', 'tests/fixtures/duplex-min.plan.json']) {
+    const m = modelOf(file), sp = defaultSpawn(m);
+    const least = Math.min(...m.levels[sp.level].openings.filter((op) => op.type !== 'window').map((op) => offMiddle(m, sp, op)));
+    assert.ok(least < 0.01, `${file}: the nearest middle of an opening is ${least.toFixed(2)} degrees off the view`);
+  }
+  // two rooms: the longest view from the middle of room A runs at -10 degrees, through the door d1 (middle at -15.4); the passage p1 is at 28.8
+  const two = twoRooms(), sp = defaultSpawn(two), d1 = two.levels[0].openings.find((op) => op.id === 'd1');
+  assert.ok(offMiddle(two, sp, d1) < 0.01, `yaw ${sp.yawDeg}`);
+  assert.ok(Math.abs(sp.yawDeg - -10) > 5, 'it is turned, not left where the ray was');
+});
+
+test('a window is not aimed at: its gap is solid, so the view keeps its own direction; the same opening as a door is', () => {
+  const room = (type) => planModel({
+    version: 1, name: 'Long room', units: 'm',
+    levels: [{
+      id: 'L0', name: 'Ground', height: 2.6,
+      walls: [
+        { id: 'w1', from: [0, 0], to: [9, 0], kind: 'exterior' }, { id: 'w2', from: [9, 0], to: [9, 3], kind: 'exterior' },
+        { id: 'w3', from: [9, 3], to: [0, 3], kind: 'exterior' }, { id: 'w4', from: [0, 3], to: [0, 0], kind: 'exterior' },
+      ],
+      openings: [{ id: 'd1', wall: 'w3', type: 'door', offset: 8, width: 0.9 }, { id: 'o2', wall: 'w2', type, offset: 0.6, width: 0.8 }],
+      rooms: [{ id: 'room', name: 'Room', polygon: [[0, 0], [9, 0], [9, 3], [0, 3]], floor: 'wood', ceiling: true }],
+      stairs: [], furniture: [],
+    }],
+  });
+  const asWindow = room('window'), asDoor = room('door');
+  const sw = defaultSpawn(asWindow), sd = defaultSpawn(asDoor);
+  assert.ok(Number.isInteger(sw.yawDeg / 5), `a window: yaw ${sw.yawDeg} stays on the five degree grid of the rays`);
+  assert.ok(offMiddle(asDoor, sd, asDoor.levels[0].openings.find((op) => op.id === 'o2')) < 0.01, `a door: yaw ${sd.yawDeg} is the middle of it`);
 });
 
 test('a long room is entered looking along its length, not at the wall opposite the door', () => {
