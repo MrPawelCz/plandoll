@@ -1,5 +1,6 @@
 // Pure geometry builder: normalized plan (metres) -> model. No DOM, no three.js, deterministic.
-// The scene, the layout engine and the tests all read the same model.
+// The scene, the layout engine, the physics of Spacer and the tests all read the same model, so what you see is what you collide with
+// (walls, windows, stairs and shut doors; furniture is not part of the plan model here, and it is walked through).
 // Plan point (x, y) at height h maps to world (x, elevation + h, y). Angles are radians here, clockwise on the plan.
 import { pointInPolygon, distancePointToSegment, polygonCentroid, bbox } from '../core/geom2d.js';
 import { CAPS, hasOwn } from '../core/caps.js';
@@ -10,6 +11,10 @@ export const PLAYER = Object.freeze({ radius: 0.2, eye: 1.6, walk: 1.4, run: 2.8
 export const DOOR_FREE_SILL = 0.35; // door and passage gaps with a lower sill are walkable
 export const STAIR_SWITCH = 0.98; // fraction along a stair where the player changes level
 export const LEAF_OPEN_DEG = 75;
+export const JUMP = Object.freeze({ speed: 3.0, gravity: 9.8 }); // launch speed (m/s) and gravity (m/s2): a jump peaks at 0.46 m and lasts 0.61 s
+export const DOOR_REACH = 1.3; // metres from the player to a door that the space bar can still work
+export const DOOR_CONE_DEG = 70; // a door counts when it lies within this angle of where the player looks
+export const DOOR_SECONDS = 0.45; // time the leaf takes to swing between open and shut
 
 // [width along local x, depth along local y, height]. Local +y (plan down at rotation 0) is the front of an item.
 export const FURNITURE_DEFAULTS = Object.freeze({
@@ -132,10 +137,18 @@ function wbox(w, u0, u1, v0, v1, y0, y1, mat, name) {
   };
 }
 
+// Where a door leaf stands for t from 0 (shut, in line with the wall) to 1 (open, the pose that is drawn): hinge point (px, py), the
+// direction of the shut leaf, the side it swings to, its length and the open angle. t = 1 gives the pose the leaf was always drawn in.
+export function leafPose(h, t) {
+  const a = h.open * t;
+  const ex = h.closed[0] * Math.cos(a) + h.sn[0] * Math.sin(a), ey = h.closed[1] * Math.cos(a) + h.sn[1] * Math.sin(a);
+  return { cx: h.px + (ex * h.wl) / 2, cy: h.py + (ey * h.wl) / 2, angle: Math.atan2(ey, ex) };
+}
+
 function buildOpening(w, o) {
   const top = o.sill + o.height, fj = 0.05;
   const parts = [];
-  let leaf = null, arc = null;
+  let leaf = null, arc = null, swing = null;
   if (o.type === 'door') {
     const fd = w.thickness + 0.03;
     parts.push(wbox(w, o.u0, o.u0 + fj, -fd / 2, fd / 2, o.sill, top, 'frame', `opening:${o.id}/jamb-a`));
@@ -150,8 +163,8 @@ function buildOpening(w, o) {
     const py = w.from[1] + w.dir[1] * up + sn[1] * (w.thickness / 2 - 0.02);
     const closed = startHinge ? w.dir : [-w.dir[0], -w.dir[1]];
     const open = rad(LEAF_OPEN_DEG);
-    const e = [closed[0] * Math.cos(open) + sn[0] * Math.sin(open), closed[1] * Math.cos(open) + sn[1] * Math.sin(open)];
-    leaf = { name: `opening:${o.id}/leaf`, mat: 'leaf', cx: px + (e[0] * wl) / 2, cy: py + (e[1] * wl) / 2, y0: o.sill + 0.01, y1: top - fj, sx: wl, sz: 0.04, angle: Math.atan2(e[1], e[0]) };
+    swing = { px, py, closed, sn, wl, open };
+    leaf = { name: `opening:${o.id}/leaf`, mat: 'leaf', ...leafPose(swing, 1), y0: o.sill + 0.01, y1: top - fj, sx: wl, sz: 0.04 };
     const cross = closed[0] * sn[1] - closed[1] * sn[0];
     arc = { cx: px, cy: py, r: wl, a0: Math.atan2(closed[1], closed[0]), sweep: (cross >= 0 ? 1 : -1) * open };
     parts.push(leaf);
@@ -168,7 +181,7 @@ function buildOpening(w, o) {
     parts.push(wbox(w, o.u0 + fw, o.u1 - fw, -0.008, 0.008, o.sill + fw, top - fw, 'glass', `opening:${o.id}/glass`));
     parts.push(wbox(w, o.u0 - 0.03, o.u1 + 0.03, -(w.thickness / 2 + 0.04), w.thickness / 2 + 0.04, o.sill - 0.03, o.sill, 'frame', `opening:${o.id}/ledge`));
   }
-  return { parts, leaf, arc };
+  return { parts, leaf, arc, swing };
 }
 
 function labelPoint(poly) {
@@ -238,7 +251,19 @@ export function buildModel(plan) {
         colliders.push(rectCollider(w.id, 'wall', w.from[0] + w.dir[0] * um, w.from[1] + w.dir[1] * um, (q - p) / 2, w.thickness / 2, w.dir[0], w.dir[1]));
       }
     }
+    // A door that can be walked through (its gap is free above) can also be shut: a collider across the whole gap. It stays out of
+    // `colliders` because it only counts while the door is shut (see the world in physics.js); gap holds the two ends of the opening.
+    const doors = [];
+    for (const o of openings) {
+      if (o.type !== 'door' || o.sill > DOOR_FREE_SILL) continue;
+      const w = wallById.get(o.wallId), g = gapOf(w, o);
+      if (g.b - g.a <= 1e-4) continue;
+      const p = g.a <= 1e-6 ? g.a - w.ext[0] : g.a, q = g.b >= w.length - 1e-6 ? g.b + w.ext[1] : g.b, um = (p + q) / 2;
+      const at = (u) => [w.from[0] + w.dir[0] * u, w.from[1] + w.dir[1] * u];
+      doors.push({ id: o.id, wallId: w.id, level: index, swing: o.swing, gap: [at(g.a), at(g.b)], collider: rectCollider(o.id, 'door', ...at(um), (q - p) / 2, w.thickness / 2, w.dir[0], w.dir[1]) });
+    }
     const rooms = lv.rooms.map((r) => ({ ...r, label: r.polygon.length >= 3 ? labelPoint(r.polygon) : [0, 0], ceilingHoles: [], floorHoles: [] }));
+    // A furniture piece of a model that carries any has a collider, but Spacer walks through it (see the world in physics.js); the page builds its model without furniture.
     const furniture = lv.furniture.map((f) => {
       const s = furnitureSize(f);
       const rot = rad(f.rotation ?? 0);
@@ -246,7 +271,7 @@ export function buildModel(plan) {
       if (collides) colliders.push(rectCollider(f.id, 'furniture', f.center[0], f.center[1], s.w / 2, s.d / 2, Math.cos(rot), Math.sin(rot)));
       return { id: f.id, type: f.type, center: f.center, w: s.w, d: s.d, h: s.h, rotation: rot, collides };
     });
-    return { index, id: lv.id, name: lv.name, elevation: lv.elevation, height: lv.height, slab: lv.slab, walls, wallById, openings, rooms, furniture, colliders, stairs: [] };
+    return { index, id: lv.id, name: lv.name, elevation: lv.elevation, height: lv.height, slab: lv.slab, walls, wallById, openings, doors, rooms, furniture, colliders, stairs: [] };
   });
 
   // Stairs always ascend: a stair pointing down is stored on the lower level with swapped ends.
