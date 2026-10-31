@@ -119,13 +119,13 @@ function updateStairs(world, p) {
     if (Math.abs(t) > st.width / 2 || r < 0 || r > 1) continue;
     const lowE = world.levels[st.lower].elevation;
     if (p.level === st.lower) {
-      if (r >= STAIR_SWITCH) { p.level = st.upper; floor = world.levels[st.upper].elevation; resolve(world.solid[p.level], p, world.radius); }
+      if (r >= STAIR_SWITCH) { p.level = st.upper; floor = lowE + r * st.delta; resolve(world.solid[p.level], p, world.radius); } // the ramp goes on up to the top, so the eyes do not hop when the level changes
       else { floor = lowE + r * st.delta; p.onStair = st.id; }
     } else if (r < STAIR_SWITCH) {
       p.level = st.lower; floor = lowE + r * st.delta; p.onStair = st.id;
       resolve(world.solid[p.level], p, world.radius);
     } else {
-      floor = world.levels[st.upper].elevation;
+      floor = lowE + r * st.delta;
     }
     break;
   }
