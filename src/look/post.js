@@ -36,6 +36,7 @@ function scaleSetSize(pass, scale) {
 
 export function createPost({ renderer, scene, camera, width, height, quality = 'medium', devicePixelRatio = 1 }) {
   let level = getLevel(quality);
+  let eyes = false; // Spacer: seen from a few metres, not from the height of the view above
   let W = width, H = height, pr = effectivePixelRatio(level.id, devicePixelRatio);
   const rt = new THREE.WebGLRenderTarget(W * pr, H * pr, { type: THREE.HalfFloatType, samples: level.msaa });
   const composer = new EffectComposer(renderer, rt);
@@ -52,7 +53,7 @@ export function createPost({ renderer, scene, camera, width, height, quality = '
     level = getLevel(name);
     pr = effectivePixelRatio(level.id, devicePixelRatio);
     gtao.enabled = level.aoOn;
-    gtao.updateGtaoMaterial({ radius: 0.45, distanceExponent: 1.4, thickness: 0.7, scale: 1.4, samples: level.aoSamples, distanceFallOff: 1.0, screenSpaceRadius: false });
+    gtao.updateGtaoMaterial({ radius: eyes ? 0.3 : 0.45, distanceExponent: 1.4, thickness: 0.7, scale: 1.4, samples: level.aoSamples, distanceFallOff: 1.0, screenSpaceRadius: false });
     gtao.updatePdMaterial({ lumaPhi: 12, depthPhi: 2, normalPhi: 3, radius: 7, rings: 3, samples: level.aoPdSamples });
     scaleSetSize(gtao, level.aoScale); scaleSetSize(bloom, level.bloomScale);
     bloom.enabled = level.bloomOn;
@@ -72,10 +73,15 @@ export function createPost({ renderer, scene, camera, width, height, quality = '
   // A bloom at a lower resolution spreads wider on screen, so strength and radius shrink with the bloom scale.
   function setLook(k) { lastK = k; bloom.strength = k.bloom * (0.55 + 0.45 * level.bloomScale); bloom.radius = 0.3 * (0.5 + 0.5 * level.bloomScale); bloom.threshold = BLOOM_THRESHOLD; final.uniforms.vig.value = k.vig; renderer.toneMappingExposure = k.exp; }
 
-  // The blur of the top and bottom of the frame belongs to the view from above (a tilt-shift model); at eye height it only smears the room. k: 1 as always, 0 none.
-  const setTilt = (k) => { final.uniforms.tilt.value = k ? 1 : 0; };
+  // The eyes of Spacer: the blur of the top and bottom of the frame belongs to the view from above (a tilt-shift model) and at eye height it only smears the room, and the occlusion is
+  // tighter and fainter, because a half size, eight sample occlusion that reaches 0.45 m draws dark smudges round everything that stands a metre from the wall.
+  function setEyes(on) {
+    eyes = !!on;
+    final.uniforms.tilt.value = eyes ? 0 : 1; gtao.blendIntensity = eyes ? 0.7 : 1;
+    gtao.updateGtaoMaterial({ radius: eyes ? 0.3 : 0.45 });
+  }
   applyLevel(level.id);
-  return { composer, passes: { render, gtao, bloom, output, final }, render: () => composer.render(), resize, setQuality: applyLevel, setLook, setTilt,
+  return { composer, passes: { render, gtao, bloom, output, final }, render: () => composer.render(), resize, setQuality: applyLevel, setLook, setEyes,
     get pixelRatio() { return pr; }, get size() { return [W * pr, H * pr]; },
     dispose() { composer.dispose?.(); gtao.dispose?.(); bloom.dispose?.(); rt.dispose(); } };
 }

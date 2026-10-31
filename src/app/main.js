@@ -1018,7 +1018,7 @@ try {
         const f = framing(model, allExt, flags); ext = f.ext; frameExt = f.frameExt; framePts = f.framePts;
         stage.setLift(0); stage.setBase(false);
         cam.enabled = false;
-        ps.setCeilings(true); ps.setWalkShadows(true); post.setTilt(0);
+        ps.setCeilings(true); ps.setWalkShadows(true); post.setEyes(true);
         camera.fov = EYES.fov; camera.near = EYES.near; camera.aspect = W / H; camera.clearViewOffset(); camera.updateProjectionMatrix();
         recut(); shell?.hidePatches(); settle();
         spacerView ??= createSpacerView({ doc: document, lang: S.lang });
@@ -1027,7 +1027,7 @@ try {
       end(saved) {
         walkMode = false;
         spacerView?.hide();
-        post.setTilt(1); stage.rig.setFocus(null); stage.setBase(true); ps.setCeilings(false); ps.setWalkShadows(false);
+        post.setEyes(false); stage.rig.setFocus(null); stage.setBase(true); ps.setCeilings(false); ps.setWalkShadows(false);
         if (saved) { flags = saved.flags; ext = saved.ext; frameExt = saved.frameExt; framePts = saved.framePts; }
         stage.setLift(floorLift(model, flags));
         cam.enabled = true;

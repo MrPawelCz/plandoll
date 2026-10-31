@@ -178,7 +178,7 @@ export function createStage(options = {}) {
   let lastBg = '';
   // Without the base the view is the walker's: a room with no lamp in it is not black at night, so the fill light and the light of the surroundings rise with the dark.
   function walkLight() {
-    if (scene && rig.environment) scene.environmentIntensity = state.look.envI + (base ? 0 : 0.12 * dark);
+    if (scene && rig.environment) scene.environmentIntensity = state.look.envI + (base ? 0 : 0.2 * dark);
     if (!base) rig.setFillBoost(1 + 0.6 * dark);
   }
   function applyTime(t) {

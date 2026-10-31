@@ -26,11 +26,11 @@ test('begin puts the eyes on in the order the page needs, end gives back what it
   assert.match(begin, /visibleFlags\(ALL, model\.levels\.length\)/, 'every floor shows');
   assert.match(begin, /stage\.setLift\(0\); stage\.setBase\(false\)/, 'the base comes down and the table goes');
   assert.match(begin, /cam\.enabled = false/);
-  assert.match(begin, /ps\.setCeilings\(true\); ps\.setWalkShadows\(true\); post\.setTilt\(0\)/);
+  assert.match(begin, /ps\.setCeilings\(true\); ps\.setWalkShadows\(true\); post\.setEyes\(true\)/);
   assert.match(begin, /camera\.fov = EYES\.fov; camera\.near = EYES\.near; camera\.aspect = W \/ H; camera\.clearViewOffset\(\)/);
   assert.match(block, /const EYES = \{ fov: 70, near: 0\.05 \}/);
   assert.match(begin, /recut\(\); shell\?\.hidePatches\(\); settle\(\);/, 'the walls full height and every piece shown');
-  assert.match(end, /post\.setTilt\(1\); stage\.rig\.setFocus\(null\); stage\.setBase\(true\); ps\.setCeilings\(false\); ps\.setWalkShadows\(false\)/, 'the lamps spread over the home again');
+  assert.match(end, /post\.setEyes\(false\); stage\.rig\.setFocus\(null\); stage\.setBase\(true\); ps\.setCeilings\(false\); ps\.setWalkShadows\(false\)/, 'the lamps spread over the home again');
   assert.match(block, /pose\(e\) \{[^}]*stage\.rig\.setFocus\(\[e\.x, e\.y, e\.z\]\)/, 'the lamps follow the eyes');
   assert.match(end, /cam\.enabled = true/);
   assert.match(end, /cam\.set\(\{ azimuth: saved\.cam\.azimuth, polar: saved\.cam\.polar, distance: saved\.cam\.distance \}\)/);
