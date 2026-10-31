@@ -26,7 +26,7 @@ const CSS = `
 #ps-walk-hint[hidden]{display:none}
 #ps-walk-zones{position:absolute;left:0;right:0;top:0;bottom:var(--ps-stack-h,80px);display:flex;opacity:0;transition:opacity .25s ease}
 #ps-walk-zones.on{opacity:1}
-#ps-walk-zones div{flex:1;display:flex;align-items:flex-end;justify-content:center;padding-bottom:18px;box-sizing:border-box;background:rgba(250,245,234,.08)}
+#ps-walk-zones div{flex:1;display:flex;align-items:center;justify-content:center;background:rgba(250,245,234,.08)}
 #ps-walk-zones div+div{border-left:2px dashed rgba(250,245,234,.55)}
 #ps-walk-zones span{padding:5px 14px;border-radius:14px;background:var(--paper,rgba(250,245,234,.84));border:1px solid var(--line,rgba(120,96,64,.22))}
 `;

@@ -48,6 +48,8 @@ test('the view builds one style, one root that is hidden until the walk begins a
   assert.match(css, /#ps-walk-map\{position:absolute;right:max\(12px[^}]*top:max\(12px/, 'the map is at the top on the right, clear of the bar, the version mark and the card');
   assert.match(css, /@media \(max-width:760px\)\{#ps-walk-map\{width:112px/, 'and smaller on a phone');
   assert.match(css, /#ps-walk-hint\{[^}]*bottom:calc\(var\(--ps-stack-h,80px\) \+ 14px\)/, 'the hint stands above whatever the bar has grown to');
+  assert.match(css, /#ps-walk-zones div\{[^}]*align-items:center/, 'the names of the two halves stand mid screen, not at the foot where the hint is');
+  assert.ok(!/#ps-walk-zones div\{[^}]*flex-end/.test(css));
   assert.ok(!LONG_DASH.test(css) && !/fetch|XMLHttpRequest|localStorage|cookie/.test(css));
   assert.equal(v.map.width, MAP_SIZE); assert.equal(v.map.height, MAP_SIZE); assert.equal(MAP_SIZE, 180);
   assert.equal(v.map.attrs.role, 'img'); assert.equal(v.map.attrs['aria-label'], 'Map of the floor');
