@@ -47,8 +47,10 @@ test('nothing else may move the eyes: the framing, the controller, the cut, the 
   assert.match(main, /if \(!walkMode && e\.shiftKey && e\.key === 'ArrowRight'\) setTime\(S\.t \+ 0\.02\); else if \(!walkMode && e\.shiftKey && e\.key === 'ArrowLeft'\)/, 'Shift is the run');
   assert.match(main, /\['1', '2', '3'\]\.includes\(e\.key\)\) setPreset/, 'the moods stay on the keys');
   assert.match(body('const onShellKey = (e) => {'), /if \(walkMode\) return;/);
+  assert.match(body('function shellGo(open) {'), /intro\?\.skip\('api'\);\n\s+if \(walkMode\) return;/, 'the shell stays shut');
+  assert.match(body('function setFloor(next) {'), /intro\?\.skip\('api'\);\n\s+if \(walkMode\) return floor;/, 'every floor stays on show');
   assert.match(main, /if \(walkMode\) return; \/\/ the camera that picks is the one of the view from above/, 'a tap is a step, not a card');
-  assert.match(main, /W = window\.innerWidth; H = window\.innerHeight; frameCamera\(\); coverSeen = cover; post\.resize\(W, H\); spacer\?\.resize\(\);/);
+  assert.match(main, /W = window\.innerWidth; H = window\.innerHeight; frameCamera\(\); coverSeen = cover; post\.resize\(W, H\);/);
 });
 
 test('a plan that is loaded ends the walk first; the box that asks for one holds it off; the button gives up its focus; walk=1 begins once the loop runs and the intro is not played', () => {

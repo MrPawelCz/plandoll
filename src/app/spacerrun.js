@@ -138,8 +138,8 @@ export function createSpacerRun({ host, win, doc, canvas }) {
     if (!active) return false;
     unbind();
     if (doc.pointerLockElement === canvas) doc.exitPointerLock?.();
-    clearInput(); hook.forward = hook.strafe = hook.turn = 0; hook.run = false;
-    openAllDoors(world); player.jumpH = 0; player.jumpV = 0; // the doors are open again for the view from above (the way the page has always drawn them), and a jump ends
+    clearInput();
+    openAllDoors(world); // the doors are open again for the view from above, the way the page has always drawn them (the walker goes with the walk, so a jump ends with it)
     host.doors(world.doors, true);
     active = false; manual = false;
     const was = saved; saved = null; world = null; player = null;
@@ -178,7 +178,6 @@ export function createSpacerRun({ host, win, doc, canvas }) {
 
   return {
     enter, leave, state, walkTo, walkInput, advanceTime, manualClock, frame, use,
-    resize: () => touch.setWidth(host.width()),
     get active() { return active; },
     get denied() { return denied; },
     get manual() { return manual; },

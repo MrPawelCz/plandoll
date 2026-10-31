@@ -318,10 +318,10 @@ test('the left half of a touch screen walks (60 px is full speed), the right hal
   r.canvas.send('pointermove', { pointerType: 'mouse', pointerId: 7, clientX: 100, clientY: 400 });
   r.tick(100);
   assert.deepEqual(cam(r), m, 'a mouse does not steer the stick');
-  r.o.width = 1000; r.run.resize();
+  r.o.width = 1000; // the window changed shape: the halves are cut at the width of the picture each finger finds
   down(3, 300, 500); move(3, 300, 440);
   r.tick(100);
-  assert.ok(cam(r).x !== m.x || cam(r).z !== m.z, 'after a resize the halves follow the new width: x = 300 is the left half of 1000');
+  assert.ok(cam(r).x !== m.x || cam(r).z !== m.z, 'x = 300 is the left half of 1000: the stick walks'); up(3);
 });
 
 test('the touch hint is due for 4 s after the walk began on a touch device, never on a computer; the map is told when the mouse is captured', () => {
@@ -408,6 +408,6 @@ test('no word of the source gives away a network, a storage or a way into the pa
   for (const f of ['spacerrun.js', 'spacerview.js']) {
     const src = readFileSync(new URL(`../../src/app/${f}`, import.meta.url), 'utf8');
     assert.ok(!/fetch\(|XMLHttpRequest|WebSocket|sendBeacon|localStorage|sessionStorage|document\.cookie|indexedDB|import\(/.test(src), f);
-    assert.ok(!/[–—]/.test(src), `${f} has no long dash`);
+    assert.ok(!new RegExp(`[${String.fromCharCode(0x2013, 0x2014)}]`).test(src), `${f} has no long dash`);
   }
 });

@@ -5,6 +5,7 @@ import assert from 'node:assert/strict';
 import { createUI } from '../../src/app/ui.js';
 import { startState } from '../../src/app/shell.js';
 import { parseParams, editHash } from '../../src/app/params.js';
+import { setViewParams } from '../../src/app/share.js';
 
 function makeDoc() {
   const mk = (tag) => ({ tag, children: [], style: {}, dataset: {}, attrs: {}, listeners: {}, className: '', textContent: '', id: '', value: '', options: [], title: '',
@@ -77,4 +78,6 @@ test('the address: walk=1 opens in Spacer, walk=0 takes the button away, nothing
   assert.equal(parseParams(`#${editHash('#walk=1&edit=1', false, state)}`).walk, false, 'and out of it');
   assert.equal(parseParams(`#${editHash('#walk=0', true, state)}`).spacer, false, 'walk=0 is a choice about the buttons and stays');
   assert.equal(parseParams(`#${editHash('#walk=1&plan=duplex-1', true, state)}`).plan.name, 'duplex-1', 'the rest stays');
+  // the link that Copy link hands out is made from an empty base (main.js buildLink), so a page opened with walk=1 sends a link that opens from above
+  assert.ok(!/walk/.test(setViewParams('', { preset: 'amber', t: 0.5, az: 10, pol: 40, floor: 'all', plan: 'flat-1', seed: 1 }, 'XYZ')));
 });

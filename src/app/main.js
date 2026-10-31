@@ -449,6 +449,7 @@ try {
   const shownLevel = (id) => flags[model.levels.findIndex((l) => l.id === id)] !== false; // whether the level with this id is on show (a level that is not known counts as shown)
   function setFloor(next) {
     intro?.skip('api');
+    if (walkMode) return floor; // in Spacer the stairs change the floor, and every floor is on show
     const want = resolveFloor(next, model.levels.length);
     if (want === floor) return floor;
     floor = want; flags = visibleFlags(floor, model.levels.length); S.floor = floor;
@@ -486,6 +487,7 @@ try {
   function shellGo(open) {
     if (!shell) return;
     intro?.skip('api');
+    if (walkMode) return; // Spacer lives inside a closed house
     if (open && shell.clock === 0) shell.setOrder(viewOf(current)); // the order the walls start in is chosen when the opening begins
     shellTarget = open ? 1 : 0; S.shellOpen = !!open; ui?.update(S);
     if (!shellRaf) { shellLast = 0; shellRaf = requestAnimationFrame(shellTick); }
@@ -936,7 +938,7 @@ try {
   if (useShell) addEventListener('keydown', onShellKey);
   // A window that is turned or resized ends the intro (the view it was to end in belongs to the old window); a phone fires resize events of its own at the start and when its address bar moves, which change the
   // height a little and the width not at all, and those leave it alone.
-  addEventListener('resize', () => { if (intro?.active && introSized(window.innerWidth, window.innerHeight)) intro.skip('resize'); W = window.innerWidth; H = window.innerHeight; frameCamera(); coverSeen = cover; post.resize(W, H); spacer?.resize(); redraw(); });
+  addEventListener('resize', () => { if (intro?.active && introSized(window.innerWidth, window.innerHeight)) intro.skip('resize'); W = window.innerWidth; H = window.innerHeight; frameCamera(); coverSeen = cover; post.resize(W, H); redraw(); });
   window.__planInfo = () => ({ pieces: furn.pieces.size, levels: model.levels.length, rooms: model.levels.reduce((n, l) => n + (l.rooms?.length ?? 0), 0), extent: [ext.minX, ext.maxX, ext.minZ, ext.maxZ].map((v) => +v.toFixed(2)),
     floor, visibleLevels: visibleIndices(floor, model.levels.length) }); // for test tools; floor: 'all' or the index of the level on show
   // For test tools: the floors on show. get() is 'all' or the index of one level, set(v) takes the same (a number, a numeric string or 'all'; anything else counts as all) and
