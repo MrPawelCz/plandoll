@@ -13,7 +13,8 @@
 //   host.end(saved)     the exact reverse, from what snapshot gave
 //   host.pose(eye)      the camera of the eyes: { x, y, z, yaw, pitch } (plan x and y are x and z of the scene; angles in radians)
 //   host.doors(list, open)   the leaves follow world.doors (open: all of them in the open pose)
-//   host.paint({ model, world, player, touch, help, locked })   the map and the hints for this frame (touch: a touch device; help: its hint is due; locked: the mouse is captured)
+//   host.paint({ model, world, player, touch, help, locked, notice })   the map and the hints for this frame (touch: a touch device; help: its hint is due; locked: the mouse is captured;
+//                       notice: the key of a word to show for a moment, or null)
 //   host.changed(active)     the controls follow (the button becomes Exit)
 //   host.redraw(), host.now() (ms), host.width() (px of the picture), host.touchDevice()
 import { PLAYER, roomAt } from '../model/geometry.js';
@@ -29,7 +30,7 @@ const wrap = (a) => a - Math.PI * 2 * Math.floor((a + Math.PI) / (Math.PI * 2));
 export function createSpacerRun({ host, win, doc, canvas }) {
   const keys = createKeyState(), touch = createTouch();
   const hook = { forward: 0, strafe: 0, turn: 0, run: false }; // walkInput: the input a test tool holds, added to keys and touch
-  let active = false, denied = '', world = null, player = null, saved = null, last = 0, enteredAt = 0, manual = false;
+  let active = false, denied = '', world = null, player = null, saved = null, last = 0, enteredAt = 0, manual = false, notice = null, noticeTimer = null;
 
   // ---------- listeners: on while Spacer runs, all gone when it ends ----------
   const bound = [];
@@ -42,12 +43,20 @@ export function createSpacerRun({ host, win, doc, canvas }) {
   const place = () => host.pose(eye());
   const paint = (now) => {
     const touchDevice = !!host.touchDevice();
-    host.paint({ model: host.model(), world, player, touch: touchDevice, help: touchHelpVisible({ touchDevice, mode: 'walk', hasModel: true, elapsedMs: now - enteredAt }), locked: doc.pointerLockElement === canvas });
+    host.paint({ model: host.model(), world, player, touch: touchDevice, help: touchHelpVisible({ touchDevice, mode: 'walk', hasModel: true, elapsedMs: now - enteredAt }), locked: doc.pointerLockElement === canvas, notice });
   };
+  // A word on the picture for 2.5 s (null takes it away). The timer is the browser's, not the frame clock, so slow frames do not stretch it; a new word restarts it.
+  function say(key) {
+    clearTimeout(noticeTimer);
+    notice = key;
+    noticeTimer = key ? setTimeout(() => { noticeTimer = null; notice = null; if (active) paint(host.now()); }, 2500) : null;
+  }
 
   function use() {
     if (!active) return 'none';
-    return useSpace(world, player).action; // 'close', 'open', 'blocked', 'jump' or 'none'; the leaf follows in the next frames (stepDoors)
+    const action = useSpace(world, player).action; // 'close', 'open', 'blocked', 'jump' or 'none'; the leaf follows in the next frames (stepDoors)
+    say(action === 'blocked' ? 'doorway' : null); // in the doorway the door stays open: it says why
+    return action;
   }
 
   function onKeyDown(e) {
@@ -138,7 +147,7 @@ export function createSpacerRun({ host, win, doc, canvas }) {
     if (!active) return false;
     unbind();
     if (doc.pointerLockElement === canvas) doc.exitPointerLock?.();
-    clearInput();
+    clearInput(); say(null);
     openAllDoors(world); // the doors are open again for the view from above, the way the page has always drawn them (the walker goes with the walk, so a jump ends with it)
     host.doors(world.doors, true);
     active = false; manual = false;
@@ -149,10 +158,10 @@ export function createSpacerRun({ host, win, doc, canvas }) {
 
   // ---------- hooks of the test tools (window.__spacer) ----------
   function state() {
-    if (!active) return { active: false, denied, cam: null, level: null, room: null, collisions: 0, jump: { active: false, height: 0 }, doors: [] };
+    if (!active) return { active: false, denied, cam: null, level: null, room: null, collisions: 0, jump: { active: false, height: 0 }, doors: [], notice: null };
     const model = host.model(), lv = model.levels[player.level];
     return {
-      active: true, denied,
+      active: true, denied, notice,
       cam: { x: r3(player.x), y: r3(eye().y), z: r3(player.y), yaw: r3(deg(player.yaw)), pitch: r3(deg(player.pitch)) },
       level: lv.id, room: roomAt(lv, player.x, player.y)?.id ?? null, collisions: player.collisions,
       jump: { active: player.jumpH > 0 || player.jumpV > 0, height: r3(player.jumpH) },

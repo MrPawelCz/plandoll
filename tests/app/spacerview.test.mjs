@@ -97,6 +97,36 @@ test('a computer sees the hint until the mouse is captured and again when it is 
   v.paint(frame({ touch: true, help: true })); v.hide(); assert.equal(zones.className, '', 'hiding takes the halves away');
 });
 
+test('a notice stands in the place of the hint, in the language of the page, and the hint is back when it goes', () => {
+  assert.equal(SPACER_TEXT.en.doorway, 'Step out of the doorway to shut the door');
+  assert.equal(SPACER_TEXT.pl.doorway, 'Wyjdź z progu, żeby zamknąć drzwi');
+  for (const lang of ['en', 'pl']) {
+    const doc = makeDoc(), v = createSpacerView({ doc, lang }), hint = doc.getElementById('ps-walk-hint'), L = SPACER_TEXT[lang];
+    v.show();
+    v.paint(frame());
+    assert.equal(hint.textContent, L.hint);
+    v.paint(frame({ notice: 'doorway' }));
+    assert.equal(hint.textContent, L.doorway); assert.equal(hint.hidden, false);
+    v.paint(frame({ notice: 'doorway', locked: true }));
+    assert.equal(hint.textContent, L.doorway, 'it shows with the mouse captured, when the hint is gone');
+    v.paint(frame({ notice: null, locked: true }));
+    assert.equal(hint.hidden, true, 'gone with the mouse captured: a clean picture');
+    v.paint(frame({ notice: 'doorway', touch: true, help: false }));
+    assert.equal(hint.textContent, L.doorway, 'and on a phone');
+    v.paint(frame({ touch: true, help: false }));
+    assert.equal(hint.hidden, true);
+    v.paint(frame({ notice: 'doorway' })); v.paint(frame());
+    assert.equal(hint.textContent, L.hint, 'the hint of the computer comes back after it');
+    v.paint(frame({ notice: 'nothing-of-the-kind' }));
+    assert.equal(hint.textContent, L.hint, 'an unknown key shows no word');
+  }
+  const doc = makeDoc(), v = createSpacerView({ doc, lang: 'en' }), hint = doc.getElementById('ps-walk-hint');
+  v.paint(frame({ notice: 'doorway' })); v.setLang('pl'); v.paint(frame({ notice: 'doorway' }));
+  assert.equal(hint.textContent, SPACER_TEXT.pl.doorway, 'a change of language is followed');
+  v.hide(); v.show(); v.paint(frame({ notice: 'doorway' }));
+  assert.equal(hint.textContent, SPACER_TEXT.pl.doorway, 'hiding forgets what was shown, so it is written again');
+});
+
 test('the words are written only when they change, the map every frame; a frame without a walker draws no map', () => {
   const doc = makeDoc(), v = createSpacerView({ doc, lang: 'en' });
   v.paint(frame()); const w = doc.writes(), clears = v.map.ctx.calls.filter((c) => c[0] === 'clearRect').length;

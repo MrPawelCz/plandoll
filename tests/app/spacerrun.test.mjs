@@ -235,6 +235,49 @@ test('the space bar shuts the door in reach and opens it again; the leaf swings 
   assert.ok(r.run.state().cam.x > 4.2, 'and walks through the open one');
 });
 
+test('the space bar in a doorway leaves the door open and says so for 2.5 s: a second try starts the time again, a shut door says nothing, leaving takes the word away', (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const r = rig({ model: twoRooms() });
+  assert.equal(r.run.state().notice, null, 'nothing before the walk');
+  r.run.enter();
+  const shown = () => r.paints.at(-1).notice;
+  assert.equal(r.run.walkTo(3, 1.45, 'L0', 0, 0), true);
+  assert.equal(r.run.use(), 'close');
+  assert.equal(r.run.state().notice, null, 'the door was shut: nothing to say');
+  assert.equal(r.run.use(), 'open');
+  assert.equal(r.run.walkTo(4, 1.45, 'L0', 0, 0), true);
+  assert.equal(r.run.use(), 'blocked');
+  assert.ok(r.run.state().doors[0].open && r.run.state().doors[0].t === 1, 'the door stays open');
+  assert.equal(r.run.state().notice, 'doorway');
+  r.tick(16); assert.equal(shown(), 'doorway', 'the frame carries it to the view');
+  t.mock.timers.tick(2000);
+  assert.equal(r.run.state().notice, 'doorway', 'still there at 2.0 s, whatever the frames did');
+  assert.equal(r.run.use(), 'blocked');
+  t.mock.timers.tick(2000);
+  assert.equal(r.run.state().notice, 'doorway', 'the second try started the time again: 4.0 s in, 2.0 s since');
+  const before = r.paints.length;
+  t.mock.timers.tick(500);
+  assert.equal(r.run.state().notice, null, 'gone 2.5 s after the last try');
+  assert.equal(shown(), null, 'and the view is told at once, without waiting for a frame');
+  assert.ok(r.paints.length > before);
+  assert.equal(r.run.use(), 'blocked'); assert.equal(r.run.state().notice, 'doorway');
+  t.mock.timers.tick(1000);
+  r.run.leave();
+  assert.equal(r.run.state().notice, null, 'leaving takes it away');
+  r.run.enter(); assert.equal(r.run.state().notice, null, 'a new walk has none');
+  assert.equal(r.run.walkTo(4, 1.45, 'L0', 0, 0), true);
+  assert.equal(r.run.use(), 'blocked');
+  t.mock.timers.tick(1600);
+  assert.equal(r.run.state().notice, 'doorway', 'the timer of the walk that ended is gone: it does not cut the new word short');
+  t.mock.timers.tick(1000);
+  assert.equal(r.run.state().notice, null);
+  assert.equal(r.run.use(), 'blocked');
+  r.run.walkTo(3, 1.45, 'L0', 0, 0);
+  assert.equal(r.run.use(), 'close');
+  assert.equal(r.run.state().notice, null, 'a step out and the door shut: the word goes');
+  r.run.leave();
+});
+
 test('leaving shuts nothing behind: the doors are open and at rest, a jump is over, and the host gets the leaves in the open pose', () => {
   const r = rig({ model: twoRooms() });
   r.run.enter(); r.run.walkTo(3, 1.45, 'L0', 0, 0);
@@ -390,7 +433,7 @@ test('walkInput holds an input until another is set (jump: one jump from the flo
   assert.ok(Math.abs(r.dist(a, cam(r)) - 0.56) < 0.03, 'run speed');
   r.run.walkInput({ jump: true });
   assert.equal(r.run.state().jump.active, true);
-  assert.deepEqual(Object.keys(r.run.state()).sort(), ['active', 'cam', 'collisions', 'denied', 'doors', 'jump', 'level', 'room']);
+  assert.deepEqual(Object.keys(r.run.state()).sort(), ['active', 'cam', 'collisions', 'denied', 'doors', 'jump', 'level', 'notice', 'room']);
   assert.deepEqual(Object.keys(r.run.state().cam), ['x', 'y', 'z', 'yaw', 'pitch']);
   assert.deepEqual(Object.keys(r.run.state().jump), ['active', 'height']);
   assert.deepEqual(Object.keys(r.run.state().doors[0]), ['id', 'level', 'open', 't']);

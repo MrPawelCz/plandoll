@@ -8,11 +8,11 @@ export const MAP_SIZE = 180; // px of the map canvas (the style makes it smaller
 export const SPACER_TEXT = Object.freeze({
   en: Object.freeze({
     hint: 'Click to look around. W S walk, A D step aside, arrows turn, Shift runs, Space jumps or opens and shuts doors, Esc goes back.',
-    touchHint: 'Drag the left half to walk, the right half to look', left: 'Walk', right: 'Look around', map: 'Map of the floor',
+    touchHint: 'Drag the left half to walk, the right half to look', left: 'Walk', right: 'Look around', map: 'Map of the floor', doorway: 'Step out of the doorway to shut the door',
   }),
   pl: Object.freeze({
     hint: 'Kliknij, żeby się rozglądać. W S: naprzód i wstecz, A D: bokiem, strzałki: obrót, Shift: bieg, spacja: skok albo drzwi, Esc: powrót.',
-    touchHint: 'Lewa połowa: idź, prawa: rozglądaj się', left: 'Idź', right: 'Rozglądaj się', map: 'Plan piętra',
+    touchHint: 'Lewa połowa: idź, prawa: rozglądaj się', left: 'Idź', right: 'Rozglądaj się', map: 'Plan piętra', doorway: 'Wyjdź z progu, żeby zamknąć drzwi',
   }),
 });
 
@@ -59,7 +59,8 @@ export function drawMap(ctx, size, { model, world, player }) {
 }
 
 // options: { doc, lang }. Returns { element, map, show(), hide(), setLang(lang), paint(frame), dispose() }; paint takes what spacerrun.js hands the host:
-// { model, world, player, help (the touch hint is due), locked (the mouse is captured), touch (a touch device) }. The map is drawn every frame, the words only when they change.
+// { model, world, player, help (the touch hint is due), locked (the mouse is captured), touch (a touch device), notice (the key of a word that goes before the hint, as 'doorway') }.
+// The map is drawn every frame, the words only when they change.
 export function createSpacerView({ doc = document, lang = 'en' } = {}) {
   if (!doc.getElementById(SPACER_STYLE_ID)) { const s = doc.createElement('style'); s.id = SPACER_STYLE_ID; s.textContent = CSS; doc.head.appendChild(s); }
   const mk = (tag, id) => { const n = doc.createElement(tag); if (id) n.id = id; return n; };
@@ -81,10 +82,10 @@ export function createSpacerView({ doc = document, lang = 'en' } = {}) {
     show() { root.hidden = false; },
     hide() { root.hidden = true; shown = ''; zonesOn = null; zones.className = ''; },
     setLang(l) { L = SPACER_TEXT[l === 'pl' ? 'pl' : 'en']; words(); },
-    paint({ model, world, player, help = false, locked = false, touch = false }) {
+    paint({ model, world, player, help = false, locked = false, touch = false, notice = null }) {
       const ctx = map.getContext?.('2d');
       if (ctx && model && world && player) drawMap(ctx, MAP_SIZE, { model, world, player });
-      say(touch ? (help ? L.touchHint : '') : (locked ? '' : L.hint)); // the mouse hint goes once the mouse is captured and comes back when it is let go
+      say(L[notice] ?? (touch ? (help ? L.touchHint : '') : (locked ? '' : L.hint))); // the mouse hint goes once the mouse is captured and comes back when it is let go; a notice stands in its place for a moment
       const on = !!(touch && help);
       if (on !== zonesOn) { zonesOn = on; zones.className = on ? 'on' : ''; }
     },
