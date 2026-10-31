@@ -173,20 +173,27 @@ export function createStage(options = {}) {
 
   function fitBackdrop(aspect) { const c = backdropCrop(aspect, bg.width / bg.height); bgTex.repeat.set(...c.repeat); bgTex.offset.set(...c.offset); }
 
+  let dark = 0, base = true; // dark: 0 by day, 1 in the deep of night; base: the card board and the table are on show
   const state = { preset: null, t: 0, quality: getLevel(quality).id, look: null, clockText: '', lampK: 0 };
   let lastBg = '';
+  // Without the base the view is the walker's: a room with no lamp in it is not black at night, so the fill light and the light of the surroundings rise with the dark.
+  function walkLight() {
+    if (scene && rig.environment) scene.environmentIntensity = state.look.envI + (base ? 0 : 0.12 * dark);
+    if (!base) rig.setFillBoost(1 + 0.6 * dark);
+  }
   function applyTime(t) {
     const k = sample(t); state.t = k.t; state.look = k; state.clockText = clock(k.t).text;
     const res = rig.applyTime(k, k.t); state.lampK = res.lampK; state.sun = res.sun;
-    if (scene && rig.environment) scene.environmentIntensity = k.envI;
+    const lit = Math.min(1, Math.max(0, (k.lampK - 0.55) / 0.35)); dark = lit * lit * (3 - 2 * lit);
+    walkLight();
     setContactLook(k); setSunPatchLook(k, res.sun.dir);
     glass.emissive.set(k.winC); glass.emissiveIntensity = k.winI; glass.color.set(k.winC).multiplyScalar(0.25);
     const sig = k.bgTop + k.bgBot + k.glow + k.glowA.toFixed(2);
     if (sig !== lastBg) { lastBg = sig; paintBackdrop(bg, k); bgTex.needsUpdate = true; }
     // At night the base turns dark too (a pale slab under a night scene reads as unlit paper).
-    const night = Math.min(1, Math.max(0, (k.lampK - 0.55) / 0.35)), dark = night * night * (3 - 2 * night);
     tableMat.color.set(k.bgBot).lerp(new THREE.Color('#d9cdb8'), 0.55 - 0.42 * dark);
     paper.color.set('#efe6d4').lerp(new THREE.Color(k.sky), 0.06).lerp(new THREE.Color('#161c2e'), 0.6 * dark);
+    mat('ceiling', 'textured').emissiveIntensity = 1 - 0.85 * dark; // the glow that stands in for the bounce light under a ceiling goes out with the day
     return k;
   }
   // The level's shadow budget: meshes smaller than shadowCutoff (bounding radius in metres) stay out of the shadow pass, and of
@@ -227,7 +234,7 @@ export function createStage(options = {}) {
   }
   // The base of the house (the card board, the board under it, the tabletop and the contact shadow) can be taken away: Spacer stands inside the house, with no table under it.
   // The lights of the rig stay, they are not part of this list.
-  function setBase(on) { for (const o of [board, under, table, contact]) o.visible = !!on; }
+  function setBase(on) { base = !!on; for (const o of [board, under, table, contact]) o.visible = base; walkLight(); }
   function dispose() { rig.dispose(); bgTex.dispose(); glass.map = null; glass.emissiveMap = null; view.dispose(); tableMat.alphaMap?.dispose(); contactMat.map?.dispose(); for (const o of [board, under, table, contact]) o.geometry.dispose(); [paper, card, tableMat, contactMat].forEach((m) => m.dispose()); scene?.remove(group); }
 
   setPreset(options.preset);

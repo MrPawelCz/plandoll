@@ -30,6 +30,9 @@ export function spreadPick(list, n) {
   return out;
 }
 
+// The n emitters nearest to a point (a walker's eyes), nearest first: Spacer lights the room it stands in, not the whole home.
+export const nearPick = (list, n, at) => list.map((e) => ({ e, d: toVec(e.pos).distanceTo(toVec(at)) })).sort((a, b) => a.d - b.d).slice(0, Math.max(0, n)).map((o) => o.e);
+
 export function createRig({ group, renderer = null, quality = 'medium', target = [4, 0.8, 3], radius = 7 }) {
   const hemi = new THREE.HemisphereLight('#ffffff', '#222222', 0.5);
   const sun = new THREE.DirectionalLight('#ffffff', 3);
@@ -54,10 +57,10 @@ export function createRig({ group, renderer = null, quality = 'medium', target =
   for (let i = 0; i < MAX_POINT_LIGHTS; i++) { const l = new THREE.PointLight('#ffb064', 0, LAMP_RANGE, 2); l.visible = false; group.add(l); pool.push({ light: l, power: 1 }); }
   let emitters = [];
   let level = getLevel(quality);
-  let lampK = 0;
+  let lampK = 0, focus = null;
 
   function layoutEmitters() {
-    const sorted = spreadPick(emitters, Math.min(MAX_POINT_LIGHTS, level.maxLights));
+    const n = Math.min(MAX_POINT_LIGHTS, level.maxLights), sorted = focus ? nearPick(emitters, n, focus) : spreadPick(emitters, n);
     pool.forEach((p, i) => {
       const e = sorted[i];
       p.light.visible = !!e;
@@ -92,7 +95,13 @@ export function createRig({ group, renderer = null, quality = 'medium', target =
 
   function setEmitters(list) { emitters = Array.isArray(list) ? list.filter((e) => e && e.pos).slice(0, 64) : []; layoutEmitters(); applyLamps(); }
 
+  // A point (or null) that the pool lights around instead of spreading over the home; it follows a walker, so a step of under 0.3 m keeps the lamps as they are.
+  function setFocus(p) {
+    if (p && focus && toVec(p).distanceTo(focus) < 0.3) return;
+    focus = p ? toVec(p) : null; layoutEmitters(); applyLamps();
+  }
+
   setQuality(quality);
-  return { hemi, sun, bounce, pool, environment: envTexture, applyTime, setFillBoost, setQuality, setEmitters, get lampK() { return lampK; }, activeLights: () => pool.filter((p) => p.light.visible).length,
+  return { hemi, sun, bounce, pool, environment: envTexture, applyTime, setFillBoost, setQuality, setEmitters, setFocus, get lampK() { return lampK; }, activeLights: () => pool.filter((p) => p.light.visible).length,
     dispose() { for (const p of pool) p.light.dispose?.(); sun.shadow.map?.dispose(); envTexture?.dispose(); pmrem?.dispose(); } };
 }

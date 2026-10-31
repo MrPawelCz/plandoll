@@ -30,7 +30,8 @@ test('begin puts the eyes on in the order the page needs, end gives back what it
   assert.match(begin, /camera\.fov = EYES\.fov; camera\.near = EYES\.near; camera\.aspect = W \/ H; camera\.clearViewOffset\(\)/);
   assert.match(block, /const EYES = \{ fov: 70, near: 0\.05 \}/);
   assert.match(begin, /recut\(\); shell\?\.hidePatches\(\); settle\(\);/, 'the walls full height and every piece shown');
-  assert.match(end, /post\.setTilt\(1\); stage\.setBase\(true\); ps\.setCeilings\(false\); ps\.setWalkShadows\(false\)/);
+  assert.match(end, /post\.setTilt\(1\); stage\.rig\.setFocus\(null\); stage\.setBase\(true\); ps\.setCeilings\(false\); ps\.setWalkShadows\(false\)/, 'the lamps spread over the home again');
+  assert.match(block, /pose\(e\) \{[^}]*stage\.rig\.setFocus\(\[e\.x, e\.y, e\.z\]\)/, 'the lamps follow the eyes');
   assert.match(end, /cam\.enabled = true/);
   assert.match(end, /cam\.set\(\{ azimuth: saved\.cam\.azimuth, polar: saved\.cam\.polar, distance: saved\.cam\.distance \}\)/);
   assert.match(end, /setPreset\(saved\.preset, true\); setTime\(saved\.t\)/, 'the mood and the time of day come back');

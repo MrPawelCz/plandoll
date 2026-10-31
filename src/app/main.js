@@ -1016,7 +1016,7 @@ try {
         shellSnap();
         flags = visibleFlags(ALL, model.levels.length);
         const f = framing(model, allExt, flags); ext = f.ext; frameExt = f.frameExt; framePts = f.framePts;
-        stage.setLift(0); stage.setBase(false); stage.rig.setFillBoost(1);
+        stage.setLift(0); stage.setBase(false);
         cam.enabled = false;
         ps.setCeilings(true); ps.setWalkShadows(true); post.setTilt(0);
         camera.fov = EYES.fov; camera.near = EYES.near; camera.aspect = W / H; camera.clearViewOffset(); camera.updateProjectionMatrix();
@@ -1027,7 +1027,7 @@ try {
       end(saved) {
         walkMode = false;
         spacerView?.hide();
-        post.setTilt(1); stage.setBase(true); ps.setCeilings(false); ps.setWalkShadows(false);
+        post.setTilt(1); stage.rig.setFocus(null); stage.setBase(true); ps.setCeilings(false); ps.setWalkShadows(false);
         if (saved) { flags = saved.flags; ext = saved.ext; frameExt = saved.frameExt; framePts = saved.framePts; }
         stage.setLift(floorLift(model, flags));
         cam.enabled = true;
@@ -1039,7 +1039,7 @@ try {
       },
       pose(e) {
         const cp = Math.cos(e.pitch);
-        camera.position.set(e.x, e.y, e.z);
+        camera.position.set(e.x, e.y, e.z); stage.rig.setFocus([e.x, e.y, e.z]); // the lamps that light the room are the ones near the eyes
         camera.lookAt(e.x + Math.cos(e.yaw) * cp, e.y + Math.sin(e.pitch), e.z + Math.sin(e.yaw) * cp);
       },
       doors: (list, open) => ps.setDoors(list, open),

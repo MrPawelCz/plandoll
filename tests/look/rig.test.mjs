@@ -2,7 +2,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
-import { spreadPick, createRig } from '../../src/look/rig.js';
+import { spreadPick, nearPick, createRig } from '../../src/look/rig.js';
 
 const lamp = (x, z, power = 1) => ({ pos: [x, 1, z], color: '#ffb064', power });
 
@@ -30,4 +30,33 @@ test('the rig lights the lamps that spread over two storeys', () => {
   const on = rig.pool.filter((p) => p.light.visible);
   assert.ok(on.length >= 1);
   assert.ok(on.some((p) => p.light.position.x > 6), 'the far lamp is lit');
+});
+
+test('nearPick: the nearest first, as many as asked, nothing for an empty list or none asked', () => {
+  const list = [lamp(9, 0), lamp(1, 0), lamp(4, 0), lamp(2, 3)];
+  assert.deepEqual(nearPick(list, 2, [0, 1, 0]), [list[1], list[3]]);
+  assert.deepEqual(nearPick(list, 9, [10, 1, 0]).map((e) => e.pos[0]), [9, 4, 2, 1]);
+  assert.deepEqual(nearPick([], 3, [0, 0, 0]), []);
+  assert.deepEqual(nearPick(list, 0, [0, 0, 0]), []);
+  assert.deepEqual(nearPick(list, 1, { x: 8.5, y: 1, z: 0 }), [list[0]], 'a point may be an object');
+});
+
+test('setFocus: the pool lights the lamps around the walker, follows him in steps of 0.3 m or more, and null gives the spread back', () => {
+  const group = new THREE.Group();
+  const rig = createRig({ group, quality: 'high' });
+  const list = [...Array.from({ length: 8 }, (_, i) => lamp(i * 2, 0)), lamp(30, 0)];
+  rig.setEmitters(list);
+  const xs = () => rig.pool.filter((p) => p.light.visible).map((p) => p.light.position.x).sort((a, b) => a - b);
+  const spread = xs();
+  rig.setFocus([0, 1, 0]);
+  assert.deepEqual(xs(), [0, 2, 4, 6, 8, 10], 'the six nearest');
+  rig.setFocus([13, 1, 0]);
+  assert.deepEqual(xs(), [4, 6, 8, 10, 12, 14], 'moved to the walker');
+  rig.setFocus([13.1, 1, 0]);
+  const stay = xs();
+  rig.setFocus([13.2, 1, 0]);
+  assert.deepEqual(xs(), stay, 'a step under 0.3 m changes nothing');
+  assert.equal(rig.activeLights(), 6, 'the count of lit lamps stays the same, so no shader is rebuilt');
+  rig.setFocus(null);
+  assert.deepEqual(xs(), spread, 'no focus: the spread over the home is back');
 });
