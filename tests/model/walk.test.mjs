@@ -5,6 +5,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { buildModel, levelOffsets, modelExtent, EXPLODE_FACTOR } from '../../src/model/geometry.js';
 import { createWorld, createPlayer, stepPlayer, teleport, defaultSpawn, maxPenetration, freeDistance, longestView } from '../../src/model/physics.js';
+import { leafPose } from '../../src/model/geometry.js';
 import { fileModel, planModel, twoRooms } from '../helpers/walk-model.mjs';
 
 const modelOf = fileModel;
@@ -313,4 +314,56 @@ test('a stair that leaves the plan on one level of a two level plan leaves the r
   assert.ok(q.x < 5 - 0.09 - 0.2 + 1e-2, `x = ${q.x}`);
   const up = walk(w, player(w, 1.0, 1.0, 90), { forward: 1 }, 6);
   assert.equal(up.level, 1, 'the real stair still carries the player up');
+});
+
+// A hall W x D with its exterior door in the south wall (offset along the wall from the east end); the leaf swings into the hall.
+const hall = (W, D, { offset = 1.0, hinge = 'start', opens = 'right' } = {}) => planModel({
+  version: 1, name: 'Hall', units: 'm',
+  levels: [{
+    id: 'L0', name: 'Ground', height: 2.6,
+    walls: [
+      { id: 'w1', from: [0, 0], to: [W, 0], kind: 'exterior' }, { id: 'w2', from: [W, 0], to: [W, D], kind: 'exterior' },
+      { id: 'w3', from: [W, D], to: [0, D], kind: 'exterior' }, { id: 'w4', from: [0, D], to: [0, 0], kind: 'exterior' },
+    ],
+    openings: [{ id: 'front', wall: 'w3', type: 'door', offset, width: 0.9, hinge, opens_to: opens }],
+    rooms: [{ id: 'hall', name: 'Hall', polygon: [[0, 0], [W, 0], [W, D], [0, D]], floor: 'wood', ceiling: true }], stairs: [], furniture: [],
+  }],
+});
+// metres from a point to the open leaf of the door (the rectangle of leafPose, 4 cm thick)
+const leafDistance = (m, x, y) => {
+  const o = m.levels[0].openings.find((q) => q.swing), c = leafPose(o.swing, 1), hl = o.swing.wl / 2;
+  const dx = x - c.cx, dy = y - c.cy, lx = dx * Math.cos(c.angle) + dy * Math.sin(c.angle), ly = -dx * Math.sin(c.angle) + dy * Math.cos(c.angle);
+  return Math.hypot(Math.max(0, Math.abs(lx) - hl), Math.max(0, Math.abs(ly) - 0.02));
+};
+// the angle (degrees) between the start view and the nearest point of the leaf
+const leafOff = (m, s) => {
+  const o = m.levels[0].openings.find((q) => q.swing), c = leafPose(o.swing, 1), hl = o.swing.wl / 2;
+  const dx = s.x - c.cx, dy = s.y - c.cy, k = Math.cos(c.angle), n = Math.sin(c.angle);
+  const u = Math.max(-hl, Math.min(hl, dx * k + dy * n)), v = Math.max(-0.02, Math.min(0.02, -dx * n + dy * k));
+  return Math.abs(((((Math.atan2(c.cy + u * n + v * k - s.y, c.cx + u * k - v * n - s.x) * 180) / Math.PI - s.yawDeg) % 360) + 540) % 360 - 180);
+};
+
+test('the start keeps 0.7 m from an open door leaf that stands in the first picture, and leaves a leaf behind the walker alone', () => {
+  // a hall 2 x 2.5 m: the label point (1, 1.25) is 0.5 m from the leaf, which stands right in front of the view; in a hall of 1.4 x 2.5 m it is
+  // 0.38 m from the leaf, which stands 34 degrees to the side (the 20 degrees of a narrower cone would miss it)
+  for (const [W, D, offset] of [[2, 2.5, 1.0], [1.4, 2.5, 0.3]]) {
+    const tight = hall(W, D, { offset }), [lx, ly] = tight.levels[0].rooms[0].label;
+    assert.ok(leafDistance(tight, lx, ly) < 0.7, 'the label point is close to the leaf');
+    const s = defaultSpawn(tight);
+    assert.ok(leafDistance(tight, s.x, s.y) >= 0.7, `leaf ${leafDistance(tight, s.x, s.y).toFixed(2)} m from the start`);
+    assert.ok(Math.hypot(s.x - lx, s.y - ly) < 0.6, 'the start only steps aside, it does not leave the middle of the hall');
+    assert.equal(maxPenetration(tight.levels[0], s.x, s.y, 0.45), 0);
+  }
+  // the same door in a hall of 3.5 x 4 m: the label point is a metre from the leaf, so it stays
+  const roomy = hall(3.5, 4);
+  const r = defaultSpawn(roomy), label = roomy.levels[0].rooms[0].label;
+  assert.ok(leafDistance(roomy, label[0], label[1]) >= 0.7);
+  assert.deepEqual([r.x, r.y], label);
+  // flat-1 and flat-stairs-out start 0.64 m from the leaf of the front door, which stands behind them: nothing moves
+  for (const file of ['examples/flat-1.plan.json', 'tests/fixtures/flat-stairs-out.plan.json']) {
+    const m = modelOf(file), f = defaultSpawn(m);
+    assert.ok(leafDistance(m, f.x, f.y) < 0.7, 'the leaf is close');
+    assert.ok(leafOff(m, f) > 60, `the leaf is behind the walker: ${leafOff(m, f).toFixed(0)} degrees`);
+    assert.deepEqual([f.x, f.y], [1, 4.5]);
+  }
 });

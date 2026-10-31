@@ -2,8 +2,8 @@
 // Spacer physics: 2D circle against oriented rectangles, stair ramps, jumps and doors, deterministic. No DOM, no three.js.
 // The player walks through furniture: only walls, window gaps, stairs with their rails and shut doors stop it.
 // Differs from planwalk fa1a280 in defaultSpawn: the start is a point with room around it (0.8 m from the walls) instead of the nearest clear
-// point, and the view is turned to the middle of the opening it runs through.
-import { PLAYER, STAIR_SWITCH, JUMP, DOOR_REACH, DOOR_CONE_DEG, DOOR_SECONDS, roomAt } from './geometry.js';
+// point (and, when an open leaf stands in the first picture, one 0.7 m from every leaf), and the view is turned to the middle of the opening it runs through.
+import { PLAYER, STAIR_SWITCH, JUMP, DOOR_REACH, DOOR_CONE_DEG, DOOR_SECONDS, roomAt, leafPose } from './geometry.js';
 import { pointInPolygon } from '../core/geom2d.js';
 
 const MAX_SUBSTEP = 0.04; // metres per collision pass, well under the thinnest wall (0.08) plus the radius
@@ -344,38 +344,54 @@ export function defaultSpawn(model) {
   const ring = [[0, 0], ...Array.from({ length: 8 }, (_, i) => [Math.cos((i * Math.PI) / 4) * 0.5, Math.sin((i * Math.PI) / 4) * 0.5])];
   const onStair = (x, y) => model.stairs.some((st) => (st.lower === found.level || st.upper === found.level) && ring.some(([dx, dy]) => pointInPolygon([x + dx, y + dy], st.footprint)));
   const clear = (x, y) => pointInPolygon([x, y], found.room.polygon) && maxPenetration(lv, x, y, PLAYER.radius + 0.25) === 0 && !onStair(x, y);
+  // The open leaves of the doors of the floor (the pose every leaf has when Spacer begins): an oriented rectangle each, 4 cm thick.
+  const leaves = lv.openings.filter((o) => o.swing).map((o) => ({ ...leafPose(o.swing, 1), hl: o.swing.wl / 2 }));
+  // True when a leaf stands within 0.7 m of (x, y) and, with a yaw given (degrees), the part of it nearest to the walker lies within 60 degrees of that
+  // yaw (a leaf behind the walker is nothing to the first picture).
+  const nearLeaf = (x, y, yaw) => leaves.some((c) => {
+    const dx = x - c.cx, dy = y - c.cy, k = Math.cos(c.angle), n = Math.sin(c.angle), u = clamp(dx * k + dy * n, -c.hl, c.hl), v = clamp(-dx * n + dy * k, -0.02, 0.02);
+    const qx = c.cx + u * k - v * n - x, qy = c.cy + u * n + v * k - y;
+    return Math.hypot(qx, qy) < 0.7 && (yaw === undefined || Math.abs(((((Math.atan2(qy, qx) * 180) / Math.PI - yaw) % 360) + 540) % 360 - 180) < 60);
+  });
   // The first view is taken from a point with room around it: keeping 0.65 m and 0.8 m from every collider is worth 3 m of walk each away
   // from the label point, so a start squeezed beside a stair run (1.1 m of floor between rail and wall) moves to the open part of the room.
+  // With avoid set a point within 0.7 m of an open leaf is not rated at all.
   const [lx, ly] = found.room.label;
-  const rate = (x, y) => (clear(x, y) ? ((maxPenetration(lv, x, y, 0.65) === 0) + (maxPenetration(lv, x, y, 0.8) === 0)) * 3 - Math.hypot(x - lx, y - ly) : -Infinity);
-  let sx = lx, sy = ly, top = rate(lx, ly);
-  if (top < 6) { // a label point with both margins (6) cannot be beaten, so the room is searched only otherwise
-    const poly = found.room.polygon;
-    const xs = poly.map((q) => q[0]), ys = poly.map((q) => q[1]);
-    const x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys);
-    const step = Math.max(0.1, (x1 - x0) / 300, (y1 - y0) / 300); // 10 cm, coarser for a huge room: at most 300 x 300 points
-    const nx = Math.floor((x1 - x0) / step), ny = Math.floor((y1 - y0) / step); // counted loops, see labelPoint in geometry.js
-    for (let i = 0; i <= nx; i++) {
-      const x = x0 + i * step;
-      for (let j = 0; j <= ny; j++) {
-        const y = y0 + j * step;
-        const s = rate(x, y);
-        if (s > top) { top = s; sx = +x.toFixed(3); sy = +y.toFixed(3); } // a plain number (1.2, not 1.2000000000000002), a hair from the point that was rated
+  const spawn = (avoid) => {
+    const rate = (x, y) => (clear(x, y) && !(avoid && nearLeaf(x, y)) ? ((maxPenetration(lv, x, y, 0.65) === 0) + (maxPenetration(lv, x, y, 0.8) === 0)) * 3 - Math.hypot(x - lx, y - ly) : -Infinity);
+    let sx = lx, sy = ly, top = rate(lx, ly);
+    if (top < 6) { // a label point with both margins (6) cannot be beaten, so the room is searched only otherwise
+      const poly = found.room.polygon;
+      const xs = poly.map((q) => q[0]), ys = poly.map((q) => q[1]);
+      const x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys);
+      const step = Math.max(0.1, (x1 - x0) / 300, (y1 - y0) / 300); // 10 cm, coarser for a huge room: at most 300 x 300 points
+      const nx = Math.floor((x1 - x0) / step), ny = Math.floor((y1 - y0) / step); // counted loops, see labelPoint in geometry.js
+      for (let i = 0; i <= nx; i++) {
+        const x = x0 + i * step;
+        for (let j = 0; j <= ny; j++) {
+          const y = y0 + j * step;
+          const s = rate(x, y);
+          if (s > top) { top = s; sx = +x.toFixed(3); sy = +y.toFixed(3); } // a plain number (1.2, not 1.2000000000000002), a hair from the point that was rated
+        }
       }
     }
-  }
-  const lookAt = found.door ?? [(b.minX + b.maxX) / 2, (b.minY + b.maxY) / 2];
-  let yaw = Math.atan2(sy - lookAt[1], sx - lookAt[0]);
-  if (Math.hypot(sx - lookAt[0], sy - lookAt[1]) < 0.05) yaw = 0;
-  const view = longestView(lv, sx, sy, b, (yaw * 180) / Math.PI);
-  // That view is turned to the middle of the opening it runs through (within 12 degrees), so a door stands in the middle of the picture. A
-  // ray that reaches the middle of the gap takes it for one that can be walked through: the gap of a window or of a high sill is solid.
-  let aim = view, off = 12;
-  for (const op of lv.openings) {
-    const w = lv.wallById.get(op.wallId), um = (op.u0 + op.u1) / 2;
-    const mx = w.from[0] + w.dir[0] * um - sx, my = w.from[1] + w.dir[1] * um - sy, d = Math.hypot(mx, my), a = (Math.atan2(my, mx) * 180) / Math.PI;
-    const o = Math.abs(((a - view + 540) % 360) - 180);
-    if (d > 0.3 && o < off && freeDistance(lv, sx, sy, mx / d, my / d, d) >= d - 0.03) { off = o; aim = a; }
-  }
-  return { level: found.level, roomId: found.room.id, x: sx, y: sy, yawDeg: aim };
+    const lookAt = found.door ?? [(b.minX + b.maxX) / 2, (b.minY + b.maxY) / 2];
+    let yaw = Math.atan2(sy - lookAt[1], sx - lookAt[0]);
+    if (Math.hypot(sx - lookAt[0], sy - lookAt[1]) < 0.05) yaw = 0;
+    const view = longestView(lv, sx, sy, b, (yaw * 180) / Math.PI);
+    // That view is turned to the middle of the opening it runs through (within 12 degrees), so a door stands in the middle of the picture. A
+    // ray that reaches the middle of the gap takes it for one that can be walked through: the gap of a window or of a high sill is solid.
+    let aim = view, off = 12;
+    for (const op of lv.openings) {
+      const w = lv.wallById.get(op.wallId), um = (op.u0 + op.u1) / 2;
+      const mx = w.from[0] + w.dir[0] * um - sx, my = w.from[1] + w.dir[1] * um - sy, d = Math.hypot(mx, my), a = (Math.atan2(my, mx) * 180) / Math.PI;
+      const o = Math.abs(((a - view + 540) % 360) - 180);
+      if (d > 0.3 && o < off && freeDistance(lv, sx, sy, mx / d, my / d, d) >= d - 0.03) { off = o; aim = a; }
+    }
+    return { x: sx, y: sy, yawDeg: aim, top };
+  };
+  // An open leaf close in front of the first picture hides half of it: then the walker starts where no leaf is within 0.7 m (if the room has such a point).
+  let s = spawn(false);
+  if (nearLeaf(s.x, s.y, s.yawDeg)) { const t = spawn(true); if (t.top > -Infinity) s = t; }
+  return { level: found.level, roomId: found.room.id, x: s.x, y: s.y, yawDeg: s.yawDeg };
 }
