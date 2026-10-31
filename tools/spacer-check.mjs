@@ -132,6 +132,11 @@ const KEYS = {
 };
 const MOD = { Shift: 8, Control: 2 };
 const keyEv = (type, name, modifiers = 0) => send('Input.dispatchKeyEvent', { type, key: KEYS[name][0], code: KEYS[name][1], windowsVirtualKeyCode: KEYS[name][2], modifiers });
+// Shift with an arrow as a key event that has a `key` and no `code` (what a virtual keyboard may send). A first try with Input.dispatchKeyEvent (no code given) did not catch the shift-time breakage, so the browser
+// probably fills the code in from the key code. This one is a KeyboardEvent made in the page and sent to the body: the only event of the whole check that is not a real one, and the control outside Spacer shows that the page's handler takes it.
+async function keyOnlyShiftArrow(key) {
+  await ev(`(() => { const o = { key: ${JSON.stringify(key)}, shiftKey: true, bubbles: true, cancelable: true }; document.body.dispatchEvent(new KeyboardEvent('keydown', o)); document.body.dispatchEvent(new KeyboardEvent('keyup', o)); })()`); await sleep(120);
+}
 // a key pressed and let go at once, with the modifiers held around it (Shift, Control)
 async function press(name, mods = []) {
   const m = mods.reduce((s, k) => s | MOD[k], 0);
@@ -179,6 +184,13 @@ const INIT = `(() => {
   const said = () => setTimeout(() => document.dispatchEvent(new Event('pointerlockchange')), 0);
   Element.prototype.requestPointerLock = function () { window.__lockAsks++; if (lock.allow && !lock.on) { lock.on = true; said(); } return Promise.resolve(); };
   Document.prototype.exitPointerLock = function () { if (lock.on) { lock.on = false; said(); } };
+  // The reading at the space bar (see armSpaceProbe): the listener has to be the first on the window in the capture phase, ahead of the one that Spacer adds and that keeps the key to itself.
+  addEventListener('keydown', (e) => {
+    if (e.code !== 'Space' || !window.__probeArmed) return; window.__probeArmed = false;
+    const keyAt = performance.now(); // the moment of the key itself; the reading follows it by some tens of ms (it paints the view first)
+    setTimeout(() => { const h = document.getElementById('ps-walk-hint'), s = window.__spacer.state(); if (s.cam) window.__spacer.walkTo(s.cam.x, s.cam.z, s.level, s.cam.yaw, s.cam.pitch);
+      window.__spaceProbe = { keyAt, at: performance.now(), notice: s.notice, text: h ? h.textContent : null, hidden: h ? h.hidden : null, doors: s.doors.map((d) => [d.id, d.open]), jump: s.jump.active }; }, 0);
+  }, true);
 })()`;
 async function open(hash, ready = 'typeof window.__spacer === "object" && (window.__done === true || window.__frames >= 1 || !!window.__fail)') {
   await send('Page.navigate', { url: 'about:blank' }); await sleep(300); // a change of the part after # alone would not reload the page
@@ -210,12 +222,24 @@ const storageUse = () => ev(`(async () => { let idb = 0; try { idb = (await inde
 let storageHit = null;
 async function noStorage() { try { const u = await storageUse(); if (u && (u.local || u.session || u.cookie || u.idb)) storageHit = JSON.stringify(u); } catch { /* the page is gone */ } }
 
+// The page at rest: the camera is not moving and __frames has not grown for `polls` polls of 0.5 s in a row (a page at rest draws nothing). The frames that a change asks for come first, so
+// a picture or a reading taken after this one is of the settled page (the camera distance, for one, is refitted by the frames that follow a load or a way out), not of a moment on the way there.
+async function atRest(polls = 6, maxMs = 120000) {
+  const end = Date.now() + maxMs; let f = -1, quiet = 0;
+  while (Date.now() < end && quiet < polls) { await sleep(500); const n = await frames(), busy = await ev('!!(window.__camera && window.__camera.busy)').catch(() => true); quiet = n === f && !busy ? quiet + 1 : 0; f = n; }
+  return quiet >= polls;
+}
+// The mouse goes to a bare spot of the picture, so that no button stands in its hover state in a picture (a click on the Walk button leaves the pointer over it). The hover is a CSS transition: it needs a moment.
+async function mouseAway() { if (!phone) { await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: 3, y: H / 2 }); await sleep(450); } }
+// The page shows a first-visit hint ("Drag to turn", #ps-hint) until the first gesture on the view; entering Spacer takes it away for good. A visitor has made that gesture by the time they walk,
+// so the pictures before and after are taken with the hint out of both (an explicit style, here and nowhere else): it is not part of the scene, and with it in the first picture only the diff counts 5 600 pixels it cannot help.
+const muteFirstVisitHint = () => ev(`(() => { if (!document.getElementById('w7-mute')) { const s = document.createElement('style'); s.id = 'w7-mute'; s.textContent = '#ps-hint{display:none!important}'; document.head.appendChild(s); } })()`);
+
 // After Spacer ends: the bar, the map, the view and the picture are as they were, nothing is drawn at rest. pre: { view, controls, picture }.
 async function backAsItWas(label, pre) {
   await waitFor('window.__spacer.active === false', 20000, 'Spacer to end');
   await waitFor('!window.__camera || window.__camera.busy === false', 30000).catch(() => {});
-  let f = -1, quiet = 0; // the frames that the way out itself asks for come first, then nothing
-  for (let i = 0; i < 60 && quiet < 6; i++) { await sleep(500); const n = await frames(); quiet = n === f ? quiet + 1 : 0; f = n; }
+  await mouseAway(); await atRest(); // the frames that the way out itself asks for come first, then nothing
   const v = await view(), c = await controls(), s = await st(), map = await rectOf('#ps-walk-map'), hint = await rectOf('#ps-walk-hint'), zones = await ev(`!!document.querySelector('#ps-walk-zones.on')`);
   check(`${label}: Spacer is off and the page says nothing of it (no state, bar without "walking")`, s.active === false && s.cam === null && !/walking/.test(v.cls), `${JSON.stringify(s).slice(0, 80)} bar "${v.cls}"`);
   check(`${label}: the bar has all its tools again, the same as before`, JSON.stringify(c) === JSON.stringify(pre.controls), `${c.length} controls now, ${pre.controls.length} before`);
@@ -226,10 +250,31 @@ async function backAsItWas(label, pre) {
   check(`${label}: nothing is drawn at rest (3 s)`, f1 === f0, `${f0} to ${f1}`);
   const pic = await grab(), diff = whereChanged(pre.picture, pic, 3);
   check(`${label}: the picture is the one from before the walk (doors open again, walls, mood: at most 0.1% of the pixels differ by more than 3 of 255)`, diff.n <= pic.w * pic.h * 0.001, `${diff.n} of ${pic.w * pic.h} pixels, in the box ${diff.box}; two pictures of the page at rest before the walk differed in ${pre.rest} pixels`);
-  if (out && diff.n > 0) { writeFileSync(join(out, `diag-${label.replace(/\W+/g, '-')}-before.png`), Buffer.from(pre.picture.b64, 'base64')); writeFileSync(join(out, `diag-${label.replace(/\W+/g, '-')}-after.png`), Buffer.from(pic.b64, 'base64')); }
+  if (out && diff.n > pic.w * pic.h * 0.001) { writeFileSync(join(out, `diag-${label.replace(/\W+/g, '-')}-before.png`), Buffer.from(pre.picture.b64, 'base64')); writeFileSync(join(out, `diag-${label.replace(/\W+/g, '-')}-after.png`), Buffer.from(pic.b64, 'base64')); }
   return { v, c, pic };
 }
-const snapshotBefore = async () => { await waitFor('!window.__camera || window.__camera.busy === false', 30000).catch(() => {}); await sleep(1200); const picture = await grab(); await sleep(700); return { view: await view(), controls: await controls(), picture, rest: whereChanged(picture, await grab(), 3).n }; };
+// The page as it stands before the walk, read once it has come to rest (the first frames refit the camera distance: 35.18 at the first reading, 26.42 settled, the same picture). rest: how many pixels
+// two pictures of the settled page differ in (the noise of the screen, 0 expected).
+const snapshotBefore = async () => {
+  await muteFirstVisitHint(); await mouseAway();
+  await waitFor('!window.__camera || window.__camera.busy === false', 30000).catch(() => {});
+  await atRest();
+  const picture = await grab(), v = await view(), c = await controls();
+  await sleep(700);
+  return { view: v, controls: c, picture, rest: whereChanged(picture, await grab(), 3).n };
+};
+
+// ---------- the word in the doorway ----------
+// Reads what the page shows at the moment of the space bar, not some frames later: one frame takes seconds on this renderer and the word stands for 2.5 s of the wall clock, so a reading from
+// outside could come after it was gone. The probe (in INIT, first on the window in the capture phase, ahead of the listener that Spacer adds and that keeps the key to itself) takes its reading in
+// a timeout of 0, which runs after Spacer has answered the key and before Spacer's own timer of 2.5 s (due later, so it fires later). The reading paints the view first (walkTo to the very place
+// it stands paints at once; a frame is not needed). The log writes down every change of the hint element with performance.now(), so that the time the word stood is the page's own.
+const armSpaceProbe = () => ev(`(() => {
+  window.__spaceProbe = null; window.__hintLog = []; window.__probeArmed = true; const h = () => document.getElementById('ps-walk-hint');
+  if (!window.__hintObserver && h()) { window.__hintObserver = new MutationObserver(() => window.__hintLog.push({ t: performance.now(), text: h().textContent, hidden: h().hidden })); window.__hintObserver.observe(h(), { childList: true, characterData: true, subtree: true, attributes: true }); }
+})()`);
+const spaceAnd = async (mods = []) => { await armSpaceProbe(); await press('Space', mods); return waitFor('window.__spaceProbe', 20000, 'the reading at the space bar'); };
+const DOOR = 'd-hall-living';
 
 // ---------- scene A: the flat, with mouse and keyboard ----------
 // A step that fails or throws is recorded and the next one goes on from a known state (Spacer on with a stopped clock, or off).
@@ -249,6 +294,10 @@ async function sceneA() {
   await press('ArrowRight', ['Shift']); await sleep(400);
   const t1 = (await view()).t;
   check('A: control: outside Spacer Shift with the right arrow moves the time of day', t1 > t0 + 0.01, `${f3(t0)} to ${f3(t1)}`);
+  // the same key with a `key` and no `code` (some virtual keyboards send no code): Spacer reads the code, so it is not Spacer's; the page's own handler reads the key
+  await keyOnlyShiftArrow('ArrowRight'); await sleep(400);
+  const t2 = (await view()).t;
+  check('A: control: outside Spacer Shift with the right arrow sent with a key and no code moves the time of day too', t2 > t1 + 0.01, `${f3(t1)} to ${f3(t2)}`);
   const pre = await snapshotBefore();
   check('A: before the walk the bar shows its tools (the moods, the time, the plans, the tools)', pre.controls.length > 8 && pre.controls.includes('tool:spacer'), pre.controls.join(' '));
 
@@ -268,6 +317,9 @@ async function sceneA() {
     check('1 click: the button gave up the focus (the active element is BODY)', (await ev(`document.activeElement ? document.activeElement.tagName : null`)) === 'BODY');
     check('1 click: the eyes are at 1.6 m, in a room, level L0', s1.cam && near(s1.cam.y, 1.6, 0.001) && s1.level === 'L0' && !!s1.room, JSON.stringify(s1.cam) + ` room ${s1.room}`);
     check('1 click: the lens of the eyes is on (near 0.05, fov 70)', (await ev(`window.__camera.nearPlane`)) === 0.05 && (await ev(`window.__shell && window.__shell.view ? window.__shell.view().fov : null`)) === 70);
+    // the start of the flat is where the label of the hall puts it, and the rule about the open leaf of a door (W6b) moves nothing here: the front door leaf stands 0.64 m behind the walker
+    check('1 click: the start is (1.0, 4.5) within 0.05 m, the same as before the rule about the leaf of a door', near(s1.cam.x, 1.0, 0.05) && near(s1.cam.z, 4.5, 0.05), `x ${f3(s1.cam.x)}, z ${f3(s1.cam.z)}, yaw ${f2(s1.cam.yaw)}`);
+    check('1 click: the first-visit hint of the page ("Drag to turn") is gone for good', !(await ev(`!!document.getElementById('ps-hint')`)));
     await shot('1-entered');
 
   });
@@ -370,6 +422,48 @@ async function sceneA() {
     check('4 space: a second Space opens it again, and the picture is the open one', d2.doors.find((d) => d.id === 'd-hall-living').open === true && d2.jump.active === false && changed(open0, open1, [0.15, 0.1, 0.85, 0.9]) < dOpenVsShut / 4, `open ${d2.doors.find((d) => d.id === 'd-hall-living').open}, t ${f3(d2.doors.find((d) => d.id === 'd-hall-living').t)}, ${changed(open0, open1, [0.15, 0.1, 0.85, 0.9])} pixels from the first open picture`);
     await shot('4-door-open');
   });
+  await sec('4 doorway', async () => {
+    await ensureWalking();
+    const doorOf = (list) => list.find((d) => d[0] === DOOR); // list: [[id, open], ...] as the probe writes it
+    // from afar the door is shut and opened without a word
+    await place(1.05, 3.9, -90);
+    let p = await spaceAnd();
+    check('4 doorway: from 0.9 m away Space shuts the door and the page says nothing about a doorway', doorOf(p.doors)[1] === false && p.notice === null && p.jump === false && !/doorway/.test(p.text ?? ''), `open ${doorOf(p.doors)[1]}, notice ${p.notice}, hint "${p.text}"`);
+    await ev('window.__spacer.advanceTime(500)');
+    p = await spaceAnd(); await ev('window.__spacer.advanceTime(500)');
+    check('4 doorway: a second Space opens it again, still without a word', doorOf(p.doors)[1] === true && p.notice === null, `open ${doorOf(p.doors)[1]}, notice ${p.notice}`);
+    // in the doorway (the open door is on top of the walker) the door stays open and the page says why, for 2.5 s of the wall clock
+    await place(1.05, 3.0, -90);
+    const s0 = await st();
+    p = await spaceAnd();
+    check('4 doorway: standing in the doorway Space leaves the door open, does not jump, and the state carries the word (notice "doorway")', doorOf(p.doors)[1] === true && p.jump === false && p.notice === 'doorway', `door open ${doorOf(p.doors)[1]}, jump ${p.jump}, notice ${p.notice}, at ${f3(s0.cam.x)},${f3(s0.cam.z)}`);
+    check('4 doorway: the hint element reads "Step out of the doorway to shut the door" (the text in the page, not the key) and is shown', p.text === 'Step out of the doorway to shut the door' && p.hidden === false, `"${p.text}", hidden ${p.hidden}`);
+    // it goes by itself 2.5 s after the key (the page's own clock; a slow frame may hold it up, so up to 4 s are allowed) and the hint of the mouse comes back
+    const gone = await waitFor(`(() => { const e = window.__hintLog.find((l) => l.t > window.__spaceProbe.at && l.text !== ${JSON.stringify('Step out of the doorway to shut the door')}); return e ? { t: e.t, text: e.text } : null; })()`, 12000, 'the word to go').catch(() => null);
+    const stood = gone ? gone.t - p.keyAt : null, sNow = await st(); // counted from the key itself
+    check('4 doorway: the word goes after about 2.5 s of the wall clock (2.49 to 4.0 s from the key), notice is null, the hint of the mouse is back, the door is still open', gone !== null && stood >= 2490 && stood <= 4000 && sNow.notice === null && /W S walk/.test(gone.text) && doorOf(sNow.doors.map((d) => [d.id, d.open]))[1] === true, `stood ${stood === null ? 'n/a' : Math.round(stood)} ms, notice ${sNow.notice}, hint "${gone ? gone.text.slice(0, 40) : 'n/a'}"`);
+    // leaving takes the word away: a new walk begins without it
+    p = await spaceAnd();
+    check('4 doorway: a new try in the doorway shows the word again', p.notice === 'doorway' && p.text === 'Step out of the doorway to shut the door', `notice ${p.notice}, hint "${p.text}"`);
+    await press('Escape');
+    await waitFor('window.__spacer.active === false', 15000, 'Escape in the doorway');
+    const left = await st();
+    await ev('window.__spacer.enter()'); await waitFor('window.__spacer.active === true', 60000, 'Spacer to begin again');
+    const again = await st(), txt = await ev(`document.getElementById('ps-walk-hint').textContent`);
+    check('4 doorway: leaving clears the word (notice null at once, and none in the next walk)', left.notice === null && again.notice === null && /W S walk/.test(txt) && !/doorway/.test(txt), `after leaving ${left.notice}, in the next walk ${again.notice}, hint "${txt.slice(0, 40)}"`);
+    await ev('window.__spacer.manualClock(true)');
+    // a look at the word (only with --out): a frame takes longer here than the 2.5 s that the word stands, so for this one shot the page's timer of 2.5 s is made 100 times longer; nothing else is changed
+    if (out) {
+      await place(1.05, 3.0, -90);
+      await ev(`(() => { if (!window.__setTimeout) { window.__setTimeout = window.setTimeout; window.setTimeout = (fn, ms, ...a) => window.__setTimeout(fn, ms === 2500 ? 250000 : ms, ...a); } })()`);
+      p = await spaceAnd(); await frameAfter(2); await sleep(300);
+      check('4 doorway: for the shot the word is up in the picture (timer made long, only here)', p.notice === 'doorway' && (await ev(`document.getElementById('ps-walk-hint').textContent`)) === 'Step out of the doorway to shut the door', `hint "${await ev(`document.getElementById('ps-walk-hint').textContent`)}"`);
+      await shot('4-doorway-word');
+      await press('Escape'); await waitFor('window.__spacer.active === false', 15000, 'Escape after the shot');
+      await ev(`(() => { if (window.__setTimeout) { window.setTimeout = window.__setTimeout; window.__setTimeout = null; } })()`);
+      await ev('window.__spacer.enter()'); await waitFor('window.__spacer.active === true', 60000, 'Spacer to begin again'); await ev('window.__spacer.manualClock(true)');
+    }
+  });
   await sec('4 exit button', async () => {
     await ensureWalking();
     // Space on the Exit button presses the button
@@ -412,6 +506,10 @@ async function sceneA() {
     check('5 moods: Shift with the right arrow does NOT move the time of day in Spacer (it runs and turns)', near(tAfter, tBefore, 1e-9) && (await st()).active, `time ${f3(tBefore)} to ${f3(tAfter)}`);
     await press('ArrowLeft', ['Shift']); await sleep(300);
     check('5 moods: Shift with the left arrow does not either', near((await view()).t, tBefore, 1e-9) && yawBefore !== undefined);
+    // the page's own handler of the time of day (main.js) is the second line behind Spacer, which takes these keys by their code: sent by key alone they pass Spacer and reach it
+    await keyOnlyShiftArrow('ArrowRight'); await sleep(400); const tCodeR = (await view()).t; // read after each arrow: the right one and the left one are a step each way, so after both the time would be where it began
+    await keyOnlyShiftArrow('ArrowLeft'); await sleep(400); const tCodeL = (await view()).t;
+    check('5 moods: Shift with an arrow sent as a key with no code does NOT move the time of day in Spacer either (the page\'s own handler stands down while it walks)', near(tCodeR, tBefore, 1e-9) && near(tCodeL, tBefore, 1e-9) && (await st()).active, `time ${f3(tBefore)}, after the right arrow ${f3(tCodeR)}, after the left ${f3(tCodeL)}`);
 
   });
   await sec('7 mouse', async () => {
@@ -483,6 +581,14 @@ async function sceneB() {
   const refused = await ev(`window.__spacer.enter()`), after = await st();
   check('B: edit=1 has no Spacer button, and enter() refuses with a reason', hidden && refused === false && after.active === false && after.denied === 'edit', `hidden ${hidden}, enter() ${refused}, denied "${after.denied}"`);
   await noStorage();
+  // the word in the doorway in Polish (scene A reads it in English)
+  await open('walk=1&plan=flat-1&lang=pl&q=low');
+  await ev('window.__spacer.manualClock(true)');
+  await place(1.05, 3.0, -90);
+  const p = await spaceAnd();
+  check('B: in the doorway of a page in Polish the word reads "Wyjdź z progu, żeby zamknąć drzwi" and the door stays open', p.notice === 'doorway' && p.text === 'Wyjdź z progu, żeby zamknąć drzwi' && p.hidden === false && p.doors.every((d) => d[1]), `notice ${p.notice}, hint "${p.text}", doors open ${p.doors.map((d) => d[1]).join(',')}`);
+  await shot('B-doorway-pl');
+  await noStorage();
 }
 
 // ---------- scene C: the duplex, the stairs ----------
@@ -493,6 +599,8 @@ async function sceneC() {
   await waitFor('window.__spacer.active === true', 60000);
   await waitFor(`window.__frames > ${f}`, 60000);
   await ev('window.__spacer.manualClock(true)');
+  const first = await st();
+  check('C: the start of the duplex hall is (1.2, 1.7) within 0.05 m, on the ground floor (the rule about the leaf of a door moved nothing)', near(first.cam.x, 1.2, 0.05) && near(first.cam.z, 1.7, 0.05) && first.level === 'L0', `x ${f3(first.cam.x)}, z ${f3(first.cam.z)}, yaw ${f2(first.cam.yaw)}, level ${first.level}`);
   const floorsBox = await rectOf('#ps-ui .floors'), plansBox = await rectOf('#ps-ui .plans');
   await ev(`window.__floors.set('0')`); await sleep(300);
   check('C: the floor and the plan buttons are out of the way in Spacer, and the floor switch does nothing', (!floorsBox || !floorsBox.shown) && (!plansBox || !plansBox.shown) && (await ev(`String(window.__floors.get())`)) === 'all' && (await st()).active, `floors ${floorsBox ? floorsBox.shown : 'none'}, plans ${plansBox ? plansBox.shown : 'none'}, floor "${await ev(`String(window.__floors.get())`)}"`);
@@ -524,6 +632,13 @@ async function sceneP() {
   const lockAsks0 = await ev('window.__lockAsks');
 
   // 10. the touch click
+  // The two zones and the hint are due for 4 s of the wall clock (performance.now) and go at the first frame that starts after that. A frame takes seconds on this renderer, and so does an
+  // evaluate from here while one is on, so the time is read by the page itself: an observer writes down when the zones came and went, and a recorder of animation frames shows how far apart
+  // the frames were around the fourth second.
+  await ev(`(() => { window.__zoneLog = []; window.__raf = []; let on = false;
+    new MutationObserver(() => { const z = document.getElementById('ps-walk-zones'), now = !!(z && z.classList.contains('on')); if (now !== on) { on = now; window.__zoneLog.push({ on, t: performance.now(), frames: window.__frames }); } })
+      .observe(document.documentElement, { subtree: true, childList: true, attributes: true, attributeFilter: ['class'] });
+    const tick = (t) => { window.__raf.push(t); if (window.__zoneLog.length < 2 && window.__raf.length < 6000) requestAnimationFrame(tick); }; requestAnimationFrame(tick); })()`);
   const f0 = await frames(), t0 = Date.now();
   const tapped = await tapSel(BTN);
   await waitFor('window.__spacer.active === true', 90000, 'Spacer to begin');
@@ -533,15 +648,21 @@ async function sceneP() {
   const hintOn = await rectOf('#ps-walk-hint'), hintTxt = await ev(`(document.getElementById('ps-walk-hint') || {}).textContent ?? ''`);
   const tShown = Date.now() - t0;
   check('10 touch: a touch on the button begins Spacer; the bar keeps the moods and Exit only; the focus is on BODY', tapped && sEnt.active && (await controls()).filter((c) => !c.startsWith('mood:')).join() === 'tool:spacer' && (await ev(`document.activeElement.tagName`)) === 'BODY', `controls ${(await controls()).join(' ')}`);
+  check('10 touch: the start is (1.0, 4.5) within 0.05 m and the first-visit hint of the page is gone', near(sEnt.cam.x, 1.0, 0.05) && near(sEnt.cam.z, 4.5, 0.05) && !(await ev(`!!document.getElementById('ps-hint')`)), `x ${f3(sEnt.cam.x)}, z ${f3(sEnt.cam.z)}`);
   check('10 touch: the two zones "Idź" and "Rozglądaj się" and the hint are on the picture', zonesOn && zoneWords.join('|') === 'Idź|Rozglądaj się' && hintOn.shown && /Lewa połowa/.test(hintTxt), `zones ${zonesOn} (${zoneWords.join(' / ')}), hint "${hintTxt}", ${tShown} ms after the touch`);
   await shot('10-zones');
   const mapR = await rectOf('#ps-walk-map'), barR = await rectOf('#ps-ui'), exitR = await rectOf(BTN), verR = await rectOf('#ps-version');
   const inter = (a, b) => !!a && !!b && a.shown !== false && b.shown !== false && a.x < b.r && b.x < a.r && a.y < b.b && b.y < a.b;
   check('10 touch: the map is small (112 px), inside the window, and clear of the bar, the Exit button and the version mark', near(mapR.w, 112, 1) && near(mapR.h, 112, 1) && mapR.x >= 0 && mapR.r <= W && mapR.y >= 0 && !inter(mapR, barR) && !inter(mapR, exitR) && !inter(mapR, verR),
     `map ${f2(mapR.x)},${f2(mapR.y)}..${f2(mapR.r)},${f2(mapR.b)} (${f2(mapR.w)}x${f2(mapR.h)}); bar from y ${f2(barR.y)}; exit ${f2(exitR.x)},${f2(exitR.y)}..${f2(exitR.r)},${f2(exitR.b)}; version ${verR ? f2(verR.x) + ',' + f2(verR.y) : 'none'}`);
-  const fa = await frames(), ta = Date.now(); await waitFor(`window.__frames >= ${fa + 2}`, 60000); const cadence = (Date.now() - ta) / 2; // ms per drawn frame on this renderer
-  const gone = await waitFor(`!document.querySelector('#ps-walk-zones.on') && document.getElementById('ps-walk-hint').hidden`, 90000, 'the zones to go').then(() => Date.now() - t0, () => null);
-  check('10 touch: the zones and the hint go after about 4 s (the first frame after that: allowed 4 s plus the time of three frames)', gone !== null && gone >= 3500 && gone <= 4000 + 3 * cadence + 1500, `gone after ${gone} ms, a frame takes ${Math.round(cadence)} ms here`);
+  const goneAt = await waitFor(`window.__zoneLog.length >= 2 ? window.__zoneLog : null`, 90000, 'the zones to go').catch(() => null);
+  const hintGone = await waitFor(`document.getElementById('ps-walk-hint').hidden`, 30000).then(() => true, () => false);
+  if (goneAt) {
+    const raf = await ev('window.__raf'), tOn = goneAt[0].t, tOff = goneAt[1].t, held = tOff - tOn;
+    let gap = 0; for (let i = 1; i < raf.length; i++) if (raf[i - 1] <= tOn + 4000 && raf[i] >= tOn + 4000) gap = raf[i] - raf[i - 1]; // the frames on either side of the fourth second
+    // the page counts from the moment Spacer begins (a few ms before the zones show), so a little under 4 s is fine; the zones go at the first frame after the fourth second, so at most one gap of frames over it
+    check('10 touch: the zones and the hint go after 4 s of the WALL clock, at the first frame after that (the page\'s own timestamps: held 3.9 s up to 4 s plus the gap of the frames there)', held >= 3900 && held <= 4000 + gap + 400 && hintGone, `zones held ${Math.round(held)} ms (frames ${goneAt[0].frames} to ${goneAt[1].frames}), the frames around the 4th second were ${Math.round(gap)} ms apart, ${raf.length} frames recorded, hint hidden ${hintGone}`);
+  } else check('10 touch: the zones and the hint go after 4 s of the wall clock', false, 'the zones did not go within 90 s');
 
   // 11. touch walking and looking
   await ev('window.__spacer.manualClock(true)');
