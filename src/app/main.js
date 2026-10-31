@@ -1044,7 +1044,7 @@ try {
       },
       doors: (list, open) => ps.setDoors(list, open),
       paint: (f) => spacerView?.paint(f),
-      changed: (on) => { S.walking = on; ui?.update(S); },
+      changed: (on) => { S.walking = on; ui?.update(S); if (!on) { frameCamera(); coverSeen = cover; } }, // end() framed the view above the short bar of the walk and this runs once the whole bar is back: a size observer that saw no frame in between reports no change, so the view is framed again here
       redraw, now: () => performance.now(), width: () => renderer.domElement.clientWidth || W, touchDevice,
     },
   });

@@ -45,6 +45,14 @@ test('the view is saved after the intro ends: a walk begun in the middle of the 
   assert.ok(snap.indexOf("intro?.skip('api')") > 0 && snap.indexOf("intro?.skip('api')") < snap.indexOf('cam: cam.state'), 'skip first, then read the camera');
 });
 
+test('leaving frames the view again once the whole bar is back: end() frames it above the short bar of the walk, and a size observer that saw no frame between the two says nothing', () => {
+  const changed = block.slice(block.indexOf('changed: (on) => {'), block.indexOf('redraw, now:'));
+  assert.match(changed, /S\.walking = on; ui\?\.update\(S\); if \(!on\) \{ frameCamera\(\); coverSeen = cover; \}/, 'the bar first, then the frame, and the observer is told what was used');
+  assert.ok(main.indexOf('let coverSeen = 0') > 0 && main.indexOf('let coverSeen = 0') < a, 'coverSeen is declared before the Spacer block reads it');
+  const leave = readFileSync(new URL('../../src/app/spacerrun.js', import.meta.url), 'utf8');
+  assert.ok(leave.indexOf('host.end(was)') > 0 && leave.indexOf('host.end(was)') < leave.indexOf('host.changed(false)'), 'end() runs first, so only changed(false) can frame for the whole bar');
+});
+
 test('nothing else may move the eyes: the framing, the controller, the cut, the pieces, the time keys, the shell keys and the taps all stand aside', () => {
   assert.match(body('function frameCamera() {'), /if \(walkMode\) \{ camera\.aspect = W \/ H; camera\.updateProjectionMatrix\(\); stage\.fitBackdrop\(W \/ H\); return; \}/, 'a window that changes shape changes the aspect only');
   assert.match(body('function onCamera(s) {'), /if \(walkMode\) return;/);
