@@ -49,3 +49,17 @@ test('with the base down the fill light follows how dark it is (a room with no l
   assert.equal(hemi.intensity, plain, 'the base up again: night is as the view from above has it');
   stage.dispose();
 });
+
+test('the raise of the fill light goes the moment the base comes back, not when the page next sets its own', () => {
+  const stage = make(), hemi = stage.rig.hemi;
+  stage.applyTime(0.98);
+  const plain = hemi.intensity;
+  stage.setBase(false);
+  const raised = hemi.intensity;
+  assert.ok(raised > plain * 1.4, `raised at night: ${raised} against ${plain}`);
+  stage.setBase(true);
+  assert.equal(hemi.intensity, plain, 'the base up: back on the footing of the view from above, with no time change in between');
+  stage.setBase(false);
+  assert.equal(hemi.intensity, raised, 'and down again: raised again');
+  stage.dispose();
+});

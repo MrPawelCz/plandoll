@@ -25,6 +25,7 @@ const rad = (d) => (d * Math.PI) / 180, deg = (r) => (r * 180) / Math.PI;
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
 const num = (v) => (Number.isFinite(+v) ? +v : 0);
 const r3 = (v) => Math.round(v * 1000) / 1000;
+const MAX_ADVANCE_MS = 600000; // the most advanceTime walks at once
 const wrap = (a) => a - Math.PI * 2 * Math.floor((a + Math.PI) / (Math.PI * 2));
 
 export function createSpacerRun({ host, win, doc, canvas }) {
@@ -109,10 +110,10 @@ export function createSpacerRun({ host, win, doc, canvas }) {
     last = c.last;
     advance(c.dt); place(); paint(now);
   }
-  // Test hook: ms of walking at once, whatever the clock; the picture follows (the page draws it).
+  // Test hook: ms of walking at once, whatever the clock (at most 10 minutes: a huge number must not hang the page); the picture follows (the page draws it).
   function advanceTime(ms) {
     if (!active) return;
-    advance(Math.max(0, num(ms)) / 1000); place(); paint(host.now()); host.redraw();
+    advance(Math.min(MAX_ADVANCE_MS, Math.max(0, num(ms))) / 1000); place(); paint(host.now()); host.redraw();
   }
 
   // ---------- in and out ----------

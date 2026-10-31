@@ -37,7 +37,12 @@ test('begin puts the eyes on in the order the page needs, end gives back what it
   assert.match(end, /setPreset\(saved\.preset, true\); setTime\(saved\.t\)/, 'the mood and the time of day come back');
   assert.match(end, /frameCamera\(\);/, 'the lens, the near plane and the lift of the view from above');
   assert.match(end, /toggleRooms\?\.\(\)/, 'and the list of rooms');
-  assert.match(block, /snapshot: \(\) => \(\{ cam: cam\.state, flags: flags\.slice\(\), ext, frameExt, framePts, preset: S\.preset, t: S\.t, rooms: !!S\.rooms \}\)/);
+  assert.match(block, /snapshot: \(\) => \{ intro\?\.skip\('api'\); return \{ cam: cam\.state, flags: flags\.slice\(\), ext, frameExt, framePts, preset: S\.preset, t: S\.t, rooms: !!S\.rooms \}; \}/, 'the intro ends before the view is saved');
+});
+
+test('the view is saved after the intro ends: a walk begun in the middle of the flight comes back to the view the flight ends in', () => {
+  const snap = block.slice(block.indexOf('snapshot: () => {'), block.indexOf('begin() {'));
+  assert.ok(snap.indexOf("intro?.skip('api')") > 0 && snap.indexOf("intro?.skip('api')") < snap.indexOf('cam: cam.state'), 'skip first, then read the camera');
 });
 
 test('nothing else may move the eyes: the framing, the controller, the cut, the pieces, the time keys, the shell keys and the taps all stand aside', () => {
@@ -54,12 +59,17 @@ test('nothing else may move the eyes: the framing, the controller, the cut, the 
   assert.match(main, /W = window\.innerWidth; H = window\.innerHeight; frameCamera\(\); coverSeen = cover; post\.resize\(W, H\);/);
 });
 
-test('a plan that is loaded ends the walk first; the box that asks for one holds it off; the button gives up its focus; walk=1 begins once the loop runs and the intro is not played', () => {
-  assert.match(body('function applyPlan(next) {'), /intro\?\.skip\('api'\);[^\n]*\n\s+spacer\?\.leave\(\);/);
+test('a plan that is loaded ends the walk once it is sure to be built; the box that asks for one holds it off; the button gives up its focus; walk=1 begins once the loop runs and the intro is not played', () => {
+  const apply = main.slice(main.indexOf('function applyPlan(next) {'), main.indexOf('shell?.dispose();', main.indexOf('function applyPlan(next) {')) + 20);
+  assert.match(apply, /intro\?\.skip\('api'\);/);
+  assert.ok(apply.indexOf('spacer?.leave()') > apply.indexOf('if (!built) return false'), 'a plan that cannot be built leaves the walker where he is');
+  assert.ok(apply.indexOf('spacer?.leave()') > apply.indexOf('} catch { try { built.scene.dispose'), 'and so does a shell that cannot be built');
+  assert.ok(apply.indexOf('spacer?.leave()') < apply.indexOf('shell?.dispose()'), 'but the walk is over before the old scene goes');
   assert.match(main, /planAsk = true;[^\n]*\n\s+askForText\(/);
   assert.match(main, /\.then\(\(text\) => \{\n\s+planAsk = false;/);
   assert.match(block, /refusal: \(\) => \(params\.edit \? 'edit' : planAsk \? 'loading' : !model\?\.levels\?\.length \? 'no-model' : ''\)/);
   assert.match(main, /onSpacer: \(\) => \{ document\.activeElement\?\.blur\?\.\(\); if \(spacer\?\.active\) spacer\.leave\(\); else spacer\?\.enter\(\); \}/, 'a space on a button presses it: the first space in Spacer must jump');
+  assert.match(main, /onPreset: \(n\) => \{ setPreset\(n\); if \(walkMode\) document\.activeElement\?\.blur\?\.\(\); \}/, 'a mood button clicked in Spacer gives up the focus, so the next space jumps');
   assert.ok(main.indexOf('loop.start();') < main.indexOf('if (params.walk) spacer.enter();'), 'after the loop is started');
   assert.match(main, /introWanted\(\{ \.\.\.params, intro: params\.intro && !params\.walk \}/);
 });

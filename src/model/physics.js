@@ -1,8 +1,9 @@
 // Ported from planwalk viewer/src/physics.js (MIT, same author), source commit fa1a280 (v0.3.2).
 // Spacer physics: 2D circle against oriented rectangles, stair ramps, jumps and doors, deterministic. No DOM, no three.js.
 // The player walks through furniture: only walls, window gaps, stairs with their rails and shut doors stop it.
-// Differs from planwalk fa1a280 in defaultSpawn: the start is a point with room around it (0.8 m from the walls) instead of the nearest clear
+// Differs from planwalk fa1a280 in two places. defaultSpawn: the start is a point with room around it (0.8 m from the walls) instead of the nearest clear
 // point (and, when an open leaf stands in the first picture, one 0.7 m from every leaf), and the view is turned to the middle of the opening it runs through.
+// updateStairs: the floor under the player is lowE + r * st.delta, so the eyes stay continuous on a ramp; planwalk jumped to levels[st.upper].elevation.
 import { PLAYER, STAIR_SWITCH, JUMP, DOOR_REACH, DOOR_CONE_DEG, DOOR_SECONDS, roomAt, leafPose } from './geometry.js';
 import { pointInPolygon } from '../core/geom2d.js';
 
@@ -166,6 +167,7 @@ function stepJump(p, dt) {
 
 // Advance the player by dt seconds. input: { forward, strafe, turn (-1..1), run }.
 export function stepPlayer(world, p, input = {}, dt = 1 / 60) {
+  if (!(dt >= 0)) return p; // a NaN or negative step moves nothing (a NaN would reach yaw)
   const fwd = clamp(+input.forward || 0, -1, 1), str = clamp(+input.strafe || 0, -1, 1), turn = clamp(+input.turn || 0, -1, 1);
   if (!world.levels.length) return p;
   p.yaw = wrap(p.yaw + turn * rad(PLAYER.turnRate) * dt);

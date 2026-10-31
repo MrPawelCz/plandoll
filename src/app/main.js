@@ -392,7 +392,6 @@ try {
   let onPlanSwapped = null;
   function applyPlan(next) {
     intro?.skip('api'); // the intro belongs to the first model only
-    spacer?.leave(); // the walk belongs to the plan it began in
     // everything new is built first, so a plan that cannot be built leaves the page as it was
     const built = buildPlanParts(next, params.seed, { analyzePlan, modelOf, buildModel, modelExtent, makeScene, autoFurnish, piecesImplemented });
     if (!built) return false;
@@ -400,6 +399,7 @@ try {
     try { // the frame and the shell of the new plan too, before the old scene goes
       if (useShell) { nextExt = openExtent(built.model, built.ext); nextPts = openPoints(built.model, built.ext); nextShell = createOpenShell(built.scene, built.model); }
     } catch { try { built.scene.dispose?.(); } catch { /* dropped anyway */ } return false; }
+    spacer?.leave(); // the walk belongs to the plan it began in; it ends only once the new plan is sure to stand, and while the old scene is still there to hand back
     shell?.dispose();
     if (furn) { disposeComposed(furn.group, furn.merged?.group); furn = null; }
     scene.remove(ps.group); ps.dispose(); stage.dispose();
@@ -500,7 +500,7 @@ try {
     if (shell.clock !== 0 || shell.active) shellPose(0);
   }
   S.floor = floor; S.levels = model.levels.map((l) => ({ id: l.id, name: l.name })); // the floor buttons (two or more levels)
-  const ui = parts.controls ? createUI({ onPreset: (n) => setPreset(n), onTime: setTime, onQuality: setQ, onLang: setLang, onReset: () => cam?.reset(true), onEdit: toggleEdit, onSaveImage: saveImage, onShare: shareLink, onLoadPlan: loadPlan, onPlan: pickExample, onFloor: (k) => setFloor(k),
+  const ui = parts.controls ? createUI({ onPreset: (n) => { setPreset(n); if (walkMode) document.activeElement?.blur?.(); }, onTime: setTime, onQuality: setQ, onLang: setLang, onReset: () => cam?.reset(true), onEdit: toggleEdit, onSaveImage: saveImage, onShare: shareLink, onLoadPlan: loadPlan, onPlan: pickExample, onFloor: (k) => setFloor(k),
     onShell: () => { if (shell) shellGo(shellTarget !== 1); }, onRooms: () => toggleRooms?.(),
     onSpacer: () => { document.activeElement?.blur?.(); if (spacer?.active) spacer.leave(); else spacer?.enter(); } }, S) : null; // the button gives up the focus: a space on a button presses it, and the first space in Spacer must jump
   // The first one-finger turn on a touch screen says how to zoom and move (one short line, about 6 seconds, once per page load).
@@ -1008,7 +1008,7 @@ try {
     host: {
       model: () => model,
       refusal: () => (params.edit ? 'edit' : planAsk ? 'loading' : !model?.levels?.length ? 'no-model' : ''),
-      snapshot: () => ({ cam: cam.state, flags: flags.slice(), ext, frameExt, framePts, preset: S.preset, t: S.t, rooms: !!S.rooms }),
+      snapshot: () => { intro?.skip('api'); return { cam: cam.state, flags: flags.slice(), ext, frameExt, framePts, preset: S.preset, t: S.t, rooms: !!S.rooms }; }, // the intro ends first: a view saved in the middle of the flight would be the one to come back to
       begin() {
         walkMode = true;
         intro?.skip('api');

@@ -234,7 +234,7 @@ export function createStage(options = {}) {
   }
   // The base of the house (the card board, the board under it, the tabletop and the contact shadow) can be taken away: Spacer stands inside the house, with no table under it.
   // The lights of the rig stay, they are not part of this list.
-  function setBase(on) { base = !!on; for (const o of [board, under, table, contact]) o.visible = base; walkLight(); }
+  function setBase(on) { base = !!on; for (const o of [board, under, table, contact]) o.visible = base; if (base) rig.setFillBoost(1); walkLight(); } // the raise of the walker's fill goes with the walk; the page sets its own for the view from above
   function dispose() { rig.dispose(); bgTex.dispose(); glass.map = null; glass.emissiveMap = null; view.dispose(); tableMat.alphaMap?.dispose(); contactMat.map?.dispose(); for (const o of [board, under, table, contact]) o.geometry.dispose(); [paper, card, tableMat, contactMat].forEach((m) => m.dispose()); scene?.remove(group); }
 
   setPreset(options.preset);

@@ -8,7 +8,7 @@
 // --edit opens the page with edit=1 and adds the steps of the layout editor (select, drag, turn, undo, redo, delete, automatic layout), then the same with the
 // shell open (step 10f: a floor piece and a piece that hangs on an outer wall are selected, dragged, turned, recoloured, resized and deleted; Escape clears the
 // selection first and folds the shell second); without it the page is tested as a visitor sees it and the check is that there is no edit bar.
-// --btn opens the page with btn=1 and tests the extra buttons: the example plans, the open shell, saving the picture (a PNG), the frame hook, the Edit button (the page reloads with the shell closed), the shell button while editing and leaving the editor again.
+// --btn opens the page with btn=1 and tests the extra buttons: the example plans, the open shell, Rooms, Spacer (its own step: on screen, one button), saving the picture (a PNG), the frame hook, the Edit button (the page reloads with the shell closed), the shell button while editing and leaving the editor again.
 // --btn also drives the camera on the flat and on the duplex (cameraBlock): on a phone two fingers that move, a pinch about a point, three fingers, a long drag to the limit, one finger turning
 // while moved, the double tap and the touch hint; with the mouse the right and middle button, Shift with the left button, the wheel at the pointer, the nearest zoom and the double click; and the
 // card board (closed, half open, open, closed again, a loaded plan). --edit adds gestures that start on a piece: two or three fingers, the right button and Shift move the picture and no piece.
@@ -1252,9 +1252,11 @@ try {
     await picture('30-buttons');
     const onScreen = (b) => b.w >= 43.5 && b.h >= 43.5 && b.x >= -1 && b.x + b.w <= W + 1 && b.y >= 0 && b.y + b.h <= H + 1;
     const CLASSIC = ['edit', 'saveImage', 'share', 'loadPlan'];
-    const classic = toolInfo.filter((b) => CLASSIC.includes(b.name)), extra = toolInfo.filter((b) => !CLASSIC.includes(b.name));
+    const classic = toolInfo.filter((b) => CLASSIC.includes(b.name)), rest = toolInfo.filter((b) => !CLASSIC.includes(b.name));
+    const extra = rest.filter((b) => b.name !== 'spacer'), walk = rest.filter((b) => b.name === 'spacer'); // plan:flat-1, plan:duplex-1, shell, rooms; and spacer on its own
     record('buttons: Edit, Save image, Copy link and Load plan are on screen, at least 44 px', classic.length === 4 && classic.every(onScreen), { buttons: classic.map((b) => `${b.text} ${Math.round(b.w)}x${Math.round(b.h)} at ${Math.round(b.x)},${Math.round(b.y)}`) });
     record('buttons: the example plans, the open shell and Rooms are on screen, at least 44 px', extra.length === 4 && extra.every(onScreen), { buttons: extra.map((b) => `${b.text} ${Math.round(b.w)}x${Math.round(b.h)} at ${Math.round(b.x)},${Math.round(b.y)}`) });
+    record('buttons: Spacer is on screen, at least 44 px', walk.length === 1 && walk.every(onScreen), { buttons: walk.map((b) => `${b.text} ${Math.round(b.w)}x${Math.round(b.h)} at ${Math.round(b.x)},${Math.round(b.y)}`) });
 
     // the camera steps (pan, pinch, wheel, double tap) on the flat, then on the duplex below
     await cameraBlock('flat-1');
