@@ -5,7 +5,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { leafPose, LEAF_OPEN_DEG } from '../../src/model/geometry.js';
 import { createWorld, createPlayer, stepPlayer, doorInReach, useDoor, useSpace, stepDoors, openAllDoors, defaultSpawn } from '../../src/model/physics.js';
-import { fileModel, twoRooms } from '../helpers/walk-model.mjs';
+import { fileModel, twoRooms, twoRoomsPillar } from '../helpers/walk-model.mjs';
 
 const modelOf = fileModel;
 const walk = (world, p, input, seconds, dt = 1 / 60) => { for (let i = 0, n = Math.round(seconds / dt); i < n; i++) stepPlayer(world, p, input, dt); return p; };
@@ -97,6 +97,20 @@ test('the reach is 1.3 m and the cone 70 degrees from where the player looks', (
   assert.equal(door(5.0, 1.45, 0), null);
 });
 
+test('the reach is measured to the opening itself, not to the line it lies on: a door 2 m further along the wall is out of reach', () => {
+  // d1 spans y 1.0 to 1.9 in the wall x = 4. A player at y = 3.9 looks straight at the wall and is 0.8 m from the line of the wall at the
+  // height of his eyes, but 2.0 m from the end of the opening: measured to the line the door would answer a space bar pressed in front of the wall.
+  const w = createWorld(twoRooms());
+  for (const [x, y] of [[3.2, 3.9], [3.5, 3.95], [3.6, 3.5]]) {
+    const p = at(w, x, y, 0);
+    assert.equal(doorInReach(w, p), null, `at (${x}, ${y})`);
+    assert.equal(useSpace(w, p).action, 'jump', 'so the space bar jumps and the door stays open');
+    assert.equal(w.doors[0].closed, false);
+  }
+  // the same distance to the line, level with the opening: in reach
+  assert.equal(doorInReach(w, at(w, 3.2, 1.45, 0))?.id, 'd1');
+});
+
 test('a wall between the player and the door hides it', () => {
   // the divider at y = 2.4 (x 4 to 8) closes the south part of room B off from the door; the player is 1.2 m from its nearest end
   const hidden = createWorld(twoRooms({ divider: true })), seen = createWorld(twoRooms());
@@ -104,6 +118,16 @@ test('a wall between the player and the door hides it', () => {
   assert.equal(doorInReach(hidden, at(hidden, 4.5, 3.0, yaw)), null, 'behind the divider');
   assert.equal(doorInReach(seen, at(seen, 4.5, 3.0, yaw))?.id, 'd1', 'the same spot in a room without it');
   assert.equal(useSpace(hidden, at(hidden, 4.5, 3.0, yaw)).action, 'jump', 'so the space bar jumps');
+});
+
+test('a door is in sight when any part of the opening is: a pillar in front of its middle does not hide it, a wall in front of all of it does', () => {
+  // the pillar (12 cm) stands between the player at (3.0, 1.45) and the middle of d1; the ends of the opening are in plain sight past it
+  const w = createWorld(twoRoomsPillar()), p = at(w, 3.0, 1.45, 0);
+  assert.equal(doorInReach(w, p)?.id, 'd1', 'seen past the pillar');
+  assert.deepEqual(useDoor(w, p), { id: 'd1', action: 'close' }, 'so the space bar shuts it');
+  // the same pillar and a wall across the whole opening: nothing of it is in sight
+  const hidden = createWorld(twoRooms({ divider: true })), q = at(hidden, 4.5, 3.0, (Math.atan2(1.9 - 3.0, 4 - 4.5) * 180) / Math.PI);
+  assert.equal(doorInReach(hidden, q), null);
 });
 
 test('the door never shuts on the player: standing in the doorway, or within a hair of it, nothing happens', () => {

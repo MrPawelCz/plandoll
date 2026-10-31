@@ -31,13 +31,13 @@ function rig({ model = flat, refusal = '', touchDevice = false, width = 400 } = 
   const win = target(), canvas = target({ locks: 0, requestPointerLock() { this.locks++; }, getBoundingClientRect: () => ({ left: 0 }), setPointerCapture() {}, releasePointerCapture() {} });
   const doc = target({ pointerLockElement: null, visibilityState: 'visible', exited: 0, exitPointerLock() { this.pointerLockElement = null; this.exited++; } });
   const log = [], paints = [], saved = { marker: 'saved' }, clock = { now: 1000 };
-  const o = { model, refusal, touchDevice, width, failBegin: false, doorCalls: [], eyes: [] };
+  const o = { model, refusal, touchDevice, width, failBegin: false, failEnd: false, doorCalls: [], eyes: [] };
   const host = {
     model: () => o.model,
     refusal: () => o.refusal,
     snapshot: () => { log.push('snapshot'); return saved; },
     begin: () => { log.push('begin'); if (o.failBegin) throw new Error('boom'); },
-    end: (s) => { log.push(['end', s]); },
+    end: (s) => { log.push(['end', s]); if (o.failEnd) throw new Error('end boom'); },
     pose: (e) => { o.eyes.push(e); },
     doors: (list, open) => { log.push(`doors:${open}`); o.doorCalls.push({ list: list.map((d) => ({ ...d })), open }); },
     paint: (f) => { paints.push(f); },
@@ -210,6 +210,29 @@ test('the space bar jumps once, is taken, and does nothing on a button, in a fie
   assert.equal(r.run.use(), 'none', 'in the air with no door in reach');
 });
 
+test('the eyes rise with the jump: the camera the page is given climbs by the height of the jump and comes back to 1.6 m on landing', () => {
+  // a jump the camera does not follow would be a key that does nothing the visitor can see
+  const r = rig();
+  r.run.enter();
+  const floor = flat.levels[0].elevation, eyes = floor + 1.6;
+  assert.equal(r.run.state().cam.y, eyes, 'on the floor');
+  r.run.walkInput({ jump: true });
+  r.run.advanceTime(300);
+  const up = r.run.state();
+  assert.ok(up.jump.active && up.jump.height > 0.4, `${up.jump.height} m up`);
+  assert.ok(up.cam.y > eyes + 0.3, `the eyes are at ${up.cam.y} m, more than 0.3 m above ${eyes}`);
+  assert.equal(up.cam.y, Math.round((eyes + up.jump.height) * 1000) / 1000, 'by exactly the height of the jump');
+  assert.ok(Math.abs(r.o.eyes.at(-1).y - up.cam.y) < 1e-3, 'and the camera of the page was given the same height (the state is rounded to the millimetre)');
+  r.run.advanceTime(1000);
+  assert.equal(r.run.state().jump.active, false);
+  assert.equal(r.run.state().cam.y, eyes, 'landed');
+  assert.equal(r.o.eyes.at(-1).y, eyes, 'the camera is back at the eyes');
+  // on the way up through the frames of the clock as well, not only through the hook of the tools
+  r.key('Space', { key: ' ' });
+  r.tick(100); r.tick(100);
+  assert.ok(r.o.eyes.at(-1).y > eyes + 0.2, 'the frame clock lifts the camera too');
+});
+
 test('the space bar shuts the door in reach and opens it again; the leaf swings in 0.45 s and the shut door stops the walker', () => {
   const r = rig({ model: twoRooms() });
   r.run.enter();
@@ -276,6 +299,21 @@ test('the space bar in a doorway leaves the door open and says so for 2.5 s: a s
   assert.equal(r.run.use(), 'close');
   assert.equal(r.run.state().notice, null, 'a step out and the door shut: the word goes');
   r.run.leave();
+});
+
+test('a page that cannot give the view back still ends the walk: leaving throws, but the walk is off, the button and the picture are told, nothing listens, and a new walk can begin', () => {
+  const r = rig();
+  r.run.enter();
+  r.o.failEnd = true; r.log.length = 0;
+  assert.throws(() => r.run.leave(), /end boom/);
+  assert.equal(r.run.active, false);
+  assert.ok(r.log.includes('changed:false'), `the button was told: ${JSON.stringify(r.log)}`);
+  assert.ok(r.log.includes('redraw'), 'and the picture drawn again');
+  assert.equal(r.win.count() + r.doc.count() + r.canvas.count(), 0, 'no listener is left on the page');
+  assert.equal(r.run.state().active, false);
+  r.o.failEnd = false;
+  assert.equal(r.run.enter(), true, 'the next walk begins as if nothing happened');
+  assert.equal(r.run.leave(), true);
 });
 
 test('leaving shuts nothing behind: the doors are open and at rest, a jump is over, and the host gets the leaves in the open pose', () => {
@@ -402,6 +440,19 @@ test('the clock: a frame is at most 100 ms, a manual clock stands still and only
   assert.ok(q1.log.filter((l) => l === 'redraw').length >= 2, 'and the picture is asked for');
   q1.run.manualClock(false); assert.equal(q1.run.manual, false);
   const idle = rig(); idle.run.advanceTime(1000); assert.equal(idle.run.state().active, false, 'advanceTime on a walk that is off does nothing');
+});
+
+test('advanceTime has a ceiling: a huge number walks ten minutes at most and returns, instead of walking the page to a stop', () => {
+  // the hook is for tools, and a tool that asks for years of walking must get the page back. The work is counted through Math.hypot, which the physics calls
+  // many times a step (about 600 000 calls for the ten minutes); a walk without the ceiling would run for hours, so the count stops it with an error.
+  const r = rig();
+  r.run.enter(); r.run.manualClock(true); r.run.walkInput({ forward: 1 });
+  const real = Math.hypot;
+  let calls = 0;
+  Math.hypot = (...a) => { if (++calls > 4000000) throw new Error('walked on for more than ten minutes'); return real(...a); };
+  try { r.run.advanceTime(1e12); } finally { Math.hypot = real; }
+  assert.equal(r.run.state().active, true, 'the walk is still on');
+  assert.ok(calls > 100000, `and it did walk: ${calls} calls`);
 });
 
 test('walkTo puts the walker down: a level by id, the way it looks in degrees; a bad point or a walk that is off changes nothing', () => {

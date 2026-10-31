@@ -38,3 +38,21 @@ test('going down the stair is as smooth', () => {
   assert.equal(p.level, 0);
   assert.ok(worst <= slope * 1.4 / 60 * 1.6 + 1e-9, `the largest change ${worst.toFixed(4)} m`);
 });
+
+test('coming down from the upper floor the walker is on the lower level as soon as he is off the top of the flight, not half way down', () => {
+  // the flight has a stretch where the walker is on the ramp but not yet on the lower floor if the switch comes late: there the bodies of the upper floor
+  // (the rails, the walls round the stairwell) would stop him on a ramp that leads to the lower floor
+  for (const r of [0.6, 0.9, 0.97]) {
+    const p = createPlayer(world, { level: st.upper, x: st.from[0] + st.dir[0] * st.length * r, y: st.from[1] + st.dir[1] * st.length * r });
+    stepPlayer(world, p, {}, 1 / 60);
+    assert.equal(p.level, st.lower, `placed at ${r} of the flight`);
+    assert.equal(p.onStair, st.id, `on the ramp at ${r}`);
+    assert.ok(Math.abs(p.floor - (model.levels[st.lower].elevation + r * st.delta)) < 1e-6, `the floor is the ramp at ${r}`);
+  }
+  // and on foot: from the landing above the flight, south down the flight (yaw 90), a second of walking is 1.4 m of the 2.8 m
+  const q = createPlayer(world, { level: 1, x: 1.1, y: 1.9, yawDeg: 90 });
+  assert.equal(q.level, 1);
+  for (let i = 0; i < 60; i++) stepPlayer(world, q, { forward: 1 }, 1 / 60);
+  assert.equal(q.level, 0, `after 1.4 m down the flight (y = ${q.y.toFixed(2)}) he is on the lower level`);
+  assert.ok(q.y > 3.0 && q.y < 3.6, `and has walked down the flight: y = ${q.y.toFixed(2)}`);
+});

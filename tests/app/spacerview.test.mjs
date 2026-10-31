@@ -60,6 +60,17 @@ test('the view builds one style, one root that is hidden until the walk begins a
   v.dispose(); assert.equal(doc.body.children.includes(v.element), false);
 });
 
+test('what a screen reader is told: the hint is a status that speaks when it changes, the map is a picture with a name, and the two halves of a touch screen are kept out of the reading', () => {
+  const doc = makeDoc();
+  const v = createSpacerView({ doc, lang: 'en' });
+  const byId = (id) => v.element.children.find((n) => n.id === id);
+  assert.equal(byId('ps-walk-hint').attrs.role, 'status', 'a change of the hint is read out');
+  assert.equal(byId('ps-walk-zones').attrs['aria-hidden'], 'true', 'the halves are a drawing for the finger, with nothing to read or to press');
+  assert.equal(byId('ps-walk-map').attrs.role, 'img');
+  // the names of the halves sit inside the hidden part, so that the hint is the one thing read out
+  assert.ok(byId('ps-walk-zones').children.length === 2 && byId('ps-walk-zones').children.every((half) => half.parent === byId('ps-walk-zones')));
+});
+
 test('the words are in both languages, say what the keys do, and an unknown language is English', () => {
   assert.equal(SPACER_TEXT.en.hint, 'Click to look around. W S walk, A D step aside, arrows turn, Shift runs, Space jumps or opens and shuts doors, Esc goes back.');
   assert.equal(SPACER_TEXT.pl.hint, 'Kliknij, żeby się rozglądać. W S: naprzód i wstecz, A D: bokiem, strzałki: obrót, Shift: bieg, spacja: skok albo drzwi, Esc: powrót.');

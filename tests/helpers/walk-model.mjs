@@ -41,3 +41,23 @@ export function twoRooms({ divider = false, sill, sofa = false } = {}) {
     }],
   }, sofa);
 }
+
+// twoRooms with a pillar in room A: a stub of wall 12 cm long at x = 3.5 across the line from the west to the middle of the door d1 (y 1.45), so it hides
+// the middle of the opening from a walker at (3.0, 1.45) and leaves both ends of it in sight.
+export function twoRoomsPillar() {
+  const m = twoRooms();
+  return planModel({
+    version: 1, name: 'Two rooms with a pillar', units: 'm',
+    levels: [{
+      id: 'L0', name: 'Ground', height: 2.6,
+      walls: [
+        { id: 'w1', from: [0, 0], to: [8, 0], kind: 'exterior' }, { id: 'w2', from: [8, 0], to: [8, 4], kind: 'exterior' },
+        { id: 'w3', from: [8, 4], to: [0, 4], kind: 'exterior' }, { id: 'w4', from: [0, 4], to: [0, 0], kind: 'exterior' },
+        { id: 'w5', from: [4, 0], to: [4, 4], kind: 'interior' }, { id: 'w6', from: [3.5, 1.39], to: [3.5, 1.51], kind: 'interior' },
+      ],
+      openings: [{ id: 'd1', wall: 'w5', type: 'door', offset: 1.0, width: 0.9 }, { id: 'p1', wall: 'w5', type: 'passage', offset: 2.6, width: 1.0 }],
+      rooms: m.levels[0].rooms.map((r) => ({ id: r.id, name: r.name, polygon: r.polygon, floor: r.floor, ceiling: true })),
+      stairs: [], furniture: [],
+    }],
+  });
+}

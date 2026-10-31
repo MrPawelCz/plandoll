@@ -18,13 +18,15 @@ function flight(world, p, dt, input = {}) {
   return { peak, t };
 }
 
-test('a jump peaks between 40 and 50 cm and lasts between 0.55 and 0.70 s, at 60 and at 30 steps a second', () => {
+test('a jump peaks at 0.459 m and lasts 0.612 s (the step that lands counts whole), at 60, 30 and 120 steps a second', () => {
   const w = createWorld(twoRooms());
   for (const dt of [1 / 60, 1 / 30, 1 / 120]) {
     const p = createPlayer(w, { x: 2, y: 3.4, yawDeg: 0 });
     const { peak, t } = flight(w, p, dt);
-    assert.ok(peak >= 0.4 && peak <= 0.5, `dt ${dt}: peak ${peak.toFixed(3)} m`);
-    assert.ok(t >= 0.55 && t <= 0.7, `dt ${dt}: ${t.toFixed(3)} s in the air`);
+    // v2 / 2g: a gravity term without its half gives 0.435 m and 0.600 s, which a loose range let through
+    assert.ok(Math.abs(peak - 0.459) < 0.004, `dt ${dt}: peak ${peak.toFixed(3)} m`);
+    // the walker lands in the step that takes the height to zero, so the time is 2v/g up to one step more
+    assert.ok(t >= 0.612 - 1e-6 && t <= 0.612 + dt + 1e-6, `dt ${dt}: ${t.toFixed(3)} s in the air`);
     assert.equal(p.jumpH, 0);
     assert.equal(p.jumpV, 0);
   }

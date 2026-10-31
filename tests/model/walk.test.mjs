@@ -130,6 +130,44 @@ test('walking speed matches the spec (1.4 m/s, 2.8 m/s running)', () => {
   assert.ok(Math.abs(b.x - (4.5 + 2.8)) < 0.05, `x = ${b.x}`);
 });
 
+test('a diagonal is no faster than a straight line: W with A or D, S with A or D, walking and running', () => {
+  // without the normalisation a step forward and aside covers 1.4 x 1.414 m in a second, 41 percent more than the walking speed of the design
+  const w = createWorld(twoRooms());
+  for (const [forward, strafe] of [[1, 1], [1, -1], [-1, 1], [-1, -1]]) {
+    for (const [run, speed] of [[false, 1.4], [true, 2.8]]) {
+      const p = walk(w, player(w, 2, 2, 0), { forward, strafe, run }, 0.5);
+      const covered = Math.hypot(p.x - 2, p.y - 2);
+      assert.ok(Math.abs(covered - speed / 2) < 0.02, `forward ${forward} strafe ${strafe} run ${run}: ${covered.toFixed(3)} m in 0.5 s`);
+    }
+  }
+  // the same on the way the visitor takes it: a turned walker, keys and a stick give axes that are not exactly 1 and never more than 1
+  const q = walk(w, player(w, 2, 2, 37), { forward: 0.6, strafe: 0.8 }, 0.5);
+  assert.ok(Math.abs(Math.hypot(q.x - 2, q.y - 2) - 0.7) < 0.02, 'a stick at 53 degrees, full push');
+  const soft = walk(w, player(w, 2, 2, 0), { forward: 0.3, strafe: 0.4 }, 0.5);
+  assert.ok(Math.abs(Math.hypot(soft.x - 2, soft.y - 2) - 0.35) < 0.02, 'half a push is half the speed: the normalisation only caps');
+});
+
+test('a step that is not a length of time (NaN, minus, minus infinity) moves nothing and leaves nothing but numbers behind', () => {
+  // a clock that goes wrong must not turn the walker into a NaN that every later frame carries on: yaw is the one that used to go first
+  const w = createWorld(twoRooms());
+  for (const dt of [NaN, -1 / 60, -0.5, -Infinity]) {
+    const p = player(w, 2, 2, 30);
+    p.pitch = 0.2;
+    stepPlayer(w, p, { forward: 1 }, 1 / 60); // a step on the ground and one in the air, so the jump state is there to be spoiled too
+    p.jumpH = 0.1; p.jumpV = 1;
+    const before = JSON.parse(JSON.stringify(p));
+    stepPlayer(w, p, { forward: 1, strafe: 0.5, turn: 1, run: true }, dt);
+    assert.deepEqual(JSON.parse(JSON.stringify(p)), before, `dt ${dt}`);
+    for (const k of ['x', 'y', 'yaw', 'pitch', 'floor', 'jumpH', 'jumpV']) assert.ok(Number.isFinite(p[k]), `dt ${dt}: ${k} = ${p[k]}`);
+  }
+  // and a good step after a bad one is the same as a good step on its own
+  const a = player(w, 2, 2, 30), b = player(w, 2, 2, 30);
+  stepPlayer(w, a, { forward: 1, turn: 1 }, NaN);
+  stepPlayer(w, a, { forward: 1, turn: 1 }, 1 / 60);
+  stepPlayer(w, b, { forward: 1, turn: 1 }, 1 / 60);
+  assert.deepEqual(JSON.parse(JSON.stringify(a)), JSON.parse(JSON.stringify(b)));
+});
+
 // ---- the start direction of Spacer: the longest free view, not the nearest wall ----
 const ahead = (m, sp, deg = sp.yawDeg) => freeDistance(m.levels[sp.level], sp.x, sp.y, Math.cos((deg * Math.PI) / 180), Math.sin((deg * Math.PI) / 180));
 
