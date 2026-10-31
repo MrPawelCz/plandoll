@@ -1,7 +1,7 @@
 // The edit parameter of the page: off by default, on only for edit=1, and it switches the merging of meshes off.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { parseParams, buildHash } from '../../src/app/params.js';
+import { parseParams, buildHash, editHash } from '../../src/app/params.js';
 
 test('edit is off by default and for any value other than 1', () => {
   assert.equal(parseParams('').edit, false);
@@ -35,4 +35,15 @@ test('a broken percent sequence in the address does not throw and the value is i
   assert.ok(Number.isFinite(parseParams('#t=%').t), 't falls back to a number');
   assert.equal(parseParams('#amber&q=%zz&seed=%').preset, 'amber');
   assert.equal(parseParams('#plan=%E0%A4%A&edit=1').edit, true);
+});
+
+test('walk=1 opens in Spacer and walk=0 takes its button away; they read back and the editor leaves walk=1 out of the address', () => {
+  assert.equal(parseParams('#walk=1').walk, true);
+  assert.equal(parseParams('#walk=1').spacer, true);
+  assert.equal(parseParams('#walk=0').walk, false);
+  assert.equal(parseParams('#walk=0').spacer, false);
+  assert.equal(parseParams('').walk, false);
+  assert.equal(parseParams('').spacer, true);
+  assert.ok(!/walk/.test(editHash('#walk=1&amber', true, { preset: 'amber' })), 'the editor has no Spacer');
+  assert.ok(/walk=0/.test(editHash('#walk=0', true, {})));
 });

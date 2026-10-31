@@ -57,9 +57,10 @@ export function planChoice(params, injected) {
 }
 
 // What the controls show at the start, from the parsed address parameters (the page adds the quality levels). plan: the example the page opens with (null for a
-// plan injected by a test tool or a generated one, which no example button stands for); shell: whether the open-shell button is there.
+// plan injected by a test tool or a generated one, which no example button stands for); shell: whether the open-shell button is there; spacer: whether the Spacer button is
+// there (walk=0 and the editor take it away); walking: Spacer is on.
 export function startState(params) {
-  return { preset: params.preset, t: params.t, q: params.q, lang: params.lang, tools: params.btn, editing: params.edit, shell: !!params.shell, shellOpen: false, rooms: !!params.rooms,
+  return { preset: params.preset, t: params.t, q: params.q, lang: params.lang, tools: params.btn, editing: params.edit, shell: !!params.shell, shellOpen: false, rooms: !!params.rooms, spacer: !!params.spacer && !params.edit, walking: false,
     plan: params.plan?.kind === 'example' ? planChoice(params, null) : null };
 }
 

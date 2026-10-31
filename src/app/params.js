@@ -6,6 +6,7 @@
 // the button away and frames the closed model alone. The shell works while editing too (its button is the same with edit=1).
 // share=<text> is the layout (and a plan of your own) of a share link, see share.js; the page takes it with it when it opens.
 // rooms=1 opens the list of rooms (with their areas) when the page opens; the Rooms button of the control bar opens and closes it (dock.js).
+// walk=1 opens the page inside the flat, in Spacer (spacerrun.js; no intro, never while editing); walk=0 takes the Spacer button away. A link to a layout never carries walk=1.
 // intro=0 switches the intro off (the first model builds itself in front of the visitor unless the address says intro=0, the page is the editor (edit=1), has no controls (ui=0) or is live=1, or the system asks for less motion; see intro.js).
 // A bare word is the preset name (so "#amber" works). Pure functions, no DOM: tested in Node.
 import { isPreset, getPreset, DEFAULT_PRESET } from '../look/presets.js';
@@ -58,7 +59,8 @@ export function parseParams(hash, env = {}) {
   // az (degrees round the model, 0 = from the south, 90 = from the east) and pol (degrees from the vertical) set the view the page opens with
   // floor: the floors on show, 'all' or the index of one level (a plan with fewer levels than that shows all of them)
   // share: the text of a share link (share.js unpacks it; null when there is none)
-  return { preset: presetName, t, q: parseQualityParam(kv.q), cam: kv.cam === 'close' ? 'close' : 'main', plan: parsePlanParam(kv.plan), frames, lang, ui: kv.ui !== '0', live: kv.live === '1', tmSet: kv.t !== undefined, seed, merge: kv.merge !== '0', edit: kv.edit === '1', btn: kv.btn !== '0', shell: kv.shell !== '0', az: num(kv.az), pol: num(kv.pol), floor: parseFloorParam(kv.floor), share: kv.share ? kv.share : null, rooms: kv.rooms === '1', intro: kv.intro !== '0' };
+  // walk=1 opens in Spacer (no intro, like intro=0; never while editing), walk=0 takes the Spacer button away (spacer: whether the button is there)
+  return { preset: presetName, t, q: parseQualityParam(kv.q), cam: kv.cam === 'close' ? 'close' : 'main', plan: parsePlanParam(kv.plan), frames, lang, ui: kv.ui !== '0', live: kv.live === '1', tmSet: kv.t !== undefined, seed, merge: kv.merge !== '0', edit: kv.edit === '1', btn: kv.btn !== '0', shell: kv.shell !== '0', az: num(kv.az), pol: num(kv.pol), floor: parseFloorParam(kv.floor), share: kv.share ? kv.share : null, rooms: kv.rooms === '1', intro: kv.intro !== '0', walk: kv.walk === '1', spacer: kv.walk !== '0' };
 }
 
 // Hash string for a parameter object (inverse of parseParams for the fields the page changes).
@@ -121,6 +123,7 @@ export function editHash(hash, on, state = {}) {
   if (state.lang === 'pl' || state.lang === 'en') out.lang = state.lang;
   if (state.floor !== undefined) { delete out.floor; const f = parseFloorParam(String(state.floor)); if (f !== ALL) out.floor = String(f); } // the floors on show stay
   delete out.edit;
+  if (out.walk === '1') delete out.walk; // the editor has no Spacer, and the page that comes back from it opens as the visitor left it, from above (walk=0 stays: it is a choice about the buttons)
   if (on) out.edit = '1'; else out.intro = '0';
   const parts = bare.filter((b) => !isPreset(b) || !out.preset).map(encodeURIComponent);
   for (const [k, v] of Object.entries(out)) parts.push(`${k}=${encodeURIComponent(v)}`);

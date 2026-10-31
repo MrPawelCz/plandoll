@@ -11,11 +11,13 @@ const STR = {
   en: { time: 'Time of day', quality: 'Image quality', auto: 'Auto', high: 'High', medium: 'Medium', low: 'Low', lang: 'PL', reset: 'Reset view', resetTitle: 'Back to the starting view', hint: 'Drag to turn',
     edit: 'Edit', editDone: 'Done', editTitle: 'Edit the furniture layout', editDoneTitle: 'Leave the layout editor', saveImage: 'Save image', saveImageTitle: 'Save the current view as a PNG picture', share: 'Copy link', shareTitle: 'Copy a link to this layout to send to someone (the whole layout is in the link, nothing is stored anywhere)', loadPlan: 'Load plan', loadPlanTitle: 'Replace the plan with one of your own (a file or pasted text; the box also tells how to make one from a picture)',
     shell: 'Open the shell', shellClose: 'Close the shell', shellTitle: 'Let the outer walls fall open round the plan (Space or Esc folds them back)', shellCloseTitle: 'Fold the outer walls back up',
+    spacer: 'Walk', spacerExit: 'Exit', spacerTitle: 'Walk through the flat at eye height (Esc takes you back)', spacerExitTitle: 'Leave the walk and go back to the view from above',
     floors: 'Floors on show', plans: 'Example plans', 'flat-1': 'Flat', 'flat-1Title': 'Show the example flat: one floor, five rooms', 'duplex-1': 'Duplex', 'duplex-1Title': 'Show the example duplex: two floors joined by a stair',
     qualityHelp: 'High: sharper picture, soft accurate shadows, darker corners, a glow round the lamps, blurred top and bottom of the frame, shine and film grain; slower and uses more battery. Medium: in between. Low: faster and lighter on the battery, with fewer effects. Auto picks a level for your device.' },
   pl: { time: 'Pora dnia', quality: 'Jakość obrazu', auto: 'Auto', high: 'Wysoka', medium: 'Średnia', low: 'Niska', lang: 'EN', reset: 'Reset widoku', resetTitle: 'Wróć do widoku początkowego', hint: 'Przeciągnij, żeby obrócić',
     edit: 'Edytuj', editDone: 'Zakończ edycję', editTitle: 'Edytuj układ mebli', editDoneTitle: 'Zamknij edytor układu', saveImage: 'Zapisz obraz', saveImageTitle: 'Zapisz bieżący widok jako obraz PNG', share: 'Kopiuj link', shareTitle: 'Skopiuj link do tego układu, żeby go komuś wysłać (cały układ jest w linku, nic nie jest nigdzie zapisywane)', loadPlan: 'Wczytaj plan', loadPlanTitle: 'Zastąp plan własnym (plik albo wklejony tekst; okno podpowiada też, jak zrobić go ze zdjęcia rzutu)',
     shell: 'Otwórz bryłę', shellClose: 'Złóż bryłę', shellTitle: 'Rozłóż ściany zewnętrzne wokół rzutu (spacja albo Esc składa je z powrotem)', shellCloseTitle: 'Złóż ściany zewnętrzne z powrotem',
+    spacer: 'Spacer', spacerExit: 'Wyjdź', spacerTitle: 'Przejdź się po mieszkaniu w widoku z oczu (Esc wraca)', spacerExitTitle: 'Zakończ spacer i wróć do widoku z góry',
     floors: 'Widoczne piętra', plans: 'Przykładowe plany', 'flat-1': 'Mieszkanie', 'flat-1Title': 'Pokaż przykładowe mieszkanie: jedno piętro, pięć pomieszczeń', 'duplex-1': 'Dupleks', 'duplex-1Title': 'Pokaż przykładowy dupleks: dwa piętra połączone schodami',
     qualityHelp: 'Wysoka: ostrzejszy obraz, miękkie dokładne cienie, ciemnienie w narożnikach, poświata lamp, rozmycie góry i dołu kadru, połysk i ziarno; działa wolniej i zużywa więcej baterii. Średnia: pośrodku. Niska: szybciej i oszczędniej, mniej efektów. Auto dobiera poziom do urządzenia.' },
 };
@@ -77,6 +79,8 @@ const CSS = `
 @media (max-width:760px){#ps-ui{flex-wrap:wrap;justify-content:center;gap:8px}#ps-ui label.time{min-width:100%}#ps-ui label.quality{flex-direction:column;align-items:flex-start;gap:2px}#ps-ui select{padding:4px 6px}}
 @media (max-width:760px),(pointer:coarse){#ps-ui button.mood{min-height:44px;box-sizing:border-box}#ps-ui select{min-height:44px;box-sizing:border-box}#ps-ui button.reset,#ps-ui button.lang{min-height:44px;min-width:44px;box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center}}
 @media (max-width:760px){#ps-ui.editing label.quality,#ps-ui.editing .sep{display:none}}
+#ps-ui.walking label.time,#ps-ui.walking label.quality,#ps-ui.walking .sep,#ps-ui.walking button.reset,#ps-ui.walking button.lang,#ps-ui.walking .plans,#ps-ui.walking .floors,#ps-ui.walking button.tool:not([data-tool=spacer]){display:none}
+#ps-ui.walking{flex-wrap:wrap;justify-content:center;gap:8px}#ps-ui.walking .tools{flex-basis:auto}
 #ps-edit{position:fixed;z-index:40;left:50%;bottom:96px;transform:translateX(-50%);display:flex;gap:6px;padding:6px 8px;border-radius:18px;background:var(--paper);border:1px solid var(--line);box-shadow:0 8px 24px rgba(40,28,12,.26);-webkit-backdrop-filter:blur(12px);backdrop-filter:blur(12px);max-width:calc(100vw - 12px);box-sizing:border-box;font:600 12px/1.2 ui-rounded,"SF Pro Rounded","Avenir Next","Segoe UI",system-ui,sans-serif;color:var(--ink)}
 #ps-edit button{all:unset;cursor:pointer;box-sizing:border-box;min-width:44px;min-height:44px;padding:0 9px;display:flex;align-items:center;justify-content:center;text-align:center;border-radius:12px;border:1px solid var(--line);background:#fffaf0;font-weight:600;touch-action:manipulation;white-space:nowrap}
 @media (hover:hover) and (pointer:fine){#ps-edit button:hover:not([disabled]){background:rgba(200,121,58,.14)}}
@@ -121,9 +125,10 @@ export function showErrorCard(detail = '', doc = document) {
 }
 
 // state: { preset, t, q ('auto' or a level), autoLevel (what Auto picks here, shown beside Auto; the level in use when missing), level, lang };
-// handlers: { onPreset(name), onTime(t), onQuality(q), onLang(lang), onReset(), onEdit(), onSaveImage(), onLoadPlan(), onPlan(name), onShell(), onRooms() }; the returned object has hideHint() for the first-visit hint and say(text) for one short result line.
+// handlers: { onPreset(name), onTime(t), onQuality(q), onLang(lang), onReset(), onEdit(), onSaveImage(), onLoadPlan(), onPlan(name), onShell(), onSpacer(), onRooms() }; the returned object has hideHint() for the first-visit hint and say(text) for one short result line.
 // state.tools shows the extra buttons (the example plans, the open shell, the list of rooms, edit mode, save the picture, copy a link, load a plan; hidden by btn=0 in the address; state.rooms says the list is open); state.editing turns the edit button into "Done" and hides
 // the example plans, Save image, Copy link and Load plan (the shell button stays and works; the link is in the File menu of the edit bar). state.plan names the example on show (null: none), state.shell adds the shell button, state.shellOpen says it is open.
+// state.spacer adds the Spacer button after the shell one (the page leaves it out while editing and with walk=0); state.walking says Spacer is on: the button reads Exit and the bar keeps the moods and that button only.
 export function createUI(handlers, state, doc = document) {
   injectStyles(doc);
   const root = doc.createElement('div'); root.id = 'ps-ui';
@@ -170,7 +175,7 @@ export function createUI(handlers, state, doc = document) {
   tools.append(floors);
   let floorSig = '', floorBtns = [];
   const toolBtns = {};
-  for (const [key, handler] of [...(state.shell ? [['shell', 'onShell']] : []), ['rooms', 'onRooms'], ['edit', 'onEdit'], ['saveImage', 'onSaveImage'], ['share', 'onShare'], ['loadPlan', 'onLoadPlan']]) {
+  for (const [key, handler] of [...(state.shell ? [['shell', 'onShell']] : []), ...(state.spacer ? [['spacer', 'onSpacer']] : []), ['rooms', 'onRooms'], ['edit', 'onEdit'], ['saveImage', 'onSaveImage'], ['share', 'onShare'], ['loadPlan', 'onLoadPlan']]) {
     const b = doc.createElement('button'); b.type = 'button'; b.className = 'tool'; b.dataset.tool = key;
     b.addEventListener('click', () => handlers[handler]?.());
     tools.append(b); toolBtns[key] = b;
@@ -193,7 +198,7 @@ export function createUI(handlers, state, doc = document) {
     reset.textContent = L.reset; reset.title = L.resetTitle; reset.setAttribute('aria-label', L.resetTitle);
     if (hint) hint.textContent = L.hint;
     lang.textContent = L.lang; lang.setAttribute('aria-label', state.lang === 'pl' ? 'English' : 'Polski');
-    tools.style.display = state.tools ? '' : 'none';
+    tools.style.display = state.tools || state.walking ? '' : 'none'; // in Spacer the row holds the way out, whatever btn says
     const editLabel = state.editing ? L.editDone : L.edit, editTitle = state.editing ? L.editDoneTitle : L.editTitle;
     toolBtns.edit.textContent = editLabel; toolBtns.edit.title = editTitle; toolBtns.edit.setAttribute('aria-label', editTitle);
     const R = INFO_TEXT[state.lang === 'pl' ? 'pl' : 'en']; // the button of the list of rooms (dock.js): pressed while the list is open; the list belongs to the plain page, so editing hides it
@@ -208,6 +213,10 @@ export function createUI(handlers, state, doc = document) {
     if (toolBtns.shell) { // the button of the open shell: its word and its hint follow the state (it works the same while editing)
       const open = !!state.shellOpen, label = open ? L.shellClose : L.shell;
       toolBtns.shell.textContent = label; toolBtns.shell.title = open ? L.shellCloseTitle : L.shellTitle; toolBtns.shell.setAttribute('aria-label', label);
+    }
+    if (toolBtns.spacer) { // the button of Spacer: Exit while it runs, pressed
+      const on = !!state.walking, label = on ? L.spacerExit : L.spacer, title = on ? L.spacerExitTitle : L.spacerTitle;
+      toolBtns.spacer.textContent = label; toolBtns.spacer.title = title; toolBtns.spacer.setAttribute('aria-label', title); toolBtns.spacer.setAttribute('aria-pressed', String(on));
     }
     plans.setAttribute('aria-label', L.plans); plans.style.display = state.editing ? 'none' : '';
     for (const name of PLAN_NAMES) {
@@ -227,7 +236,7 @@ export function createUI(handlers, state, doc = document) {
     floors.style.display = choices.length ? '' : 'none'; floors.setAttribute('aria-label', L.floors);
     if (choices.length) tools.dataset.floors = String(choices.length); else delete tools.dataset.floors; // a phone narrower than 440 px sets the tools a little tighter then, so that the plans and the floors share a line
     choices.forEach((c, i) => { const b = floorBtns[i]; b.textContent = c.label; b.title = c.title; b.setAttribute('aria-label', c.title); b.setAttribute('aria-pressed', String(String(c.key) === String(state.floor ?? 'all'))); });
-    root.className = [state.editing ? 'editing' : '', state.tools ? 'has-tools' : ''].filter(Boolean).join(' ');
+    root.className = [state.editing ? 'editing' : '', state.tools ? 'has-tools' : '', state.walking ? 'walking' : ''].filter(Boolean).join(' ');
     doc.documentElement.lang = state.lang;
   }
   update(state);

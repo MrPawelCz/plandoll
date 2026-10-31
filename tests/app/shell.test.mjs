@@ -42,13 +42,16 @@ test('planChoice: the injected plan only with plan=ext, duplex-1 by name, anythi
 
 test('startState: the preset, the time, the quality, the language, the buttons and the edit mode come from the address', () => {
   const s = startState(parseParams('#clear&t=0.4&q=low&lang=pl&edit=1', {}));
-  assert.deepEqual(s, { preset: 'clear', t: 0.4, q: 'low', lang: 'pl', tools: true, editing: true, shell: true, shellOpen: false, rooms: false, plan: 'flat-1' });
+  assert.deepEqual(s, { preset: 'clear', t: 0.4, q: 'low', lang: 'pl', tools: true, editing: true, shell: true, shellOpen: false, rooms: false, spacer: false, walking: false, plan: 'flat-1' }); // the editor has no Spacer button
   const d = startState(parseParams('', { language: 'en-GB' }));
   assert.equal(d.tools, true); assert.equal(d.editing, false); assert.equal(d.lang, 'en'); assert.equal(d.q, 'auto');
   assert.equal(startState(parseParams('#btn=0', {})).tools, false);
   assert.equal(d.rooms, false, 'the list of rooms starts closed');
   assert.equal(startState(parseParams('#rooms=1', {})).rooms, true, 'rooms=1 opens it');
   assert.equal(startState(parseParams('#rooms=0', {})).rooms, false);
+  assert.equal(d.spacer, true, 'the Spacer button is there by default'); assert.equal(d.walking, false, 'and Spacer starts off');
+  assert.equal(startState(parseParams('#walk=0', {})).spacer, false, 'walk=0 takes the button away');
+  assert.equal(startState(parseParams('#walk=1', {})).spacer, true); assert.equal(startState(parseParams('#walk=1&edit=1', {})).spacer, false, 'and the editor has none even then');
 });
 
 test('partsOf: ui=0 builds no bars, btn=0 hides only the extra buttons, edit=1 adds the edit bar and the sheet', () => {
