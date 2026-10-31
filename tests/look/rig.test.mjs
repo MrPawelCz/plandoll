@@ -41,7 +41,7 @@ test('nearPick: the nearest first, as many as asked, nothing for an empty list o
   assert.deepEqual(nearPick(list, 1, { x: 8.5, y: 1, z: 0 }), [list[0]], 'a point may be an object');
 });
 
-test('setFocus: the pool lights the lamps around the walker, follows him in steps of 0.3 m or more, and null gives the spread back', () => {
+test('setFocus: the pool lights the lamps around the walker, and null gives the spread back', () => {
   const group = new THREE.Group();
   const rig = createRig({ group, quality: 'high' });
   const list = [...Array.from({ length: 8 }, (_, i) => lamp(i * 2, 0)), lamp(30, 0)];
@@ -52,11 +52,20 @@ test('setFocus: the pool lights the lamps around the walker, follows him in step
   assert.deepEqual(xs(), [0, 2, 4, 6, 8, 10], 'the six nearest');
   rig.setFocus([13, 1, 0]);
   assert.deepEqual(xs(), [4, 6, 8, 10, 12, 14], 'moved to the walker');
-  rig.setFocus([13.1, 1, 0]);
-  const stay = xs();
-  rig.setFocus([13.2, 1, 0]);
-  assert.deepEqual(xs(), stay, 'a step under 0.3 m changes nothing');
   assert.equal(rig.activeLights(), 6, 'the count of lit lamps stays the same, so no shader is rebuilt');
   rig.setFocus(null);
   assert.deepEqual(xs(), spread, 'no focus: the spread over the home is back');
+});
+
+test('setFocus: a move of the walker of under 0.3 m leaves the lamps as they are, a longer one picks again', () => {
+  const group = new THREE.Group();
+  const rig = createRig({ group, quality: 'low' }); // two lamps at most
+  rig.setEmitters([lamp(0, 0), lamp(2, 0), lamp(3.1, 0)]);
+  const xs = () => rig.pool.filter((p) => p.light.visible).map((p) => p.light.position.x).sort((a, b) => a - b);
+  rig.setFocus([1.45, 1, 0]);
+  assert.deepEqual(xs(), [0, 2]);
+  rig.setFocus([1.65, 1, 0]); // 0.2 m on: the lamp at 3.1 is nearer than the one at 0 now, but the pool is not touched
+  assert.deepEqual(xs(), [0, 2]);
+  rig.setFocus([1.8, 1, 0]); // 0.35 m from where the pool was last laid out
+  assert.deepEqual(xs(), [2, 3.1]);
 });
