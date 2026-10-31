@@ -5,7 +5,7 @@ import { mat, floorMat, floorName, texScale, paintMat, LOOKS, setWallFloors } fr
 import { sunPatchMesh } from './sunpatch.js';
 import { MATERIAL_KEYS } from './library.js';
 import { buildFurniture, SCENE_MESHES } from '../furniture/legacy.js';
-import { levelOffsets } from '../model/geometry.js';
+import { levelOffsets, leafPose } from '../model/geometry.js';
 import { boxGeometry, setBoxUV, setPaneUV } from './uv.js';
 import { roomArea, formatArea } from '../model/areas.js';
 
@@ -136,6 +136,7 @@ export class PlanScene {
     this.floors = [];
     this.labels = [];
     this.arcs = [];
+    this.leaves = new Map(); // `${level index}/${opening id}` -> { mesh, swing, handle, hx }: the door leaves that Spacer swings; handle is its steel bar (or null), hx how far along the leaf it sits
     this.furnitureBudget = { left: SCENE_MESHES };
     this.roomFloors = []; // the floor mesh of every room, for setRoomColors
     this.wallPieces = []; // every wall piece with its box and the level it stands on
@@ -181,7 +182,7 @@ export class PlanScene {
       parent.add(cap);
       entry.cap = cap;
     }
-    if (b.mat === 'leaf' && b.sx > 0.4 && b.y1 - b.y0 > 1.5) this._handle(parent, b, y0);
+    if (b.mat === 'leaf' && b.sx > 0.4 && b.y1 - b.y0 > 1.5) m.pw.handle = this._handle(parent, b, y0); // the handle is a mesh of its own, so a swinging leaf has to carry it
     return m;
   }
 
@@ -197,6 +198,7 @@ export class PlanScene {
     place(m, h0, h1);
     parent.add(m);
     this.cuttables.push({ mesh: m, y0: h0, y1: h1 });
+    return m;
   }
 
   _level(lv) {
@@ -223,6 +225,7 @@ export class PlanScene {
       og.userData.type = o.type;
       for (const b of o.parts) {
         const bm = this._box(og, b, 0);
+        if (b === o.leaf && o.swing) this.leaves.set(`${lv.index}/${o.id}`, { mesh: bm, swing: o.swing, handle: bm.pw.handle ?? null, hx: b.sx / 2 - 0.08 });
         if (b.mat === 'glass') this._panes.push({ mesh: bm, floorY: lv.elevation, level: lv.index, rooms: lv.rooms.filter((r) => r.polygon.length >= 3).map((r) => r.polygon) });
       }
       g.add(og);
@@ -475,6 +478,19 @@ export class PlanScene {
     cap.scale.y = Math.max(1e-4, t);
     cap.visible = this.look === 'textured' && this.cutH != null && c.mesh.visible && t > 0.006;
   }
+
+  // Swings the leaf of a door to t (0 shut, 1 open, the pose it is built in) and takes its handle along. The texture turns with the leaf: its uv frame is the box's own.
+  // Returns false when there is no such leaf (a passage, a window, a bad id) or t is not a number; the scene does not change then.
+  setLeaf(level, id, t) {
+    const l = this.leaves.get(`${level}/${id}`);
+    if (!l || !Number.isFinite(t)) return false;
+    const p = leafPose(l.swing, clamp(t, 0, 1)), h = l.handle;
+    l.mesh.position.x = p.cx; l.mesh.position.z = p.cy; l.mesh.rotation.y = -p.angle;
+    if (h) { h.position.x = p.cx + Math.cos(p.angle) * l.hx; h.position.z = p.cy + Math.sin(p.angle) * l.hx; h.rotation.y = -p.angle; }
+    return true;
+  }
+  // doors: the door states of the physics world ({ level, id, t }); with open set every leaf goes to the open pose whatever its t (leaving Spacer).
+  setDoors(doors, open = false) { for (const d of doors) this.setLeaf(d.level, d.id, open ? 1 : d.t); }
 
   setCeilings(on) { for (const c of this.ceilings) c.visible = on; }
   setLabels(on) { for (const l of this.labels) l.visible = on; }
