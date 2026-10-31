@@ -15,7 +15,7 @@ const block = main.slice(main.indexOf('// ---------- the intro: the first model 
 test('the intro block exists, runs only when introWanted says so, and is prepared before the loop draws its first frame', () => {
   assert.ok(block.length > 400, 'the block is there, before the loop is created');
   assert.match(block, /if \(introAsk\.run\) \{/);
-  assert.match(main, /const introAsk = introWanted\(params, \{ reducedMotion: !!\(typeof matchMedia === 'function' && matchMedia\('\(prefers-reduced-motion: reduce\)'\)\.matches\) \}\);/, 'the system setting for less motion is asked');
+  assert.match(main, /const introAsk = introWanted\(\{ \.\.\.params, intro: params\.intro && !params\.walk \}, \{ reducedMotion: !!\(typeof matchMedia === 'function' && matchMedia\('\(prefers-reduced-motion: reduce\)'\)\.matches\) \}\);/, 'the system setting for less motion is asked, and walk=1 opens inside the flat with no intro');
   assert.match(block, /intro\.begin\(\);/);
   assert.ok(main.indexOf('intro.begin();') < main.indexOf('loop.start();'), 'the empty plan is on the stage before the first frame');
   assert.match(block, /guard: window\.__introNoGuard !== true/, 'only a test tool can switch the frame-rate guard off');

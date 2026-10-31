@@ -72,8 +72,10 @@ export function createPost({ renderer, scene, camera, width, height, quality = '
   // A bloom at a lower resolution spreads wider on screen, so strength and radius shrink with the bloom scale.
   function setLook(k) { lastK = k; bloom.strength = k.bloom * (0.55 + 0.45 * level.bloomScale); bloom.radius = 0.3 * (0.5 + 0.5 * level.bloomScale); bloom.threshold = BLOOM_THRESHOLD; final.uniforms.vig.value = k.vig; renderer.toneMappingExposure = k.exp; }
 
+  // The blur of the top and bottom of the frame belongs to the view from above (a tilt-shift model); at eye height it only smears the room. k: 1 as always, 0 none.
+  const setTilt = (k) => { final.uniforms.tilt.value = k ? 1 : 0; };
   applyLevel(level.id);
-  return { composer, passes: { render, gtao, bloom, output, final }, render: () => composer.render(), resize, setQuality: applyLevel, setLook,
+  return { composer, passes: { render, gtao, bloom, output, final }, render: () => composer.render(), resize, setQuality: applyLevel, setLook, setTilt,
     get pixelRatio() { return pr; }, get size() { return [W * pr, H * pr]; },
     dispose() { composer.dispose?.(); gtao.dispose?.(); bloom.dispose?.(); rt.dispose(); } };
 }

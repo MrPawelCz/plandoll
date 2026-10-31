@@ -62,8 +62,8 @@ test('the card and the list follow what changes under them: a floor, a new plan,
   assert.match(block, /lift = shownPiece \? \{ x: e\.clientX, y: e\.clientY, t: performance\.now\(\), type: e\.pointerType \} : null;/, 'only a tap that left a card on show marks the lift');
   assert.doesNotMatch(block, /lift = \{ x: e\.clientX/, 'the end of a drag or a pinch is not marked: a button pressed a moment later is pressed');
   assert.match(block, /if \(shownPiece\) \{ closeCard\(\); e\.preventDefault\(\); \} else if \(dock\.picked\) \{ clearRoom\(\); e\.preventDefault\(\); \}/, 'an Escape that did something is marked as taken, so the open shell stays open');
-  assert.match(src, /panel\?\.setLang\(l\); dock\?\.setLang\(l\); \}/);
-  assert.match(src, /onShell: \(\) => \{ if \(shell\) shellGo\(shellTarget !== 1\); \}, onRooms: \(\) => toggleRooms\?\.\(\) \}, S\)/);
+  assert.match(src, /panel\?\.setLang\(l\); dock\?\.setLang\(l\); spacerView\?\.setLang\(l\); \}/);
+  assert.match(src, /onShell: \(\) => \{ if \(shell\) shellGo\(shellTarget !== 1\); \}, onRooms: \(\) => toggleRooms\?\.\(\),\n\s+onSpacer: \(\) => \{[^\n]*\} \}, S\)/);
   assert.match(src, /onSettled\?\.\(\);\n  \}\n  \/\/ The floors on show/, 'settle tells the plain page');
   assert.ok(src.indexOf('let onSettled = null;') < src.indexOf('function furnish()'), 'declared before the first settle');
 });

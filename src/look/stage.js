@@ -225,9 +225,12 @@ export function createStage(options = {}) {
     lift = next; group.position.y = lift; rig.setEmitters(lowered(lamps));
     return lift;
   }
+  // The base of the house (the card board, the board under it, the tabletop and the contact shadow) can be taken away: Spacer stands inside the house, with no table under it.
+  // The lights of the rig stay, they are not part of this list.
+  function setBase(on) { for (const o of [board, under, table, contact]) o.visible = !!on; }
   function dispose() { rig.dispose(); bgTex.dispose(); glass.map = null; glass.emissiveMap = null; view.dispose(); tableMat.alphaMap?.dispose(); contactMat.map?.dispose(); for (const o of [board, under, table, contact]) o.geometry.dispose(); [paper, card, tableMat, contactMat].forEach((m) => m.dispose()); scene?.remove(group); }
 
   setPreset(options.preset);
   applyTime(options.t ?? getPreset(options.preset).t);
-  return { group, rig, state, background: bgTex, applyTime, fitBackdrop, setPreset, setQuality, setEmitters, setLift, lift: () => lift, refreshShadowCasters, setBoard, board: boardInfo, dispose };
+  return { group, rig, state, background: bgTex, applyTime, fitBackdrop, setPreset, setQuality, setEmitters, setLift, lift: () => lift, refreshShadowCasters, setBoard, board: boardInfo, setBase, dispose };
 }

@@ -1,10 +1,11 @@
 // Page shell: reads the address parameters, builds the plan scene, the stage (light, base, backdrop) and the post chain, draws.
-// Parameters: #preset&t=&q=&cam=&az=&pol=&plan=&frames=&lang=&ui=&live=&edit=&btn=&shell= (see params.js). No network, no storage, no external files.
+// Parameters: #preset&t=&q=&cam=&az=&pol=&plan=&frames=&lang=&ui=&live=&edit=&btn=&shell=&walk= (see params.js). No network, no storage, no external files.
 // A button opens the shell: the outer walls fall outward and lie flat (render/openshell.js), and the view is framed for the closed and the open model together;
 // shell=0 takes the button away; the shell works the same while editing (edit=1). The example plans of the control bar are built in place like a loaded plan.
 // With edit=1 a piece can be selected, dragged over the floor, turned and deleted, with undo and redo (edit.js, pick.js, render/outline.js); with the shell open the
 // pieces that hang on an outer wall are picked, outlined and dragged where the turned wall has put them.
 // The model can be turned round, zoomed and moved over the ground (camera.js): the outer walls that face the camera are cut low (render/cutaway.js). The card board under it follows the open shell (look/board.js).
+// A button walks the flat at eye height (spacer.js has the input, spacerrun.js the run, spacerview.js the map and the hints); walk=1 opens in that mode, walk=0 takes the button away.
 // The plain page opens with an intro (intro.js, buildup.js, introview.js, introrun.js): the first model builds itself on the stage while the camera comes down to the starting view; intro=0 and a request for
 // less motion switch it off, and the editor, ui=0 and live=1 never get it. A touch or a key ends it at once.
 import * as THREE from 'three';
@@ -33,6 +34,8 @@ import { introWanted, cameraFrom, cameraAt, liftAt } from './intro.js';
 import { createBuildUp } from './buildup.js';
 import { createIntroView } from './introview.js';
 import { createIntroRun } from './introrun.js';
+import { createSpacerRun } from './spacerrun.js';
+import { createSpacerView } from './spacerview.js';
 import { pieceInfo, roomsData } from './info.js';
 import { saveTextFile, saveBlobFile, readTextFile, askForText, refusalText, copyText, showLinkDialog, LAYOUT_FILENAME, IMAGE_FILENAME } from './files.js';
 import { promptFor } from './prompts.js';
@@ -85,7 +88,7 @@ try {
   const T = (pl, en) => (S.lang === 'pl' ? pl : en);
   try { document.getElementById('ps-loading')?.setAttribute('aria-label', T('Wczytywanie', 'Loading')); } catch {}
   // The intro (see the block before the loop): while it is asked for, the pieces stay objects of their own (introHold) and the camera may turn without the walls being cut again for each view; the scene is put in its usual state when it ends.
-  const introAsk = introWanted(params, { reducedMotion: !!(typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches) });
+  const introAsk = introWanted({ ...params, intro: params.intro && !params.walk }, { reducedMotion: !!(typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches) });
   let introHold = introAsk.run, intro = null;
   const introSize = [window.innerWidth, window.innerHeight], introSized = (w, h) => Math.abs(w - introSize[0]) > 1 || Math.abs(h - introSize[1]) > introSize[1] * 0.15; // whether the window is no longer the one the intro was made for
   let level = resolveQuality(S.q, env);
@@ -205,8 +208,11 @@ try {
   const home0 = stateFrom(pose.pos, pose.target);
   let current = { ...home0, azimuth: params.az ?? home0.azimuth, polar: params.pol ?? home0.polar }; // the view the controller reports
   let near = nearSides(current.azimuth);
-  // The walls are cut for the view (cutaway.js); the walls that fall in the open shell rise to full height as they start to turn (shell.heightFor).
-  const recut = () => applyWallCut(ps, ext, near, shell ? { height: shell.heightFor } : undefined);
+  // Spacer (see its block below): walkMode is on from the first thing begin() does to the first thing end() does. Then the walls stand full height, every piece shows, and nothing may move the camera.
+  let walkMode = false, spacer = null, spacerView = null, planAsk = false, onWalk = null; // planAsk: the box that asks for a plan is open; onWalk: set by the plain page, the card and the list of rooms go while Spacer runs
+  // The walls are cut for the view (cutaway.js); the walls that fall in the open shell rise to full height as they start to turn (shell.heightFor). In Spacer they all stand full height: the cut belongs
+  // to the view from above (the sun side still casts no shadow, so the sun reaches the rooms); setCut(null) takes the dark caps off the tops, which the ceilings close.
+  const recut = () => { if (walkMode) { applyWallCut(ps, ext, near, { height: () => Infinity }); ps.setCut(null); } else applyWallCut(ps, ext, near, shell ? { height: shell.heightFor } : undefined); };
   recut();
 
   let onSettled = null; // set by the plain page (below): called after every settle, the card of a piece that the cutaway has taken away goes with it
@@ -220,10 +226,11 @@ try {
     settle();
     if (!params.edit) scene.add(furn.group);
   }
+  const showPieces = (pieces) => { for (const g of pieces.values()) g.visible = true; return 0; };
   // After the pieces or the set of near walls changed: hide what the cutaway would spoil, rebuild the merged meshes and the lights.
   function settle() {
     const open = !!shell?.active; // the shell is open or moving: the outer walls stand full height and the pieces hung on them turn with them
-    furn.hidden = cutawayPieces(furn.pieces, ext, viewOf(current), open ? {} : near); // hung pieces behind the low walls would float
+    furn.hidden = walkMode ? showPieces(furn.pieces) : cutawayPieces(furn.pieces, ext, viewOf(current), open ? {} : near); // hung pieces behind the low walls would float; in Spacer nothing is cut, so nothing hides
     const hung = open ? shell.adopt(furn.group, furn.pieces, (x, z) => wallCutHeight(x, z, ext, 0.3, near)) : (shell?.release(), null); // ids of the pieces that turn with a wall
     furn.lamps = emittersByLevel(furn.pieces); // the lamps of each level, before the pieces leave for the merged meshes; showFloors gives the stage those of the floors on show
     furn.cutOff = new Set(); for (const [id, g] of furn.pieces) if (!g.visible) furn.cutOff.add(id); // hidden by the cutaway
@@ -267,6 +274,7 @@ try {
   // With the shell the folded walls reach the bottom of the picture, so a wide window keeps the model above the bars too.
   const barsCover = () => (W === window.innerWidth && H === window.innerHeight && (useShell || isNarrow(W)) ? coverShare(['#ps-ui', '#ps-edit'].map((s) => document.querySelector(s)?.getBoundingClientRect() ?? null), H) : 0);
   function frameCamera() {
+    if (walkMode) { camera.aspect = W / H; camera.updateProjectionMatrix(); stage.fitBackdrop(W / H); return; } // the eyes of Spacer are not framed above the bars: a window that changes shape changes the aspect only
     cover = barsCover();
     pose = cameraFor(frameExt, W / H, params.cam, focus);
     pose = fitNow() ? fitPose(pose) : liftPose(pose);
@@ -289,9 +297,10 @@ try {
   function setPreset(name, keepT) { const p = stage.setPreset(name); S.preset = p.id; if (!keepT) S.t = p.t; applyAll(); ui?.update(S); redraw(); }
   function setTime(t) { S.t = Math.min(1, Math.max(0, t)); applyAll(); ui?.update(S); redraw(); }
   function setQ(q) { intro?.skip('api'); S.q = q; level = resolveQuality(q, env); S.level = level; stage.setQuality(level); furnish(); post.setQuality(level); applyAll(); ui?.update(S); redraw(); }
-  function setLang(l) { S.lang = l; ui?.update(S); editBar?.update({ lang: l }); panel?.setLang(l); dock?.setLang(l); }
+  function setLang(l) { S.lang = l; ui?.update(S); editBar?.update({ lang: l }); panel?.setLang(l); dock?.setLang(l); spacerView?.setLang(l); }
   // the camera reports every change of the view; a change in the set of near edges re-cuts the walls and the pieces (not every frame of a turn)
   function onCamera(s) {
+    if (walkMode) return; // the camera of Spacer is the eyes
     current = s;
     const eye = cam.target, nr = nearPlane(s.distance); // the home target and the pan; a close view needs a nearer plane
     if (Math.abs(nr - camera.near) > 1e-3) { camera.near = nr; camera.updateProjectionMatrix(); }
@@ -383,6 +392,7 @@ try {
   let onPlanSwapped = null;
   function applyPlan(next) {
     intro?.skip('api'); // the intro belongs to the first model only
+    spacer?.leave(); // the walk belongs to the plan it began in
     // everything new is built first, so a plan that cannot be built leaves the page as it was
     const built = buildPlanParts(next, params.seed, { analyzePlan, modelOf, buildModel, modelExtent, makeScene, autoFurnish, piecesImplemented });
     if (!built) return false;
@@ -412,7 +422,9 @@ try {
     // so the message can be copied and handed back to the chat; the text that passed is the one that is built.
     let checked = null;
     const check = (text) => { const r = readPlanText(text, S.lang); checked = { text, r }; return r.ok ? null : { message: r.message, detail: r.list || r.detail }; };
+    planAsk = true; // Spacer will not begin while the box is open
     askForText(document, S.lang, { kind: 'plan', check, help: { prompt: promptFor(S.lang) } }).then((text) => {
+      planAsk = false;
       if (text == null) return;
       const r = checked && checked.text === text ? checked.r : readPlanText(text, S.lang);
       if (!r.ok) { sayLine(r.message, r.detail); return; }
@@ -478,9 +490,17 @@ try {
     shellTarget = open ? 1 : 0; S.shellOpen = !!open; ui?.update(S);
     if (!shellRaf) { shellLast = 0; shellRaf = requestAnimationFrame(shellTick); }
   }
+  // The shell shuts at once, without the swing: Spacer lives inside a closed house.
+  function shellSnap() {
+    if (!shell) return;
+    if (shellRaf) { cancelAnimationFrame(shellRaf); shellRaf = 0; }
+    shellLast = 0; shellTarget = 0; S.shellOpen = false;
+    if (shell.clock !== 0 || shell.active) shellPose(0);
+  }
   S.floor = floor; S.levels = model.levels.map((l) => ({ id: l.id, name: l.name })); // the floor buttons (two or more levels)
   const ui = parts.controls ? createUI({ onPreset: (n) => setPreset(n), onTime: setTime, onQuality: setQ, onLang: setLang, onReset: () => cam?.reset(true), onEdit: toggleEdit, onSaveImage: saveImage, onShare: shareLink, onLoadPlan: loadPlan, onPlan: pickExample, onFloor: (k) => setFloor(k),
-    onShell: () => { if (shell) shellGo(shellTarget !== 1); }, onRooms: () => toggleRooms?.() }, S) : null;
+    onShell: () => { if (shell) shellGo(shellTarget !== 1); }, onRooms: () => toggleRooms?.(),
+    onSpacer: () => { document.activeElement?.blur?.(); if (spacer?.active) spacer.leave(); else spacer?.enter(); } }, S) : null; // the button gives up the focus: a space on a button presses it, and the first space in Spacer must jump
   // The first one-finger turn on a touch screen says how to zoom and move (one short line, about 6 seconds, once per page load).
   let touchHinted = false;
   const onGesture = (g) => {
@@ -833,6 +853,7 @@ try {
       down.delete(e.pointerId);
       const g = tapG; if (!g || g.id !== e.pointerId) return;
       tapG = null;
+      if (walkMode) return; // the camera that picks is the one of the view from above: in Spacer a tap is a step or a look
       const t = performance.now();
       if (cancelled || g.moved >= slopOf(e) || Math.hypot(e.clientX - g.x0, e.clientY - g.y0) >= slopOf(e) || t - g.t0 >= 350) return;
       if (lastTap && t - lastTap.t < 350 && Math.hypot(e.clientX - lastTap.x, e.clientY - lastTap.y) < 30) { lastTap = null; return; } // the second tap of a double tap: the view goes back (camera.js)
@@ -862,6 +883,7 @@ try {
       refreshRooms();
     };
     onPlanSwapped = () => { closeCard(); clearRoom(); refreshRooms(); };
+    onWalk = (on) => { if (on) { closeCard(); if (S.rooms) toggleRooms(); } }; // Spacer shows no card and no list
     onSettled = () => { if (shownPiece && hidden(levelIds())(shownPiece.id)) closeCard(); }; // the cutaway took the piece away, so does the card
     // for test tools: the card, the list, the piece under a client point, and where a piece is drawn (client pixels)
     const v3 = new THREE.Vector3();
@@ -900,11 +922,12 @@ try {
   // Arrow keys turn the model (see camera.js); Shift + left or right moves the time of day, 1 to 3 pick a mood (never while a form field has the focus).
   addEventListener('keydown', (e) => {
     if (isFormTarget(e.target) || e.ctrlKey || e.metaKey || e.altKey) return; // typing a size in the panel must not change the mood or the time
-    if (e.shiftKey && e.key === 'ArrowRight') setTime(S.t + 0.02); else if (e.shiftKey && e.key === 'ArrowLeft') setTime(S.t - 0.02);
+    if (!walkMode && e.shiftKey && e.key === 'ArrowRight') setTime(S.t + 0.02); else if (!walkMode && e.shiftKey && e.key === 'ArrowLeft') setTime(S.t - 0.02); // in Spacer Shift is the run
     else if (['1', '2', '3'].includes(e.key)) setPreset(['clear', 'amber', 'lamplit'][Number(e.key) - 1]); // the keys follow the buttons: Day, Sunset, Night
   });
   // Open shell: Space opens or closes it, Escape closes it (shellKey in shell.js decides: a held key counts once, a form field keeps both keys, a button or a link keeps Space).
   const onShellKey = (e) => {
+    if (walkMode) return; // Space is the jump and Escape the way out
     const act = shellKey(e, shellTarget === 1);
     if (!act) return;
     if (e.key !== 'Escape') e.preventDefault(); // Space must not scroll the page
@@ -913,7 +936,7 @@ try {
   if (useShell) addEventListener('keydown', onShellKey);
   // A window that is turned or resized ends the intro (the view it was to end in belongs to the old window); a phone fires resize events of its own at the start and when its address bar moves, which change the
   // height a little and the width not at all, and those leave it alone.
-  addEventListener('resize', () => { if (intro?.active && introSized(window.innerWidth, window.innerHeight)) intro.skip('resize'); W = window.innerWidth; H = window.innerHeight; frameCamera(); coverSeen = cover; post.resize(W, H); redraw(); });
+  addEventListener('resize', () => { if (intro?.active && introSized(window.innerWidth, window.innerHeight)) intro.skip('resize'); W = window.innerWidth; H = window.innerHeight; frameCamera(); coverSeen = cover; post.resize(W, H); spacer?.resize(); redraw(); });
   window.__planInfo = () => ({ pieces: furn.pieces.size, levels: model.levels.length, rooms: model.levels.reduce((n, l) => n + (l.rooms?.length ?? 0), 0), extent: [ext.minX, ext.maxX, ext.minZ, ext.maxZ].map((v) => +v.toFixed(2)),
     floor, visibleLevels: visibleIndices(floor, model.levels.length) }); // for test tools; floor: 'all' or the index of the level on show
   // For test tools: the floors on show. get() is 'all' or the index of one level, set(v) takes the same (a number, a numeric string or 'all'; anything else counts as all) and
@@ -970,16 +993,85 @@ try {
     };
   }
 
+  // ---------- Spacer: the flat at eye height (spacerrun.js has the run, spacerview.js the map and the hints) ----------
+  // The run is handed what it may touch of the page. begin() puts the eyes on: the card and the list of rooms go, the shell shuts at once, every floor shows and the base of the house comes down,
+  // the orbit controller stops, the picture is a perspective of 70 degrees with a near plane of 5 cm, the walls stand full height and the ceilings close the rooms (the sun still reaches the floor
+  // through the windows: floors and ceilings cast no shadow), every piece shows, the table and the card board are taken away (their lights stay) and the blur of the top and the bottom of the frame
+  // goes. end() gives all of it back from what snapshot() took: the orbit view, the floors, the mood and the time of day (the moods can be changed while walking), the list of rooms. Nothing in the
+  // address changes. walkMode (declared with the cut) tells frameCamera, onCamera, recut and settle to leave the eyes alone.
+  const EYES = { fov: 70, near: 0.05 };
+  const touchDevice = () => { try { return matchMedia('(pointer: coarse)').matches; } catch { return false; } };
+  spacer = createSpacerRun({
+    win: window, doc: document, canvas: renderer.domElement,
+    host: {
+      model: () => model,
+      refusal: () => (params.edit ? 'edit' : planAsk ? 'loading' : !model?.levels?.length ? 'no-model' : ''),
+      snapshot: () => ({ cam: cam.state, flags: flags.slice(), ext, frameExt, framePts, preset: S.preset, t: S.t, rooms: !!S.rooms }),
+      begin() {
+        walkMode = true;
+        intro?.skip('api');
+        onWalk?.(true); ui?.hideHint();
+        shellSnap();
+        flags = visibleFlags(ALL, model.levels.length);
+        const f = framing(model, allExt, flags); ext = f.ext; frameExt = f.frameExt; framePts = f.framePts;
+        stage.setLift(0); stage.setBase(false); stage.rig.setFillBoost(1);
+        cam.enabled = false;
+        ps.setCeilings(true); ps.setWalkShadows(true); post.setTilt(0);
+        camera.fov = EYES.fov; camera.near = EYES.near; camera.aspect = W / H; camera.clearViewOffset(); camera.updateProjectionMatrix();
+        recut(); shell?.hidePatches(); settle();
+        spacerView ??= createSpacerView({ doc: document, lang: S.lang });
+        spacerView.show();
+      },
+      end(saved) {
+        walkMode = false;
+        spacerView?.hide();
+        post.setTilt(1); stage.setBase(true); ps.setCeilings(false); ps.setWalkShadows(false);
+        if (saved) { flags = saved.flags; ext = saved.ext; frameExt = saved.frameExt; framePts = saved.framePts; }
+        stage.setLift(floorLift(model, flags));
+        cam.enabled = true;
+        if (saved) cam.set({ azimuth: saved.cam.azimuth, polar: saved.cam.polar, distance: saved.cam.distance });
+        recut(); shell?.hidePatches(); settle();
+        if (saved) { setPreset(saved.preset, true); setTime(saved.t); }
+        frameCamera();
+        if (saved?.rooms && !S.rooms) toggleRooms?.();
+      },
+      pose(e) {
+        const cp = Math.cos(e.pitch);
+        camera.position.set(e.x, e.y, e.z);
+        camera.lookAt(e.x + Math.cos(e.yaw) * cp, e.y + Math.sin(e.pitch), e.z + Math.sin(e.yaw) * cp);
+      },
+      doors: (list, open) => ps.setDoors(list, open),
+      paint: (f) => spacerView?.paint(f),
+      changed: (on) => { S.walking = on; ui?.update(S); },
+      redraw, now: () => performance.now(), width: () => renderer.domElement.clientWidth || W, touchDevice,
+    },
+  });
+  // For test tools: the walk. enter() and leave() return whether it began or ended; state() is { active, denied, cam (metres, degrees), level, room, collisions, jump, doors }; walkTo(x, y, levelId, yawDeg,
+  // pitchDeg) puts the walker down; walkInput({ forward, strafe, turn, run, jump }) holds an input; walkUse() is the space bar and says what it did; advanceTime(ms) walks that long and resolves after the
+  // frame that shows it; manualClock(on) stops the clock so that only advanceTime moves the walk.
+  window.__spacer = {
+    get active() { return spacer.active; },
+    enter: () => spacer.enter(), leave: () => spacer.leave(), state: () => spacer.state(),
+    walkTo: (x, y, levelId, yawDeg, pitchDeg) => spacer.walkTo(x, y, levelId, yawDeg, pitchDeg),
+    walkInput: (input) => spacer.walkInput(input), walkUse: () => spacer.use(), manualClock: (on) => spacer.manualClock(on),
+    advanceTime: (ms) => {
+      spacer.advanceTime(ms);
+      const before = loop.drawn;
+      return new Promise((resolve) => { const wait = () => (loop.drawn > before || !spacer.active ? resolve(spacer.state()) : requestAnimationFrame(wait)); requestAnimationFrame(wait); });
+    },
+  };
   // ---------- loop: the first N frames (frames=N, 4 by default) are drawn at once and measured, then a frame is drawn whenever the picture changes ----------
   // With the intro the page is "done" (window.__done, window.__stats, the note of a share link) when the intro is over, not when the first frames are drawn: a tool that waits for it finds the page as it always stands.
   let framesDrawn = false, noteSaid = false, doneRun = false;
   function frame(n) {
     renderer.info.reset(); renderCalls = 0; const t0 = performance.now();
+    if (walkMode) spacer.frame(t0); // the clock steps the walk, the eyes go where the walker is
     post.render();
     if (n <= params.frames) { const gl = renderer.getContext(); gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(4)); times.push(performance.now() - t0); } // waits for the GPU: only for the measured frames
     window.__frames = n; // frames drawn so far (tools wait on it after a click)
     if (n === 1) { if (intro?.active) intro.shown(); else leaveLoading('done', intro?.reason || introAsk.why || 'off'); } // the first frame is on its way to the screen: the loading icon goes
     if (n === params.frames) framesDrawn = true;
+    if (walkMode) redraw(); // Spacer draws every frame
     if (!intro?.active) { // a frame drawn after the intro (or with none): the note of a link and the end of the start-up
       if (!noteSaid) { noteSaid = true; sayStartNote(); }
       if (framesDrawn && !doneRun) { doneRun = true; done(); }
@@ -1053,6 +1145,7 @@ try {
     get timeline() { return intro?.timeline ?? null; }, seek: (t) => intro?.seek(t) ?? Promise.resolve(false), skip: () => intro?.skip('api') ?? false }; // for test tools: where the intro is, and seek(t) holds it at time t
   loop = createLoop({ draw: frame, frames: params.frames, live: params.live });
   loop.start();
+  if (params.walk) spacer.enter(); // walk=1: the page opens inside the flat (the editor never does, and the intro was left out above)
   // Frame hook for screenshots and video capture: window.__frame({ preset, t, az, pol, dist, size }) sets the mood, the time of day (0 to 1), the view
   // (azimuth and tilt in degrees, dist as a multiple of the default distance) and the size of the picture, draws exactly one new frame and resolves
   // after the animation frame that drew it with { frames, drawCalls }. Every field is optional; values are checked in capture.js.
