@@ -1,10 +1,12 @@
-# plandoll
+# PlanDoll
 
-**[Open the demo](https://mrpawelcz.github.io/plandoll/)**
+[![PlanDoll builds a flat from a plan](docs/hero.gif)](https://mrpawelcz.github.io/plandoll/)
 
 Turn a floor plan into a furnished, lit miniature of the flat, in your browser.
 
-![A two-level flat furnished and lit at golden hour](docs/screenshot.jpg)
+One HTML file. No server or account. Bring plan JSON from any AI chat that can read images.
+
+**[Open the demo](https://mrpawelcz.github.io/plandoll/) · [Star the repo if it is useful](https://github.com/MrPawelCz/plandoll)**
 
 **Status: early work in progress.** The page furnishes every room by itself, lights the flat at a time of day you can move, and lets you turn the miniature around to see it from every side. It shows two built-in example plans (a flat and a duplex, picked with buttons), one button lays the outer walls open like the sides of a dolls' house, and another one lets you walk through the flat at eye height (Spacer, see below). A first version of the editor can be switched on with `edit=1` in the address (see below): it can move, turn, delete, add and duplicate pieces, change their size and colours, colour the walls and floor of a room, and save the layout to a file or load it back. A plan of your own can be pasted or loaded from a file (see Buttons and your own plan). It is not a CAD tool and not a phone app.
 
