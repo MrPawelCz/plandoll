@@ -143,7 +143,7 @@ const PLAN_STR = {
     ],
     copyPrompt: 'Copy the prompt', promptCopied: 'Prompt copied. Paste it into the chat.', copyFailed: 'Could not copy. Open Show the prompt and copy the text by hand.',
     showPrompt: 'Show the prompt', promptField: 'The prompt for the assistant',
-    privacy: 'The picture goes to the assistant you choose, under its own rules; plandoll itself sends nothing anywhere. Take names and addresses off the picture first.',
+    privacy: 'The picture goes to the assistant you choose, under its own rules; plandoll does not send the picture, the plan or your layout anywhere. Take names and addresses off the picture first.',
     copyMessage: 'Copy the message', messageCopied: 'Message copied. Paste it into the chat.', messageFailed: 'Could not copy. Select the message by hand.' },
   pl: { title: 'Wczytaj plan', hint: 'Wklej tekst planu (JSON) albo wybierz plik, potem naciśnij Wczytaj.', field: 'Tekst planu', load: 'Wczytaj', cancel: 'Anuluj', pick: 'Wybierz plik',
     helpTitle: 'Nie masz pliku z planem? Zrób go ze zdjęcia rzutu',
@@ -155,7 +155,7 @@ const PLAN_STR = {
     ],
     copyPrompt: 'Kopiuj polecenie', promptCopied: 'Skopiowano polecenie. Wklej je do czatu.', copyFailed: 'Nie udało się skopiować. Otwórz Pokaż polecenie i skopiuj tekst ręcznie.',
     showPrompt: 'Pokaż polecenie', promptField: 'Polecenie dla asystenta',
-    privacy: 'Obraz trafia do wybranego asystenta, na jego zasadach; plandoll niczego nigdzie nie wysyła. Usuń z obrazu imiona, nazwiska i adresy.',
+    privacy: 'Obraz trafia do wybranego asystenta, na jego zasadach; plandoll nie wysyła nigdzie obrazu, planu ani układu. Usuń z obrazu imiona, nazwiska i adresy.',
     copyMessage: 'Kopiuj komunikat', messageCopied: 'Skopiowano komunikat. Wklej go do czatu.', messageFailed: 'Nie udało się skopiować. Zaznacz komunikat ręcznie.' },
 };
 

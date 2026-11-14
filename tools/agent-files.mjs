@@ -21,6 +21,8 @@ export const AUTHOR = { type: 'Person', name: 'Paweł Czerwiński', url: 'https:
 const MIT = 'https://spdx.org/licenses/MIT.html';
 // Only what the page itself does: what happens to a picture or a copied link after the visitor sends it elsewhere is not the page's to promise.
 const DESCRIPTION = 'PlanDoll turns a floor plan into a furnished, lit 3D miniature of the flat, in the browser. Free, with no account. The page makes no network requests and uses no cookies or browser storage.';
+// The words for a host that adds an anonymous visit counter around the page (plandoll.com): the page itself still sends no plan, picture or layout.
+const DESCRIPTION_COUNTER = 'PlanDoll turns a floor plan into a furnished, lit 3D miniature of the flat, in the browser. Free, with no account. It sends no plan, picture or layout anywhere and uses no cookies or browser storage; the only request it makes is an anonymous visit counter.';
 // What the page does, in the words of the README. No counts: a number here would go stale the day a piece is added.
 const FEATURES = [
   'Reads a floor plan as a small JSON file (plan format v1) and builds a 3D miniature of the flat',
@@ -34,6 +36,7 @@ const FEATURES = [
   'Works from a single HTML file: no account, no analytics, no network requests, no cookies or browser storage',
   'Interface in English and Polish',
 ];
+const FEATURE_COUNTER = 'Works from a single HTML file: no account, no cookies or browser storage; it sends no plan, picture or layout anywhere (an anonymous visit counter is the only request)';
 
 const checkBase = (base) => {
   if (!/^https:\/\/[a-z0-9.-]+(?::\d+)?\/(?:[A-Za-z0-9._~-]+\/)*$/.test(String(base))) throw new Error(`the address of the site must be an https address that ends with a slash, not "${base}"`);
@@ -53,7 +56,8 @@ export const otherAddresses = (base) => [PAGES_URL, SITE_URL].filter((a) => a !=
 
 // The description of the page for crawlers and programs. `base` is the address the page is served from; `image` is a picture of the result; `maker` is who made it
 // (the repository names its author, a host can name itself); `also` lists the other addresses of the same page.
-export function jsonLd({ base, version, maker = AUTHOR, also = otherAddresses(base), image = `${RAW_URL}docs/screenshot.jpg` } = {}) {
+// `counter` is for a host that puts an anonymous visit counter around the page: the words then say so instead of "no network requests" (false by default).
+export function jsonLd({ base, version, maker = AUTHOR, also = otherAddresses(base), image = `${RAW_URL}docs/screenshot.jpg`, counter = false } = {}) {
   checkBase(base); checkMaker(maker);
   if (!/^\d+\.\d+\.\d+/.test(String(version))) throw new Error(`the version must be a number like 1.2.3, not "${version}"`);
   return {
@@ -62,7 +66,7 @@ export function jsonLd({ base, version, maker = AUTHOR, also = otherAddresses(ba
     '@id': `${base}#app`,
     name: 'PlanDoll',
     url: base,
-    description: DESCRIPTION,
+    description: counter ? DESCRIPTION_COUNTER : DESCRIPTION,
     applicationCategory: 'DesignApplication',
     operatingSystem: 'Any (runs in a web browser with WebGL 2)',
     browserRequirements: 'Requires JavaScript and WebGL 2',
@@ -72,7 +76,7 @@ export function jsonLd({ base, version, maker = AUTHOR, also = otherAddresses(ba
     offers: { '@type': 'Offer', price: '0', priceCurrency: 'USD' },
     license: MIT,
     keywords: 'floor plan, 3D, dollhouse view, interior, furniture layout, flat, apartment, visualisation',
-    featureList: FEATURES,
+    featureList: counter ? FEATURES.map((f) => (f.startsWith('Works from a single HTML file') ? FEATURE_COUNTER : f)) : FEATURES,
     image,
     creator: { '@type': maker.type, name: maker.name, url: maker.url },
     sameAs: [REPO_URL, ...also.map(checkBase)],
@@ -86,20 +90,23 @@ export const jsonLdBlock = (data) => `<script type="application/ld+json">${JSON.
 export const JSON_LD_BLOCK = /<script type="application\/ld\+json">[\s\S]*?<\/script>/;
 
 // llms.txt in the layout of llmstxt.org: a title, a short summary, some plain paragraphs and lists, then lists of links under headings.
-export function llmsTxt({ base, maker = AUTHOR, also = otherAddresses(base) } = {}) {
+export function llmsTxt({ base, maker = AUTHOR, also = otherAddresses(base), counter = false } = {}) {
   checkBase(base); checkMaker(maker);
   const own = maker.name === AUTHOR.name && maker.url === AUTHOR.url;
   const makerLine = own ? 'Source and author: MrPawelCz on GitHub, MIT licence.' : `Made by ${maker.name} (${maker.url}). The source is open, MIT licence.`;
+  const opening = counter
+    ? 'free, no account. It sends no plan, picture or layout anywhere and uses no cookies or browser storage; the only request it makes is an anonymous visit counter (page, referring site, country, device type, language, time open).'
+    : 'free, no account, no analytics. The page makes no network requests and uses no cookies or browser storage.';
   const alsoLines = also.map((a) => `- [The same page at another address](${checkBase(a)}): the same application, served from a second host`);
   const text = `# PlanDoll
 
-> PlanDoll turns a floor plan into a furnished, lit 3D miniature of the flat, in the browser. It is one HTML page: free, no account, no analytics. The page makes no network requests and uses no cookies or browser storage. The plan is a small JSON file that an AI chat assistant able to read pictures writes from a photo, screenshot or PDF page of the floor plan.
+> PlanDoll turns a floor plan into a furnished, lit 3D miniature of the flat, in the browser. It is one HTML page: ${opening} The plan is a small JSON file that an AI chat assistant able to read pictures writes from a photo, screenshot or PDF page of the floor plan.
 
 PlanDoll runs entirely on the visitor's device and needs a browser with WebGL 2. It furnishes each room by rules, lights the flat at a time of day the visitor moves, and lets them turn, zoom and move the miniature, show one floor or all floors, and open the outer walls like a dolls' house. The visitor can edit the layout, save it to a file, save a picture, or copy a link that holds the whole layout after the "#" in the address (a browser never sends that part to a server). The interface is in English and Polish. ${makerLine}
 
 To help a visitor who has a picture of a floor plan:
 
-1. Ask for a photo, screenshot or PDF page of the floor plan. Walls, doors and windows should be visible; printed sizes or room areas help to find the scale. Suggest taking names and addresses off the picture first: it goes to the assistant they choose, and PlanDoll itself sends nothing anywhere.
+1. Ask for a photo, screenshot or PDF page of the floor plan. Walls, doors and windows should be visible; printed sizes or room areas help to find the scale. Suggest taking names and addresses off the picture first: it goes to the assistant they choose, and PlanDoll does not send the picture, the plan or the layout anywhere.
 2. Turn the picture into the plan by following the instruction linked below (English; there is a Polish one too). It says how to answer: the plan as JSON, in the plan format linked below.
 3. The visitor presses Load plan on the page (Wczytaj plan in the Polish interface), pastes your whole answer and presses Load (Wczytaj). The page finds the plan inside the text and checks it. If it lists problems, the visitor copies the list back to you: correct the plan and answer again.
 4. The visitor compares the model with the drawing. Plans read from pictures can lack a window or put a wall in the wrong place, so tell the visitor to check.

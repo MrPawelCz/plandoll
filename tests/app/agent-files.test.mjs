@@ -62,6 +62,23 @@ test('jsonLd: the words hold no long dash and nothing but the name of the author
   for (const version of ['', undefined, 'x', '1.2']) assert.throws(() => jsonLd({ base: SITE_URL, version }), /not "/, String(version));
 });
 
+test('counter: the words for a host with an anonymous visit counter say so and drop the claims of no requests and no analytics; the default stays as it was', () => {
+  const on = jsonLd({ base: SITE_URL, version: '1.2.3', counter: true });
+  const def = jsonLd({ base: SITE_URL, version: '1.2.3' });
+  assert.ok(on.description.length > 60 && on.description.length < 300);
+  assert.ok(on.description.includes('anonymous visit counter'));
+  const onText = JSON.stringify(on) + llmsTxt({ base: SITE_URL, counter: true });
+  assert.ok(!onText.includes('no analytics') && !onText.includes('no network requests') && !onText.includes('makes no network requests'));
+  assert.ok(llmsTxt({ base: SITE_URL, counter: true }).includes('anonymous visit counter'));
+  assert.ok(on.featureList.some((f) => f.includes('anonymous visit counter')) && on.featureList.length === def.featureList.length);
+  assert.deepEqual(jsonLd({ base: SITE_URL, version: '1.2.3', counter: false }), def);
+  assert.equal(llmsTxt({ base: SITE_URL, counter: false }), llmsTxt({ base: SITE_URL }));
+  assert.ok(def.description.includes('makes no network requests'), 'without the counter the page still promises no requests');
+  assert.ok(llmsTxt({ base: SITE_URL }).includes('no analytics'));
+  for (const t of [onText, llmsTxt({ base: SITE_URL })]) assert.ok(!t.includes('sends nothing anywhere'), 'the picture, the plan and the layout are what the page does not send');
+  assert.ok(![...onText].some((c) => c.charCodeAt(0) > 126 && !AUTHOR.name.includes(c)), 'plain ASCII');
+});
+
 test('jsonLdBlock: one script element that no text of ours can end early, which reads back as the same data', () => {
   const data = { ...jsonLd({ base: SITE_URL, version: '1.0.0' }), description: 'a </script><script>alert(1)</script> b <!-- c' };
   const block = jsonLdBlock(data);
