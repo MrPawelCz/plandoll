@@ -15,7 +15,7 @@ plan JSON (format v1, see docs/SPEC.md sections 1 to 4 and docs/PROMPT.md)
   -> frame
 ```
 
-The page never sends anything anywhere. No network requests, no localStorage, sessionStorage, cookies or IndexedDB. A host may put its own code around the file (plandoll.com adds an anonymous visit counter in its overlay); the file of this repository has none, and `tools/publish-gate.sh` keeps it that way.
+The page never sends anything anywhere. No network requests, no localStorage, sessionStorage, cookies or IndexedDB. A host may put its own code around the file (plandoll.com adds an anonymous visit counter in its overlay); the file of this repository has none, and the tests of the modules, which read the sources for calls to the network and to browser storage, keep it that way.
 
 The walk of Spacer (section 6m) reads the model of `buildModel` too: its walls, openings, stairs and doors are what the walker collides with.
 
