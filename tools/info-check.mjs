@@ -6,6 +6,8 @@
 // Every step opens the page with live=1 (no intro), except the last one, which opens it as a visitor gets it and waits for the intro to end (data-intro="done").
 // --small (a touch window as --phone) runs only the check of small and low windows: the card and the list open together and end above the control bar, the Rooms button stays free.
 // On a small machine run it under tools/chrome-lock.sh (one browser at a time). CHROME names the browser (chrome-headless-shell is fine). Exits 1 when a step fails.
+// --allow-origin=ORIGIN (repeatable, e.g. --allow-origin=https://playingpanda.com) lets requests that start with ORIGIN pass as not foreign; the default allows nothing. For a host that
+// adds a counter around the page (plandoll.com sends one request to its counter); the page of the repository makes none.
 import { spawn } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -13,13 +15,15 @@ import { dirname, join, resolve } from 'node:path';
 import { pathToFileURL, fileURLToPath } from 'node:url';
 
 const argv = process.argv.slice(2);
+const allowOrigins = []; // --allow-origin=ORIGIN (repeatable): requests that start with it are not foreign; none is allowed by default
 const opt = { html: null, out: null, timeout: 240 };
 let phone = false, small = false;
 for (let i = 0; i < argv.length; i++) {
   if (argv[i] === '--phone') phone = true;
   else if (argv[i] === '--small') { phone = true; small = true; }
+  else if (argv[i].startsWith('--allow-origin=') && argv[i].length > 15) allowOrigins.push(argv[i].slice(15));
   else if (argv[i].startsWith('--') && argv[i].slice(2) in opt && argv[i + 1] !== undefined) opt[argv[i].slice(2)] = argv[++i];
-  else { console.error('usage: node tools/info-check.mjs [--html dist/plandoll.html | --html https://host/path/] [--out DIR] [--timeout S] [--phone | --small]'); process.exit(2); }
+  else { console.error('usage: node tools/info-check.mjs [--html dist/plandoll.html | --html https://host/path/] [--out DIR] [--timeout S] [--phone | --small] [--allow-origin=ORIGIN]'); process.exit(2); }
 }
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const live = /^https?:\/\//i.test(opt.html ?? '');
@@ -414,7 +418,7 @@ try {
     await afterIntro();
   }
   clearTimeout(timer);
-  const foreign = [...requests].filter((u) => !(u.startsWith(ownOrigin) || u.startsWith('data:') || u.startsWith('blob:') || u === 'about:blank'));
+  const foreign = [...requests].filter((u) => !(u.startsWith(ownOrigin) || u.startsWith('data:') || u.startsWith('blob:') || u === 'about:blank' || allowOrigins.some((o) => u.startsWith(o))));
   check('the page made no request of its own to anywhere else', foreign.length === 0, foreign.slice(0, 3).join(' '));
   check('no script error or console error', logs.length === 0, logs.slice(0, 3).join(' | '));
 } catch (e) {

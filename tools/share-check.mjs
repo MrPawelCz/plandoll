@@ -3,6 +3,8 @@
 // broken, huge and hostile links open the page without them and say so, and nothing from a link ends up in the page as markup.
 //   node tools/share-check.mjs [--html dist/plandoll.html | --html https://host/path/] [--out DIR] [--timeout 240] [--quick]  (--quick: no editing, two hostile links; for a published address)
 // On a small machine run it under tools/chrome-lock.sh (one browser at a time). CHROME names the browser (chrome-headless-shell is fine). Exits 1 when a step fails.
+// --allow-origin=ORIGIN (repeatable, e.g. --allow-origin=https://playingpanda.com) lets requests that start with ORIGIN pass as not foreign; the default allows nothing. For a host that
+// adds a counter around the page (plandoll.com sends one request to its counter); the page of the repository makes none.
 import { spawn } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -19,11 +21,13 @@ import { readPlanText } from '../src/app/planfile.js';
 import { encodeShare, decodeShare, packLayout, planForLink } from '../src/app/share.js';
 
 const argv = process.argv.slice(2);
+const allowOrigins = []; // --allow-origin=ORIGIN (repeatable): requests that start with it are not foreign; none is allowed by default
 const opt = { html: null, out: null, timeout: 240, quick: false };
 for (let i = 0; i < argv.length; i++) {
   if (argv[i] === '--quick') opt.quick = true;
+  else if (argv[i].startsWith('--allow-origin=') && argv[i].length > 15) allowOrigins.push(argv[i].slice(15));
   else if (argv[i].startsWith('--') && argv[i].slice(2) in opt && argv[i + 1] !== undefined) opt[argv[i].slice(2)] = argv[++i];
-  else { console.error('usage: node tools/share-check.mjs [--html dist/plandoll.html | --html https://host/path/] [--out DIR] [--timeout S] [--quick]'); process.exit(2); }
+  else { console.error('usage: node tools/share-check.mjs [--html dist/plandoll.html | --html https://host/path/] [--out DIR] [--timeout S] [--quick] [--allow-origin=ORIGIN]'); process.exit(2); }
 }
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const live = /^https?:\/\//i.test(opt.html ?? ''); // a published address instead of the built file
@@ -164,7 +168,7 @@ try {
     if (m.id && pend.has(m.id)) { const p = pend.get(m.id); pend.delete(m.id); m.error ? p.rej(new Error(m.error.message)) : p.res(m.result); return; }
     if (m.method === 'Runtime.consoleAPICalled' && ['error', 'warning'].includes(m.params.type)) logs.add(`${m.params.type}: ${m.params.args.map(text).join(' ')}`);
     else if (m.method === 'Runtime.exceptionThrown') logs.add(`EXC: ${text(m.params.exceptionDetails.exception ?? { value: m.params.exceptionDetails.text })}`);
-    else if (m.method === 'Network.requestWillBeSent') { const u = m.params.request.url; if (!/^(file|data|blob|about):/.test(u) && !(own && u.startsWith(own))) requests.add(u.slice(0, 200)); }
+    else if (m.method === 'Network.requestWillBeSent') { const u = m.params.request.url; if (!/^(file|data|blob|about):/.test(u) && !(own && u.startsWith(own)) && !allowOrigins.some((o) => u.startsWith(o))) requests.add(u.slice(0, 200)); }
     else if (m.method === 'Network.webSocketCreated') requests.add(`ws: ${m.params.url}`);
   });
   await send('Page.enable'); await send('Runtime.enable'); await send('Network.enable');

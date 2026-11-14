@@ -14,6 +14,8 @@
 // --out writes a few JPEG shots of key steps (at most 12 files, quality 55). At the end of each run: no console or script error, no request outside the page's own address, nothing in storage.
 // The tool expects the page's hooks window.__spacer, __camera, __shell, __frames (see tests/app/spacer-wiring.test.mjs). Exits 1 when a step fails.
 // On a small machine run it under tools/chrome-lock.sh (one browser at a time) and nice. CHROME names the browser (chrome-headless-shell is fine), PS_ANGLE=metal draws on the GPU.
+// --allow-origin=ORIGIN (repeatable, e.g. --allow-origin=https://playingpanda.com) lets requests that start with ORIGIN pass as not foreign; the default allows nothing. For a host that
+// adds a counter around the page (plandoll.com sends one request to its counter); the page of the repository makes none.
 import { spawn } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -22,12 +24,14 @@ import { pathToFileURL, fileURLToPath } from 'node:url';
 import { inflateSync } from 'node:zlib';
 
 const argv = process.argv.slice(2);
+const allowOrigins = []; // --allow-origin=ORIGIN (repeatable): requests that start with it are not foreign; none is allowed by default
 const opt = { html: null, out: null, timeout: 900, only: null, steps: null };
 let phone = false;
 for (let i = 0; i < argv.length; i++) {
   if (argv[i] === '--phone') phone = true;
+  else if (argv[i].startsWith('--allow-origin=') && argv[i].length > 15) allowOrigins.push(argv[i].slice(15));
   else if (argv[i].startsWith('--') && argv[i].slice(2) in opt && argv[i + 1] !== undefined) opt[argv[i].slice(2)] = argv[++i];
-  else { console.error('usage: node tools/spacer-check.mjs [--html dist/plandoll.html | --html https://host/path/] [--out DIR] [--timeout S] [--phone] [--only A,B,C] [--steps 4,6]'); process.exit(2); }
+  else { console.error('usage: node tools/spacer-check.mjs [--html dist/plandoll.html | --html https://host/path/] [--out DIR] [--timeout S] [--phone] [--only A,B,C] [--steps 4,6] [--allow-origin=ORIGIN]'); process.exit(2); }
 }
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const live = /^https?:\/\//i.test(opt.html ?? '');
@@ -729,7 +733,7 @@ try {
   if (phone) await scene('P', sceneP);
   else { await scene('A', sceneA); await scene('B', sceneB); await scene('C', sceneC); }
   clearTimeout(timer);
-  const foreign = [...requests].filter((u) => !(u.startsWith(ownOrigin) || u.startsWith('data:') || u.startsWith('blob:') || u === 'about:blank'));
+  const foreign = [...requests].filter((u) => !(u.startsWith(ownOrigin) || u.startsWith('data:') || u.startsWith('blob:') || u === 'about:blank' || allowOrigins.some((o) => u.startsWith(o))));
   check('the page made no request of its own to anywhere else', foreign.length === 0, foreign.slice(0, 3).join(' '));
   check('nothing was written to storage (local, session, cookie, indexed databases)', storageHit === null, storageHit ?? '');
   check('no script error or console error', logs.length === 0, logs.slice(0, 3).join(' | '));
