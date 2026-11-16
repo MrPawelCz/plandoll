@@ -441,7 +441,7 @@ async function floorsBlock(tag) {
   const b0 = await floorBtns(), s0 = await floorNow(), pic0 = await picture(`${tag}-floor-1-both`), fit0 = await floorFit(), calls0 = await floorCalls();
   record(label('the buttons are there: one per floor and one for both, at least 40 px, on the screen, Both pressed, each with a name'),
     b0.length === 3 && b0.map((b) => b.key).join() === '0,1,all' && b0.every((b) => b.h >= 39.5 && b.w >= 39.5 && b.x >= -1 && b.x + b.w <= W + 1 && b.y >= 0 && b.y + b.h <= H + 1 && b.label?.length > 6) && s0.pressed === 'false,false,true'
-      && /Ground floor|Parter/.test(b0[0].text) && /Upper floor|Piętro/.test(b0[1].text) && /Both|Oba/.test(b0[2].text) && s0.floor === 'all' && s0.visible.join() === '0,1' && s0.lift === 0 && s0.count === 2 && fit0?.inside !== false,
+      && /Ground floor|Parter/.test(b0[0].text) && /Upper floor|First floor|Piętro/.test(b0[1].text) && /Both|Oba/.test(b0[2].text) && s0.floor === 'all' && s0.visible.join() === '0,1' && s0.lift === 0 && s0.count === 2 && fit0?.inside !== false,
     { buttons: b0.map((b) => `${b.text} ${Math.round(b.w)}x${Math.round(b.h)} at ${Math.round(b.x)},${Math.round(b.y)}${b.pressed === 'true' ? ' pressed' : ''}`), fit: fit0 });
 
   await tapFloor('0');
