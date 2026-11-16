@@ -40,9 +40,19 @@ function flatGeometry(polygon, holes, y, up, k = 1) {
   return g;
 }
 
+// The cut of a slab round a stair opening lies in the plane of the wall faces of the shaft and the wall of the floor above reaches down over it: the hole is a hair wider (each edge moved out by e),
+// so that its side faces stand inside the walls and do not fight them. The hole is a convex outline, as a stair footprint is.
+export function widenHole(h, e = 0.012) {
+  const n = h.length;
+  let a = 0;
+  for (let i = 0; i < n; i++) { const p = h[i], q = h[(i + 1) % n]; a += p[0] * q[1] - q[0] * p[1]; }
+  const s = a > 0 ? 1 : -1, ls = h.map((p, i) => { const q = h[(i + 1) % n], dx = q[0] - p[0], dy = q[1] - p[1], l = Math.hypot(dx, dy) || 1; return [p[0] + (s * dy / l) * e, p[1] - (s * dx / l) * e, dx, dy]; });
+  return h.map((p, i) => { const A = ls[(i + n - 1) % n], B = ls[i], d = A[2] * B[3] - A[3] * B[2]; if (Math.abs(d) < 1e-9) return p; const u = ((B[0] - A[0]) * B[3] - (B[1] - A[1]) * B[2]) / d; return [A[0] + A[2] * u, A[1] + A[3] * u]; });
+}
+
 function slabGeometry(polygon, holes, depth, k = 1) {
   const shape = new THREE.Shape(polygon.map((p) => new THREE.Vector2(p[0], p[1])));
-  for (const h of holes) shape.holes.push(new THREE.Path(h.map((p) => new THREE.Vector2(p[0], p[1]))));
+  for (const h of holes) shape.holes.push(new THREE.Path(widenHole(h).map((p) => new THREE.Vector2(p[0], p[1]))));
   const g = new THREE.ExtrudeGeometry(shape, { depth, bevelEnabled: false });
   g.rotateX(Math.PI / 2); // plan y -> world z, extrusion goes down
   g.translate(0, -0.004, 0);
@@ -290,6 +300,7 @@ export class PlanScene {
       for (const b of st.boxes) this._box(sg, b, 0);
       g.add(sg);
     }
+    for (const st of this.model.stairs) if (st.upper === lv.index) this._rail(g, st);
     for (const f of lv.furniture) {
       const fg = buildFurniture(f, this.furnitureBudget);
       fg.position.set(f.center[0], 0, f.center[1]);
@@ -298,6 +309,34 @@ export class PlanScene {
       g.add(fg);
     }
     return g;
+  }
+
+  // Rail round the stair opening on the upper floor, only along edges not against a wall (85 percent within half the wall plus 0.15 m); the arrival end stays open.
+  _rail(parent, st) {
+    const [dx, dy] = st.dir, px = -dy, py = dx, ext = st.run / 2, hw = st.width / 2 + 0.04;
+    const a = [st.from[0] - dx * ext, st.from[1] - dy * ext], len = st.length + st.run, walls = this.model.levels[st.upper].walls;
+    const covered = (x0, y0, x1, y1) => {
+      const n = Math.max(1, Math.ceil(Math.hypot(x1 - x0, y1 - y0) / 0.1));
+      let c = 0;
+      for (let k = 0; k <= n; k++) {
+        const x = x0 + (x1 - x0) * k / n, y = y0 + (y1 - y0) * k / n;
+        if (walls.some((w) => { const ex = w.to[0] - w.from[0], ey = w.to[1] - w.from[1], t = Math.max(0, Math.min(1, ((x - w.from[0]) * ex + (y - w.from[1]) * ey) / (ex * ex + ey * ey || 1))); return Math.hypot(x - w.from[0] - ex * t, y - w.from[1] - ey * t) <= w.thickness / 2 + 0.15; })) c++;
+      }
+      return c >= 0.85 * (n + 1);
+    };
+    const g = new THREE.Group();
+    g.name = `rail:${st.id}`;
+    const put = (name, cx, cy, sx, sz, y0, y1) => this._box(g, { name: `${g.name}/${name}`, mat: 'stair', cx, cy, y0, y1, sx, sz, angle: st.angle }, 0);
+    for (const sg of [1, -1]) {
+      const ox = px * sg * hw, oy = py * sg * hw;
+      if (covered(a[0] + ox, a[1] + oy, a[0] + dx * len + ox, a[1] + dy * len + oy)) continue;
+      put(`bar${sg}`, a[0] + dx * len / 2 + ox, a[1] + dy * len / 2 + oy, len, 0.05, 0.88, 0.93);
+      const n = Math.max(1, Math.ceil(len / 0.9));
+      for (let k = 0; k <= n; k++) put(`post${sg}.${k}`, a[0] + dx * len * k / n + ox, a[1] + dy * len * k / n + oy, 0.05, 0.05, 0, 0.93);
+    }
+    const ex = a[0] - dx * 0.04, ey = a[1] - dy * 0.04, hh = st.width / 2 + 0.065;
+    if (!covered(ex + px * hh, ey + py * hh, ex - px * hh, ey - py * hh)) put('end', ex, ey, 0.05, st.width + 0.13, 0.88, 0.93);
+    if (g.children.length) parent.add(g);
   }
 
   setExplode(e) {

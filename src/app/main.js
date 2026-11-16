@@ -36,6 +36,7 @@ import { createIntroView } from './introview.js';
 import { createIntroRun } from './introrun.js';
 import { createSpacerRun } from './spacerrun.js';
 import { createSpacerView } from './spacerview.js';
+import { createOutside } from '../render/outside.js';
 import { pieceInfo, roomsData } from './info.js';
 import { saveTextFile, saveBlobFile, readTextFile, askForText, refusalText, copyText, showLinkDialog, LAYOUT_FILENAME, IMAGE_FILENAME } from './files.js';
 import { promptFor } from './prompts.js';
@@ -49,8 +50,8 @@ import { stepClock, modeOf } from '../render/openmotion.js';
 import { openExtent, openPoints, flatFootprint, foldWalls } from '../model/foldwalls.js';
 import { createCameraController, stateFrom, positionOf, nearSides, sameSides, sidesKey, viewOf, fitView, wrapDegrees, fillBoost, lowestOnPicture, nearPlane, liftOf, PAN_GROW, SLOP_MOUSE, SLOP_TOUCH } from './camera.js';
 import { boardRect } from '../look/board.js';
-import flat from '../../examples/flat-1.plan.json';
-import duplex from '../../examples/duplex-1.plan.json';
+import flat from '../../examples/flat-2.plan.json';
+import duplex from '../../examples/duplex-2.plan.json';
 
 // The loading icon of the page (plain CSS in the HTML, see tools/build.mjs) goes once the first frame is drawn, or when the page fails; data-intro on the body says where the page is: loading, playing (the intro), done.
 const leaveLoading = (state, why) => { try { const b = document.body; document.getElementById('ps-loading')?.remove(); if (state === 'done' && b.dataset.intro === 'playing') b.dataset.introFade = '1'; b.dataset.intro = state; b.dataset.introEnd = why; } catch {} }; // the control bar fades in only after an intro that played
@@ -153,7 +154,7 @@ try {
   let stage = createStage({ renderer, scene, bounds: stageExt, board: boardOf(), quality: level, preset: S.preset, t: S.t });
   stage.setLift(floorLift(model, flags)); // only an upper floor on show: the base of the house comes up under it
   // ---------- furniture: the engine lays the rooms out, compose builds the pieces (rebuilt when the quality changes) ----------
-  let layout = autoFurnish(model, { seed: params.seed, allowedTypes: piecesImplemented() });
+  let layout = autoFurnish(model, { seed: params.seed, allowedTypes: piecesImplemented(), strict: true });
   if (shared?.layout) { // the layout of a share link: read like a pasted layout (parseLayout checks every piece against the plan); what cannot be used is left out
     try {
       const rl = parseLayout(JSON.stringify(shared.layout), model);
@@ -290,9 +291,10 @@ try {
 
   // ---------- state changes ----------
   let loop = null; const times = [];
+  let outside = null, lastLook = null; // the lawn, the path and the sky of Spacer (outside=0 leaves them out) and the last look the stage was given
   const redraw = () => loop?.invalidate(); // every change of the picture asks for one more frame
   function applyAll() {
-    const k = stage.applyTime(S.t); post.setLook(k); setLampGlow(furn.group, stage.state.lampK);
+    const k = stage.applyTime(S.t); post.setLook(k); lastLook = k; outside?.setLook(k); setLampGlow(furn.group, stage.state.lampK);
   }
   function setPreset(name, keepT) { const p = stage.setPreset(name); S.preset = p.id; if (!keepT) S.t = p.t; applyAll(); ui?.update(S); redraw(); }
   function setTime(t) { S.t = Math.min(1, Math.max(0, t)); applyAll(); ui?.update(S); redraw(); }
@@ -925,6 +927,8 @@ try {
   addEventListener('keydown', (e) => {
     if (isFormTarget(e.target) || e.ctrlKey || e.metaKey || e.altKey) return; // typing a size in the panel must not change the mood or the time
     if (!walkMode && e.shiftKey && e.key === 'ArrowRight') setTime(S.t + 0.02); else if (!walkMode && e.shiftKey && e.key === 'ArrowLeft') setTime(S.t - 0.02); // in Spacer Shift is the run
+    else if (walkMode && (e.code === 'BracketRight' || e.key === ']')) setTime(S.t + 0.01); // in Spacer [ and ] run the time of day, a key repeat counts (hold to run it)
+    else if (walkMode && (e.code === 'BracketLeft' || e.key === '[')) setTime(S.t - 0.01);
     else if (['1', '2', '3'].includes(e.key)) setPreset(['clear', 'amber', 'lamplit'][Number(e.key) - 1]); // the keys follow the buttons: Day, Sunset, Night
   });
   // Open shell: Space opens or closes it, Escape closes it (shellKey in shell.js decides: a held key counts once, a form field keeps both keys, a button or a link keeps Space).
@@ -1007,6 +1011,7 @@ try {
     win: window, doc: document, canvas: renderer.domElement,
     host: {
       model: () => model,
+      margin: () => (params.outside ? 40 : undefined), // how far the walker may go beyond the flat (the default is 6 m)
       refusal: () => (params.edit ? 'edit' : planAsk ? 'loading' : !model?.levels?.length ? 'no-model' : ''),
       snapshot: () => { intro?.skip('api'); return { cam: cam.state, flags: flags.slice(), ext, frameExt, framePts, preset: S.preset, t: S.t, rooms: !!S.rooms }; }, // the intro ends first: a view saved in the middle of the flight would be the one to come back to
       begin() {
@@ -1017,6 +1022,7 @@ try {
         flags = visibleFlags(ALL, model.levels.length);
         const f = framing(model, allExt, flags); ext = f.ext; frameExt = f.frameExt; framePts = f.framePts;
         stage.setLift(0); stage.setBase(false);
+        if (params.outside) { outside = createOutside({ scene, camera, model }); if (lastLook) outside.setLook(lastLook); outside.show(); }
         cam.enabled = false;
         ps.setCeilings(true); ps.setWalkShadows(true); post.setEyes(true);
         camera.fov = EYES.fov; camera.near = EYES.near; camera.aspect = W / H; camera.clearViewOffset(); camera.updateProjectionMatrix();
@@ -1026,6 +1032,7 @@ try {
       },
       end(saved) {
         walkMode = false;
+        outside?.dispose(); outside = null; // the fog and the background that were there come back with it
         spacerView?.hide();
         post.setEyes(false); stage.rig.setFocus(null); stage.setBase(true); ps.setCeilings(false); ps.setWalkShadows(false);
         if (saved) { flags = saved.flags; ext = saved.ext; frameExt = saved.frameExt; framePts = saved.framePts; }
@@ -1053,6 +1060,8 @@ try {
   // frame that shows it; manualClock(on) stops the clock so that only advanceTime moves the walk.
   window.__spacer = {
     get active() { return spacer.active; },
+    time: () => S.t, // for tools: the time of day now
+    outside: () => ({ shown: !!outside?.shown, fog: !!scene.fog, background: scene.background ? (scene.background.isTexture ? 'texture' : 'color') : null }), // for tools: whether the world outside is in the scene and what the scene holds as fog and background
     enter: () => spacer.enter(), leave: () => spacer.leave(), state: () => spacer.state(),
     walkTo: (x, y, levelId, yawDeg, pitchDeg) => spacer.walkTo(x, y, levelId, yawDeg, pitchDeg),
     walkInput: (input) => spacer.walkInput(input), walkUse: () => spacer.use(), manualClock: (on) => spacer.manualClock(on),

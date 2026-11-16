@@ -3,7 +3,7 @@
 import test, { after } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -13,7 +13,6 @@ const root = fileURLToPath(new URL('../../', import.meta.url));
 const SHA = '3bcb848f0e1d2c3b4a5968778695a4b3c2d1e0f9';
 const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
 const lock = JSON.parse(readFileSync(join(root, 'package-lock.json'), 'utf8'));
-const CI_LIMIT = 1150000; // the bytes that the built page may take: the same limit as the step of .github/workflows/ci.yml
 
 test('the mark names the version and the first seven characters of the commit, and the day of that commit', () => {
   assert.deepEqual(versionMark({ version: '0.2.0', head: SHA, date: '2026-10-27' }), { text: 'v0.2.0 · 3bcb848', date: '2026-10-27' });
@@ -90,11 +89,10 @@ test('package.json and the lock file carry the same version, a number like 1.2.3
 const dir = mkdtempSync(join(tmpdir(), 'plandoll-version-'));
 after(() => rmSync(dir, { recursive: true, force: true }));
 
-test('the built page carries the mark before its script, with the version of package.json, and stays within the size that CI allows', () => {
+test('the built page carries the mark before its script, with the version of package.json', () => {
   const built = spawnSync(process.execPath, [join(root, 'tools/build.mjs'), '--out', dir], { encoding: 'utf8' });
   assert.equal(built.status, 0, built.stderr);
   const file = join(dir, 'plandoll.html'), html = readFileSync(file, 'utf8');
-  assert.ok(statSync(file).size <= CI_LIMIT, `the page is ${statSync(file).size} bytes, CI stops at ${CI_LIMIT}`);
   assert.equal(html.split('id="ps-version"').length, 2, 'one mark');
   const at = html.indexOf('id="ps-version"');
   assert.ok(at > html.indexOf('</noscript>') && at < html.indexOf('<script>'), 'after the noscript note and before the script: the page of plandoll.com keeps everything up to the first script');

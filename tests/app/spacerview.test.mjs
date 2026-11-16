@@ -72,8 +72,8 @@ test('what a screen reader is told: the hint is a status that speaks when it cha
 });
 
 test('the words are in both languages, say what the keys do, and an unknown language is English', () => {
-  assert.equal(SPACER_TEXT.en.hint, 'Click to look around. W S walk, A D step aside, arrows turn, Shift runs, Space jumps or opens and shuts doors, Esc goes back.');
-  assert.equal(SPACER_TEXT.pl.hint, 'Kliknij, żeby się rozglądać. W S: naprzód i wstecz, A D: bokiem, strzałki: obrót, Shift: bieg, spacja: skok albo drzwi, Esc: powrót.');
+  assert.equal(SPACER_TEXT.en.hint, 'Click to look around. W S walk, A D step aside, arrows turn, Shift runs, [ ] change the time of day, Space jumps or opens and shuts doors, Esc goes back.');
+  assert.equal(SPACER_TEXT.pl.hint, 'Kliknij, żeby się rozglądać. W S: naprzód i wstecz, A D: bokiem, strzałki: obrót, Shift: bieg, [ ]: pora dnia, spacja: skok albo drzwi, Esc: powrót.');
   assert.equal(SPACER_TEXT.en.touchHint, 'Drag the left half to walk, the right half to look');
   assert.equal(SPACER_TEXT.pl.touchHint, 'Lewa połowa: idź, prawa: rozglądaj się');
   assert.deepEqual([SPACER_TEXT.en.left, SPACER_TEXT.en.right, SPACER_TEXT.pl.left, SPACER_TEXT.pl.right], ['Walk', 'Look around', 'Idź', 'Rozglądaj się']);

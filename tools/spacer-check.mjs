@@ -4,9 +4,11 @@
 //   node tools/spacer-check.mjs [--html dist/plandoll.html | --html https://host/path/] [--out DIR] [--timeout 900] [--phone] [--only A,B,C] [--steps 4,6]
 // Desktop run (1280x720, mouse and keyboard), in scenes that each open the page with live=1 (no intro):
 //   A  the flat: 1 the click, 2 the keys (real clock, then a stopped clock and advanceTime for exact distances), 3 walls, a window and a shut door, 4 Space (jump, the door, Ctrl+Space,
-//      the Exit button), 5 moods and Shift with an arrow, 6 Escape and everything back as it was, 6b the first jump after a click, 7 the mouse under a simulated pointer lock
+//      the Exit button), 5 moods and Shift with an arrow, 6 Escape and everything back as it was, 6b the first jump after a click, 6c the world outside (the door, 40 m, the scene given back), 6d the bracket keys for the time of day, 7 the mouse under a simulated pointer lock
 //   B  the address: walk=1 opens inside, walk=0 has no button, edit=1 has no button and refuses
 //   C  the duplex: the stairs lead up without a jump of the eyes, the floor and plan buttons are out of the way
+//   D  the new examples as the page opens them (flat-2 and duplex-2 under the names flat-1 and duplex-1): the start, the way out of the front door, the stairs up (all from the plan files)
+//   (A, B and C open the first two example files as plan=ext, window.__plan: they probe the mechanics at places of those plans)
 // --phone runs scene P instead (390x844, touch emulation, Polish): 10 the touch click on the button, the two zones and the hint for about 4 s, the small map clear of the bar and of the
 //   version mark, 11 one finger on the left half walks (60 px is full speed), one on the right looks (0.005 rad per px), both fingers at once, 12 Exit by touch puts everything back.
 // --only runs some of the scenes (A, B, C, or P with --phone) and --steps some of the steps of scene A (by the number at the start of their name, e.g. 4,6), for a quick look. Headless Chrome has no pointer lock: the script defines document.pointerLockElement itself (an init script
@@ -17,7 +19,7 @@
 // --allow-origin=ORIGIN (repeatable, e.g. --allow-origin=https://playingpanda.com) lets requests that start with ORIGIN pass as not foreign; the default allows nothing. For a host that
 // adds a counter around the page (plandoll.com sends one request to its counter); the page of the repository makes none.
 import { spawn } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { pathToFileURL, fileURLToPath } from 'node:url';
@@ -131,6 +133,7 @@ const shot = async (name) => { // a JPEG of the step for a look, at most 12 per 
 // ---------- real input ----------
 const KEYS = {
   W: ['w', 'KeyW', 87], A: ['a', 'KeyA', 65], S: ['s', 'KeyS', 83], D: ['d', 'KeyD', 68], Space: [' ', 'Space', 32], Escape: ['Escape', 'Escape', 27],
+  BracketLeft: ['[', 'BracketLeft', 219], BracketRight: [']', 'BracketRight', 221],
   Shift: ['Shift', 'ShiftLeft', 16], Control: ['Control', 'ControlLeft', 17], ArrowLeft: ['ArrowLeft', 'ArrowLeft', 37], ArrowUp: ['ArrowUp', 'ArrowUp', 38],
   ArrowRight: ['ArrowRight', 'ArrowRight', 39], ArrowDown: ['ArrowDown', 'ArrowDown', 40], 3: ['3', 'Digit3', 51], 1: ['1', 'Digit1', 49],
 };
@@ -196,10 +199,19 @@ const INIT = `(() => {
       window.__spaceProbe = { keyAt, at: performance.now(), notice: s.notice, text: h ? h.textContent : null, hidden: h ? h.hidden : null, doors: s.doors.map((d) => [d.id, d.open]), jump: s.jump.active }; }, 0);
   }, true);
 })()`;
-async function open(hash, ready = 'typeof window.__spacer === "object" && (window.__done === true || window.__frames >= 1 || !!window.__fail)') {
+// The steps that probe the mechanics at known places of the first two example plans (a wall at y 3, the door d-hall-living, the old stairs) open those plans as files:
+// the page opens the new examples under the old names (plan=flat-1 is examples/flat-2.plan.json), so the old files are handed over as plan=ext through window.__plan.
+const OLD_PLANS = { 'flat-1': join(root, 'examples/flat-1.plan.json'), 'duplex-1': join(root, 'examples/duplex-1.plan.json') };
+async function open(hash, ready = 'typeof window.__spacer === "object" && (window.__done === true || window.__frames >= 1 || !!window.__fail)', file = null) {
   await send('Page.navigate', { url: 'about:blank' }); await sleep(300); // a change of the part after # alone would not reload the page
+  let injected = null;
+  if (file) {
+    hash = hash.replace(/plan=[\w-]+/, 'plan=ext');
+    injected = (await send('Page.addScriptToEvaluateOnNewDocument', { source: `window.__plan = ${readFileSync(OLD_PLANS[file], 'utf8')};` })).identifier;
+  }
   await send('Page.navigate', { url: `${page}#${hash}` });
   await waitFor(`document.readyState === 'complete' && !!document.querySelector('canvas')`, 90000, 'the page');
+  if (injected) await send('Page.removeScriptToEvaluateOnNewDocument', { identifier: injected });
   await waitFor(ready, 150000, 'the page to be done').catch(async (e) => { throw new Error(`${e.message}: ${await ev(`JSON.stringify({ rs: document.readyState, done: window.__done, fail: window.__fail, frames: window.__frames, spacer: typeof window.__spacer })`).catch((x) => String(x))}`); });
   await waitFor('!window.__camera || window.__camera.busy === false', 30000).catch(() => {});
   await sleep(600);
@@ -289,7 +301,7 @@ async function ensureWalking(manual = true) {
 }
 async function ensureOff() { if (await ev('window.__spacer.active')) { await ev('window.__spacer.leave()'); await waitFor('window.__spacer.active === false', 20000); await sleep(800); } }
 async function sceneA() {
-  await open('plan=flat-1&lang=en&q=low&live=1');
+  await open('plan=flat-1&lang=en&q=low&live=1', undefined, 'flat-1');
   check('A: the page is up with the hooks of Spacer and no script error', await ev(`typeof window.__spacer === 'object' && window.__spacer.active === false && !window.__fail`));
   const btn0 = await rectOf(BTN);
   check('A: the Spacer button is on the bar and reads "Walk"', !!btn0 && btn0.shown && /Walk/.test(await ev(`document.querySelector(${JSON.stringify(BTN)}).textContent`)), JSON.stringify(btn0));
@@ -566,6 +578,59 @@ async function sceneA() {
     await backAsItWas('6 escape', pre);
     await shot('6-back');
   });
+  await sec('6c outside', async () => {
+    await ensureOff();
+    // 6c. the world outside: in the walk it is in the scene (fog, a colour for the background); the walker leaves by the front door (1.0, 6.0 leads to +y) and goes on to 40 m from the flat, not farther; Escape gives the scene back
+    const before = await ev('window.__spacer.outside()');
+    await tapSel(BTN);
+    await waitFor('window.__spacer.active === true', 60000);
+    await ev('window.__spacer.manualClock(true)');
+    const inWalk = await ev('window.__spacer.outside()');
+    check('6c outside: in the walk the world, the fog and a colour for the background are in the scene', inWalk.shown === true && inWalk.fog === true && inWalk.background === 'color', JSON.stringify(inWalk));
+    const lv = (await st()).level;
+    await place(1.0, 5.2, 90, 0, lv);
+    await ev('window.__spacer.walkInput({ forward: 1 })');
+    const s1 = await ev('window.__spacer.advanceTime(2500)');
+    check('6c outside: the walker goes through the front door and stands on the path (y beyond the wall at 6.15) (the step and the path are no obstacle)', s1.cam.z > 6.5, `y ${f3(s1.cam.z)} collisions ${s1.collisions}`);
+    await ev('window.__spacer.walkInput({ forward: 1, run: true })');
+    const s2 = await ev('window.__spacer.advanceTime(60000)');
+    check('6c outside: running on, the walker stops 40 m beyond the flat (the flat ends at y 6, the world at 46 minus the radius)', s2.cam.z > 45.5 && s2.cam.z < 46.01, `y ${f3(s2.cam.z)}`);
+    await ev('window.__spacer.walkInput({ forward: 0 })');
+    await press('Escape');
+    await waitFor('window.__spacer.active === false', 15000, 'Escape').catch(() => {});
+    const after = await ev('window.__spacer.outside()');
+    check('6c outside: after Escape the world is out of the scene and the fog and the background are as before the walk', JSON.stringify(after) === JSON.stringify(before) && after.shown === false && after.fog === false, `${JSON.stringify(before)} then ${JSON.stringify(after)}`);
+  });
+  await sec('6d time keys', async () => {
+    await ensureOff();
+    // 6d. the bracket keys: outside Spacer they do nothing; in Spacer ] moves the time of day forward and [ back by 0.01 a key event, a held key (repeat) counts, and it stops at 1 and at 0
+    const T = () => ev('window.__spacer.time()');
+    await ev('window.__setT(0.5)'); await sleep(300);
+    await press('BracketRight'); await press('BracketLeft'); await press('BracketRight');
+    check('6d time keys: outside Spacer [ and ] do nothing', near(await T(), 0.5, 1e-9), `t ${f3(await T())}`);
+    await tapSel(BTN);
+    await waitFor('window.__spacer.active === true', 60000);
+    await ev('window.__spacer.manualClock(true)');
+    await ev('window.__setT(0.5)'); await frameAfter(1);
+    await press('BracketRight'); const a1 = await T();
+    await press('BracketRight'); await press('BracketRight'); const a3 = await T();
+    check('6d time keys: in Spacer ] moves the time forward by 0.01 a press', near(a1, 0.51, 1e-9) && near(a3, 0.53, 1e-9), `t ${f3(a1)} then ${f3(a3)}`);
+    await press('BracketLeft'); await press('BracketLeft'); const b2 = await T();
+    check('6d time keys: [ moves it back by 0.01 a press', near(b2, 0.51, 1e-9), `t ${f3(b2)}`);
+    await send('Input.dispatchKeyEvent', { type: 'rawKeyDown', key: ']', code: 'BracketRight', windowsVirtualKeyCode: 221, autoRepeat: true });
+    await send('Input.dispatchKeyEvent', { type: 'rawKeyDown', key: ']', code: 'BracketRight', windowsVirtualKeyCode: 221, autoRepeat: true });
+    await keyEv('keyUp', 'BracketRight'); await sleep(150);
+    check('6d time keys: the repeats of a held key count too', near(await T(), 0.53, 1e-9), `t ${f3(await T())}`);
+    await ev('window.__setT(0.995)'); await press('BracketRight'); await press('BracketRight'); const hi = await T();
+    await ev('window.__setT(0.004)'); await press('BracketLeft'); await press('BracketLeft'); const lo = await T();
+    check('6d time keys: the time stays within 0 and 1', hi === 1 && lo === 0, `t ${f3(hi)} and ${f3(lo)}`);
+    const hint = await ev(`document.querySelector('#ps-walk-hint')?.textContent ?? ''`);
+    check('6d time keys: the hint names the keys', /\[ \] change the time of day/.test(hint), hint.slice(0, 80));
+    await ev('window.__spacer.walkInput({ forward: 0 })');
+    await press('Escape'); await waitFor('window.__spacer.active === false', 15000, 'Escape').catch(() => {});
+    await press('BracketRight');
+    check('6d time keys: after Escape the keys do nothing again', near(await T(), 0.5, 1e-9), `t ${f3(await T())}`);
+  });
   await noStorage();
 }
 
@@ -586,7 +651,7 @@ async function sceneB() {
   check('B: edit=1 has no Spacer button, and enter() refuses with a reason', hidden && refused === false && after.active === false && after.denied === 'edit', `hidden ${hidden}, enter() ${refused}, denied "${after.denied}"`);
   await noStorage();
   // the word in the doorway in Polish (scene A reads it in English)
-  await open('walk=1&plan=flat-1&lang=pl&q=low');
+  await open('walk=1&plan=flat-1&lang=pl&q=low', undefined, 'flat-1');
   await ev('window.__spacer.manualClock(true)');
   await place(1.05, 3.0, -90);
   const p = await spaceAnd();
@@ -597,7 +662,7 @@ async function sceneB() {
 
 // ---------- scene C: the duplex, the stairs ----------
 async function sceneC() {
-  await open('plan=duplex-1&lang=en&q=low&live=1');
+  await open('plan=duplex-1&lang=en&q=low&live=1', undefined, 'duplex-1');
   const f = await frames();
   await ev('window.__spacer.enter()');
   await waitFor('window.__spacer.active === true', 60000);
@@ -627,9 +692,54 @@ async function sceneC() {
   await noStorage();
 }
 
+// ---------- scene D: the new examples as the page opens them (plan=flat-1 is flat-2.plan.json, plan=duplex-1 is duplex-2.plan.json) ----------
+// Every number comes from the plan file: the model of the engine gives the start (defaultSpawn), the front door (the exterior door) and the stairs; the page is asked to do the same on foot.
+async function sceneD() {
+  const { fileModel } = await import(pathToFileURL(join(root, 'tests/helpers/walk-model.mjs')).href);
+  const { defaultSpawn } = await import(pathToFileURL(join(root, 'src/model/physics.js')).href);
+  for (const [name, file] of [['flat-1', 'flat-2'], ['duplex-1', 'duplex-2']]) {
+    const m = fileModel(`examples/${file}.plan.json`), sp = defaultSpawn(m);
+    let door = null, lvl = null;
+    for (const lv of m.levels) for (const o of lv.openings) { const w = lv.wallById.get(o.wallId); if (!door && o.type === 'door' && w.kind === 'exterior') { door = { o, w }; lvl = lv; } }
+    const um = (door.o.u0 + door.o.u1) / 2, cx = door.w.from[0] + door.w.dir[0] * um, cy = door.w.from[1] + door.w.dir[1] * um, [nx, ny] = door.w.normal;
+    const yawOut = (Math.atan2(-ny, -nx) * 180) / Math.PI;
+    await open(`plan=${name}&lang=en&q=low&live=1`);
+    const f = await frames();
+    await ev('window.__spacer.enter()');
+    await waitFor('window.__spacer.active === true', 60000);
+    await waitFor(`window.__frames > ${f}`, 60000);
+    await ev('window.__spacer.manualClock(true)');
+    const first = await st();
+    check(`D ${file}: the start is (${f2(sp.x)}, ${f2(sp.y)}) within 0.05 m on level ${m.levels[sp.level].id}, as the engine says`, near(first.cam.x, sp.x, 0.05) && near(first.cam.z, sp.y, 0.05) && first.level === m.levels[sp.level].id, `x ${f3(first.cam.x)}, z ${f3(first.cam.z)}, level ${first.level}`);
+    await place(cx + nx * 1.2, cy + ny * 1.2, yawOut, 0, lvl.id);
+    await ev('window.__spacer.walkInput({ forward: 1 })');
+    const c0 = (await st()).collisions;
+    const out = await ev('window.__spacer.advanceTime(3500)');
+    const beyond = (out.cam.x - cx) * -nx + (out.cam.z - cy) * -ny;
+    check(`D ${file}: from the hall through the front door to the outside (more than 0.6 m beyond the door, no contact with a wall)`, beyond > 0.6 && out.level === lvl.id && out.collisions === c0, `${f2(beyond)} m beyond, collisions ${c0} to ${out.collisions}, level ${out.level}`);
+    await ev('window.__spacer.walkInput({ forward: 0 })');
+    if (m.stairs.length) {
+      const st0 = m.stairs[0], [dx, dy] = st0.dir, up = m.levels[st0.upper];
+      await place(st0.from[0] - dx * 0.8, st0.from[1] - dy * 0.8, (Math.atan2(dy, dx) * 180) / Math.PI, 0, m.levels[st0.lower].id);
+      await ev('window.__spacer.walkInput({ forward: 1 })');
+      let prev = await st(); const start = prev; let worst = 0, n = 0;
+      for (; n < 60; n++) {
+        const s = await ev('window.__spacer.advanceTime(120)');
+        worst = Math.max(worst, Math.abs(s.cam.y - prev.cam.y)); prev = s;
+        if (s.level === up.id && s.cam.y > up.elevation + 1.2) break;
+      }
+      await ev('window.__spacer.walkInput({ forward: 0 })');
+      check(`D ${file}: W up the stairs: the level changes from ${m.levels[st0.lower].id} to ${up.id}, the eyes rise by at least ${f2(st0.delta - 0.4)} m`, prev.level === up.id && prev.cam.y > start.cam.y + st0.delta - 0.4, `${start.level} y ${f2(start.cam.y)} to ${prev.level} y ${f2(prev.cam.y)} in ${n + 1} steps of 0.12 s`);
+      check(`D ${file}: the eyes never jump more than 0.3 m in a step of 0.12 s on the stairs, and no wall is touched`, worst < 0.3 && prev.collisions === start.collisions, `largest step ${f3(worst)} m, collisions ${start.collisions} to ${prev.collisions}`);
+    }
+    check(`D ${file}: no error on the way`, !(await ev('!!window.__fail')));
+    await noStorage();
+  }
+}
+
 // ---------- scene P: the phone ----------
 async function sceneP() {
-  await open('plan=flat-1&lang=pl&q=low&live=1');
+  await open('plan=flat-1&lang=pl&q=low&live=1', undefined, 'flat-1');
   const coarse = await ev(`matchMedia('(pointer: coarse)').matches`);
   check('P: the window is a touch screen (pointer: coarse, touch points)', coarse && (await ev('navigator.maxTouchPoints')) > 0, `coarse ${coarse}, touch points ${await ev('navigator.maxTouchPoints')}`);
   const pre = await snapshotBefore();
@@ -731,7 +841,7 @@ try {
   if (phone) await send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 });
   const timer = setTimeout(async () => { console.error(`FAIL timeout after ${opt.timeout} s`); await cleanup(); process.exit(1); }, Number(opt.timeout) * 1000);
   if (phone) await scene('P', sceneP);
-  else { await scene('A', sceneA); await scene('B', sceneB); await scene('C', sceneC); }
+  else { await scene('A', sceneA); await scene('B', sceneB); await scene('C', sceneC); await scene('D', sceneD); }
   clearTimeout(timer);
   const foreign = [...requests].filter((u) => !(u.startsWith(ownOrigin) || u.startsWith('data:') || u.startsWith('blob:') || u === 'about:blank' || allowOrigins.some((o) => u.startsWith(o))));
   check('the page made no request of its own to anywhere else', foreign.length === 0, foreign.slice(0, 3).join(' '));

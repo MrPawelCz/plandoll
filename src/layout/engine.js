@@ -3,8 +3,10 @@
 // the interior of the room, door zones, window zones, stairs, the pieces already standing and the clear space in front of them.
 import { SPEC_BY_ID, SPECS } from '../furniture/specs.js';
 import { roomType, roomZones, roomFacts } from './rooms.js';
-import { obb, penetration, boxInsidePolygon, frontOf, axisOf, rotFromFront, roomInterior, attachOpenings, freeIntervals, levelZones, onNorthOrWestWall } from './geometry.js';
+import { obb, penetration, boxInsidePolygon, frontOf, axisOf, rotFromFront, byStairs, roomInterior, attachOpenings, freeIntervals, levelZones, onNorthOrWestWall } from './geometry.js';
 import { RECIPES, decorate } from './recipes.js';
+import { makeReach } from './reach.js';
+import { REQUIRED_SETS } from './check.js';
 
 export const LIMITS = Object.freeze({ perLevel: 400, total: 1500, fitsPerLevel: 60000, fitsTotal: 200000 });
 
@@ -20,6 +22,7 @@ export function mulberry32(seed) {
 }
 
 export function defaultAllowed() { return new Set(SPECS.filter((s) => s.tier <= 2).map((s) => s.id)); }
+const DECOR = new Set(['art-large', 'art-small', 'mirror', 'shelf-wall']);
 const r3 = (v) => Math.round(v * 1000) / 1000;
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
 
@@ -66,10 +69,26 @@ export const TALL_WALL_BONUS = 3;
 
 function solid(p) { return !p._flat && (p._mode === 'floor' || p._mode === 'corner'); }
 
+// Beds keep 0.6 m free beside them (a double bed on both long sides, unless the room is under 9 m2; a single bed or such a room on
+// one side). The strips are measured from the bed's long sides; nightstands may stand in them.
+const FRONT_DOOR = { wardrobe: 0.5, 'wardrobe-small': 0.45, fridge: 0.6 }; // how far the doors of a piece swing out in front of it
+// pieces that stand beside another (a table before a sofa, a nightstand, stools at an island): the path rule leaves them to their partner
+const PARTNERS = new Set(['coffee-table', 'coffee-table-round', 'nightstand', 'bar-stool']);
+const BEDS = new Set(['bed-double', 'bed-king', 'bed-single']);
+const SIDE = 0.62;
+function bedStrips(p) {
+  const [ux, uy] = axisOf(p.rot);
+  return [1, -1].map((sg) => obb(p.x + ux * sg * (p.size[0] / 2 + SIDE / 2), p.y + uy * sg * (p.size[0] / 2 + SIDE / 2), SIDE, p.size[1], p.rot));
+}
+function bedNeed(p, area) { return p.type === 'bed-single' || area < 9 ? 1 : 2; }
+function stripsFree(bed, poly, others) {
+  return bedStrips(bed).filter((st) => boxInsidePolygon(st, poly, 0.02) && !others.some((q) => q !== bed && q.type !== 'nightstand' && solid(q) && !BEDS.has(q.type) && penetration(st, q._obb) > 0.01)).length;
+}
+
 function makeStage(lc, room, type, zone, interior) {
   const R = {
     lc, room, type, zone, level: lc.level, ip: interior, edges: interior.edges, area: interior.area, mine: [], rng: lc.rng,
-    facts: lc.facts(room),
+    facts: lc.facts(room), strict: lc.strict,
     minDim: 0,
     palette: PALETTES[Math.floor(lc.rng() * PALETTES.length) % PALETTES.length],
   };
@@ -85,7 +104,7 @@ function makeStage(lc, room, type, zone, interior) {
     return o.anyRoom || s.rooms.includes('any') || s.rooms.includes(R.zone) || s.rooms.includes(R.type);
   };
   R.mark = () => ({ n: lc.pieces.length, m: R.mine.length });
-  R.rollback = (mk) => { lc.pieces.length = mk.n; R.mine.length = mk.m; };
+  R.rollback = (mk) => { lc.pieces.length = mk.n; R.mine.length = mk.m; R.reach?.dirty(); };
   R.has = (t) => R.mine.some((p) => p.type === t);
   R.count = (t) => R.mine.filter((p) => p.type === t).length;
 
@@ -114,10 +133,20 @@ function makeStage(lc, room, type, zone, interior) {
     if (![p.x, p.y, p.rot, p.elev, ...p.size].every(Number.isFinite)) return no(2);
     if (!boxInsidePolygon(box, R.ip.poly)) return no(3);
     const z0 = p.elev, z1 = p.elev + p.size[2];
-    for (const dz of lc.zones.doors) if (z0 < dz.top && penetration(box, dz.box) > 0.004) return no(4);
-    for (const st of lc.zones.stairs) if (penetration(box, st.box) > 0.004) return no(5);
-    if ((spec.tall || p._mode === 'wall-mount') && p._mode !== 'window') {
-      for (const wz of lc.zones.windows) if (z1 > wz.sill && z0 < wz.top && penetration(box, wz.box) > 0.004) return no(6);
+    const strict = R.strict || (o.clear ?? 1) >= 1; // in a room that falls back (see autoFurnish) the softer passes (clear 0.6, 0.3) drop the new rules below, so a cramped room still gets its set
+    const zones = strict ? lc.zones : lc.softZones; // door zones of 0.9 m, in the soft passes the old 0.8 m
+    for (const dz of zones.doors) if (z0 < dz.top && penetration(box, dz.box) > 0.004) return no(4);
+    for (const st of zones.stairs) if (penetration(box, st.box) > 0.004) return no(5);
+    const fd = strict && FRONT_DOOR[p.type];
+    if (fd) { // the doors of a wardrobe or a fridge swing out in front of it: not into the sweep of a room door
+      const [fx, fy] = frontOf(p.rot), reach = obb(p.x + fx * (p.size[1] / 2 + fd / 2), p.y + fy * (p.size[1] / 2 + fd / 2), p.size[0], fd, p.rot);
+      for (const dz of lc.zones.doors) if (penetration(reach, dz.box) > 0.004) return no(13);
+    }
+    if (o.away && (o.away.some((d) => Math.hypot(p.x - d[0], p.y - d[1]) < o.awayR) || R.mine.some((q) => solid(q) && penetration(obb(p.x, p.y, p.size[0] + 0.5, p.size[1] + 0.5, p.rot), q._obb) > 0))) return no(17); // an added seat keeps off the approach to a door
+    if (p._mode === 'wall-mount' && DECOR.has(p.type) && byStairs(p, lc.stairFoot)) return no(16); // no picture, mirror or shelf by a flight of stairs
+    if (p._mode !== 'window') { // anything standing taller than a sill keeps off the window, except where the caller allows it (`underWindow`: a sink in a kitchen with no other room for it)
+      const low = !(spec.tall || p._mode === 'wall-mount');
+      for (const wz of lc.zones.windows) if (z1 > wz.sill + (low ? 0.02 : 0) && z0 < wz.top && !(low && o.underWindow) && penetration(box, wz.box) > 0.004) return no(6);
     }
     for (const q of lc.pieces) if (blocks(p, q)) return no(7);
     const partners = o.partners ?? [];
@@ -125,12 +154,22 @@ function makeStage(lc, room, type, zone, interior) {
     if (solid(p) && spec.place.clearFront > 0 && !o.noClear) {
       const cf = spec.place.clearFront * (o.clear ?? 1);
       const [fx, fy] = frontOf(p.rot);
-      clear = obb(p.x + fx * (p.size[1] / 2 + cf / 2), p.y + fy * (p.size[1] / 2 + cf / 2), p.size[0] * 0.9, cf, p.rot);
+      clear = obb(p.x + fx * (p.size[1] / 2 + cf / 2), p.y + fy * (p.size[1] / 2 + cf / 2), spec.rooms?.includes('bath') ? p.size[0] : p.size[0] * (p.size[0] >= 2 ? 0.98 : 0.9), cf, p.rot); // bathroom fittings keep their whole width clear, so a basin beside a toilet cannot reach in front of it
       for (const q of lc.pieces) if (q.room === p.room && solid(q) && !partners.includes(q) && penetration(clear, q._obb) > 0.01) return no(8);
     }
+    if (solid(p)) for (const q of lc.pieces) if (q._back && q.room === p.room && !partners.includes(q) && penetration(box, q._back) > 0.01) return no(15); // the room to push a dining chair back
     if (solid(p) && !o.noClear) {
       for (const q of lc.pieces) if (q.room === p.room && q._clear && !partners.includes(q) && penetration(box, q._clear) > 0.01) return no(9);
     }
+    if (o.noClear && solid(p) && p.type !== 'nightstand') for (const q of R.mine) if (q._clear && BEDS.has(q.type) && !partners.includes(q) && penetration(box, q._clear) > 0.01) return no(14); // nothing at the foot of a bed
+    if (strict && solid(p)) {
+      if (BEDS.has(p.type) && stripsFree(p, R.ip.poly, R.mine) < bedNeed(p, R.area)) return no(11);
+      for (const q of R.mine) if (BEDS.has(q.type) && p.type !== 'nightstand' && !BEDS.has(p.type)) {
+        const before = stripsFree(q, R.ip.poly, R.mine);
+        if (before >= bedNeed(q, R.area) && stripsFree(q, R.ip.poly, [...R.mine, p]) < bedNeed(q, R.area)) return no(12);
+      }
+    }
+    if (strict && solid(p) && !PARTNERS.has(p.type) && R.reach && !R.reach.ok(p, o.allFronts)) return no(10);
     p._clearBox = clear;
     return true;
   }
@@ -143,6 +182,7 @@ function makeStage(lc, room, type, zone, interior) {
     delete p._clearBox;
     lc.pieces.push(p);
     R.mine.push(p);
+    R.reach?.dirty();
     return p;
   }
 
@@ -151,7 +191,7 @@ function makeStage(lc, room, type, zone, interior) {
     if (!R.can(t, o)) return null;
     const p = make(t, o);
     for (const cf of o.soft ? [1, 0.6, 0.3] : [1]) {
-      if (fits(p, { ...o, clear: cf })) { p._edge = o.edge ?? null; return commit(p, o); }
+      if (fits(p, { ...o, clear: cf })) { p._edge = o.edge ?? null; p._s = o.s; return commit(p, o); }
     }
     return null;
   };
@@ -298,17 +338,21 @@ function makeStage(lc, room, type, zone, interior) {
     }
     return out;
   };
+  R.reach = makeReach(R, solid);
   return R;
 }
 
-export function autoFurnish(model, { seed = 1, allowedTypes, debug = false } = {}) {
+// strict: the rules of docs/DESIGN.md 3.4 (door zones 0.9 m, stair landings, bed sides, paths) hold in every pass: a piece that cannot
+// meet them is left out, where the default still places it in a cramped room so that the room keeps its full set.
+export function autoFurnish(model, { seed = 1, allowedTypes, debug = false, strict = true } = {}) {
   const allow = allowedTypes ? new Set(allowedTypes) : defaultAllowed();
   const state = { count: 0, fits: 0, debug: debug ? {} : null };
   const out = { version: 1, seed: Number.isFinite(seed) ? seed : 1, levels: [] };
   const rng = mulberry32(out.seed);
   for (const level of model.levels ?? []) {
-    const lc = { level, model, allow, rng, state, pieces: [], fits: 0, zones: null, facts: (r) => roomFacts(level, r) };
-    try { lc.zones = levelZones(level, model); } catch { lc.zones = { doors: [], windows: [], stairs: [] }; }
+    const lc = { level, model, allow, rng, state, strict, pieces: [], fits: 0, zones: null, facts: (r) => roomFacts(level, r) };
+    lc.stairFoot = [...(level.stairs ?? []), ...(model.stairs ?? []).filter((st) => st.lower === level.index || st.upper === level.index)].map((st) => st.footprint).filter(Boolean);
+    try { lc.zones = levelZones(level, model); lc.softZones = levelZones(level, model, 0.8); } catch { lc.zones = lc.softZones = { doors: [], windows: [], stairs: [] }; }
     const rooms = (level.rooms ?? []).slice(0, 150);
     const stages = [];
     for (const room of rooms) {
@@ -321,18 +365,44 @@ export function autoFurnish(model, { seed = 1, allowedTypes, debug = false } = {
       const R = makeStage(lc, room, type, type, interior);
       R.zones = zones;
       stages.push(R);
-      for (const z of zones) {
-        R.zone = z;
-        const recipe = RECIPES[z];
-        if (recipe) recipe(R);
-      }
-      R.zone = type;
+      const furnish = () => {
+        for (const z of zones) {
+          R.zone = z;
+          const recipe = RECIPES[z];
+          if (recipe) recipe(R);
+        }
+        R.zone = type;
+      };
+      const mk0 = R.mark();
+      furnish();
+      // the strict rules (door zones 0.9 m, stair landings, bed sides, free paths) hold in every room that can keep its full set with
+      // them; a cramped room that cannot is furnished again with the softer rules, so it still gets its set
+      if (R.strict && !globalThis.__NOFALLBACK && !setComplete(R)) { if (state.debug) state.debug[`soft:${R.room.id}:${missingOf(R)}`] = 1; R.rollback(mk0); R.strict = false; R.reach.dirty(); furnish(); }
     }
     for (const R of stages) { try { decorate(R); } catch { /* a bad room must not stop the others */ } }
     out.levels.push({ id: level.id, pieces: lc.pieces.map(clean) });
   }
   if (debug) out.debug = state.debug;
   return out;
+}
+
+// Has the room what its type needs (the same sets checkLayout asks for)?
+const setComplete = (R) => missingOf(R) === null;
+function missingOf(R) {
+  const set = REQUIRED_SETS[R.type];
+  if (!set || R.ip.area < set.minArea) return null;
+  // a bedroom also keeps a wardrobe, even a small one (checkLayout asks for it only in big rooms)
+  if (R.type === 'bedroom' && ['wardrobe', 'wardrobe-small'].some((t) => R.lc.allow.has(t)) && !R.mine.some((q) => q.type === 'wardrobe' || q.type === 'wardrobe-small')) return 'wardrobe';
+  const used = new Set();
+  const groups = [...set.need, ...(set.bigNeed && R.ip.area >= set.bigNeed[0] ? set.bigNeed[1] : []), ...(set.wideNeed && R.minDim >= set.wideNeed[0] ? set.wideNeed[1] : [])];
+  for (const group of groups) {
+    if (!group.some((id) => R.lc.allow.has(id))) continue;
+    const hit = group.find((id) => R.lc.allow.has(id) && R.mine.some((q, k) => q.type === id && !used.has(k + id)));
+    if (!hit) return group[0];
+    const need = group.length > 1 && group.every((g) => g === group[0]) ? group.length : 1;
+    if (R.mine.filter((q) => q.type === hit).length < need) return group[0];
+  }
+  return null;
 }
 
 function clean(p) {

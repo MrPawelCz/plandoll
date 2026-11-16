@@ -1,5 +1,5 @@
 // 2D helpers for the layout engine. Metres, plan space (x right, y down). Pure functions, bounded loops.
-import { pointInPolygon, polygonArea, polygonSelfIntersection, segmentCrossing } from '../core/geom2d.js';
+import { pointInPolygon, polygonArea, polygonSelfIntersection, segmentCrossing, distancePointToSegment } from '../core/geom2d.js';
 
 export const DEG = Math.PI / 180;
 const r3 = (v) => Math.round(v * 1000) / 1000;
@@ -176,7 +176,7 @@ export function freeIntervals(edge, { pad = 0.04, windows = false, minLen = 0.2 
 
 // Zones that must stay empty on a whole level: door and passage zones (0.8 m each side plus the leaf swing, which a box of the
 // door width covers), window zones (for tall pieces), stair footprints. Boxes are in plan space with a height limit `top`.
-export function levelZones(level, model = null) {
+export function levelZones(level, model = null, doorDepth = 0.9) {
   const doors = [], windows = [], stairs = [];
   for (const o of level.openings) {
     const w = level.wallById.get(o.wallId);
@@ -184,19 +184,29 @@ export function levelZones(level, model = null) {
     const um = (o.u0 + o.u1) / 2, hw = (o.u1 - o.u0) / 2 + 0.05;
     const cx = w.from[0] + w.dir[0] * um, cy = w.from[1] + w.dir[1] * um;
     if (o.type === 'window') windows.push({ o, box: boxAlong(cx, cy, w.dir[0], w.dir[1], hw, w.thickness / 2 + 0.55), sill: o.sill, top: o.sill + o.height });
-    else doors.push({ o, box: boxAlong(cx, cy, w.dir[0], w.dir[1], hw, (o.type === 'passage' ? 0.8 : Math.max(0.8, o.u1 - o.u0)) + w.thickness / 2), top: Math.min(o.height ?? 2.05, 2.1) });
+    else doors.push({ o, box: boxAlong(cx, cy, w.dir[0], w.dir[1], hw, (o.type === 'passage' ? doorDepth : Math.max(doorDepth, o.u1 - o.u0)) + w.thickness / 2), top: Math.min(o.height ?? 2.05, 2.1) });
   }
   const seen = new Set();
   const stairList = [...(level.stairs ?? []), ...(model ? (model.stairs ?? []).filter((st) => st.lower === level.index || st.upper === level.index) : [])];
   for (const st of stairList) {
     if (seen.has(st)) continue;
     seen.add(st);
-    const ex = st.run / 2 + 0.3, hw = st.width / 2 + 0.3;
+    const ex = st.run / 2 + (doorDepth >= 0.9 ? 0.95 : 0.3), hw = st.width / 2 + 0.3;
     const a = [st.from[0] - st.dir[0] * ex, st.from[1] - st.dir[1] * ex], b = [st.to[0] + st.dir[0] * ex, st.to[1] + st.dir[1] * ex];
     const cx = (a[0] + b[0]) / 2, cy = (a[1] + b[1]) / 2;
     stairs.push({ box: boxAlong(cx, cy, st.dir[0], st.dir[1], Math.hypot(b[0] - a[0], b[1] - a[1]) / 2, hw) });
   }
   return { doors, windows, stairs };
+}
+
+// A piece on a wall is by the stairs when the floor in front of it (up to 1.1 m out, over its width) comes within 0.3 m of a flight:
+// the wall beside a run and the narrow wall opposite it. `foots` are the stair footprints (rings of points).
+export function byStairs(p, foots) {
+  const [fx, fy] = frontOf(p.rot), [ux, uy] = axisOf(p.rot), hw = p.size[0] / 2;
+  return !!foots?.some((poly) => [-hw, 0, hw].some((t) => [0, 0.3, 0.6, 0.9, 1.1].some((d) => {
+    const q = [p.x + ux * t + fx * d, p.y + uy * t + fy * d];
+    return pointInPolygon(q, poly) || poly.some((a, i) => distancePointToSegment(q, a, poly[(i + 1) % poly.length]) < 0.3);
+  })));
 }
 
 export { polygonArea, pointInPolygon };

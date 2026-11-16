@@ -200,7 +200,7 @@ try {
   const dA = diff(picA0, picA1);
   record('and it looks the same (blocks of 8 by 8 pixels, the noise of a load averaged out)', dA.same, dA);
 
-  const { model, layout } = build(examplePlan('duplex-1'));
+  const { model, layout } = build(examplePlan('duplex-2')); // the plan the page opens for plan=duplex-1
   const lv0 = model.levels[0], piece = layout.levels[0].pieces.find((p) => specOf(p.type)?.slots?.length && !p.on), slot = specOf(piece.type).slots[0], room = lv0.rooms[0];
   // ---------- 1b. no Copy link and no file: a change made in the editor stays through Done, because the address follows the layout (this section and 1c also run with --quick, on a page without the feature they fail) ----------
   record('the editor page loads (this section copies and saves nothing)', await load('plan=duplex-1&edit=1&preset=clear&t=0.45'));
@@ -297,6 +297,7 @@ try {
   // ---------- 4. broken, huge and hostile links: the page opens without them, says so, and puts nothing in the page as markup ----------
   const bomb = `z1.${b64(deflateRawSync(Buffer.alloc(40 * 1024 * 1024)))}`;
   const evil = '<img src=x onerror="window.__pwned=1">';
+  const flatPieces = build(examplePlan('flat-2')).layout.levels.reduce((n, l) => n + l.pieces.length, 0); // what the page furnishes the flat it opens for plan=flat-1 with
   const hostileLayout = { version: 1, levels: [{ id: model.levels[0].id, pieces: [{ id: evil, type: piece.type, room: room.id, x: 1, y: 1 }, { id: 'ok1', type: 'no-such-type', room: room.id, x: 1, y: 1 }, { id: 'ok2', type: piece.type, room: evil, x: 1e308, y: 1 }] }, { id: evil, pieces: [] }] };
   const hostilePlan = JSON.parse(examplePlan('flat-1')); hostilePlan.name = evil; hostilePlan.levels[0].name = evil; for (const r of hostilePlan.levels[0].rooms) r.name = evil;
   const deep = `z1.${b64(deflateRawSync(Buffer.from(`{"v":1,"layout":{"version":1,"levels":[],"x":${'['.repeat(20000)}${']'.repeat(20000)}}}`)))}`; // a link of a few hundred characters that nests 20 000 levels deep
@@ -306,7 +307,7 @@ try {
     ['a text nested 20 000 levels deep', deep, (s) => s.notes[0]?.[0] === 'link' && s.notes[0][1] === 'broken'],
     ['a small deflated text that unpacks to 40 MB', bomb, (s) => s.notes[0]?.[0] === 'link' && s.notes[0][1] === 'too-large'],
     ['a plan that is no plan', plainValue({ v: 1, plan: { levels: [] } }), (s) => s.notes[0]?.[0] === 'plan'],
-    ['a layout of other plan levels and bad pieces', plainValue({ v: 1, layout: hostileLayout }), (s) => s.notes.length === 1 && s.pieces === 48],
+    ['a layout of other plan levels and bad pieces', plainValue({ v: 1, layout: hostileLayout }), (s) => s.notes.length === 1 && s.pieces === flatPieces],
     ['a plan and a layout full of markup', plainValue({ v: 1, plan: hostilePlan, layout: hostileLayout }), () => true],
   ];
   for (const [name, value, check] of opt.quick ? cases.slice(0, 2) : cases) {

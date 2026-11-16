@@ -22,6 +22,7 @@ const NAME_RULES = [
   ['living', /\b(salon\w*|dzienn\w*|living\w*|lounge|sitting|family room|reception|great room|studio|garsonier\w*|kawaler\w*|apartament\w*|main room)\b/],
   ['bedroom', /\b(sypialn\w*|bedroom\w*|bed room|master|guest|gosc\w*|sleeping|suite|sypialka)\b/],
   ['office', /\b(gabinet\w*|biur\w*|office|study|workroom|work room|pracown\w*|home office|library|biblioteka)\b/],
+  ['stair', /\b(stairwell\w*|klatk\w* schod\w*|szyb\w* schod\w*)\b/], // a closed stair shaft: nothing is placed in it
   ['hall', /\b(przedpok\w*|korytarz\w*|hol|hall\w*|entry|entrance|foyer|wiatrolap\w*|corridor|landing|passage|lobby|vestibule|podest\w*|klatk\w*|stairs?|schod\w*)\b/],
   ['utility', /\b(pralni\w*|utility|laundry|gospodarcz\w*|kotlowni\w*|technical|techniczn\w*|boiler|plant room)\b/],
   ['balcony', /\b(balkon\w*|taras\w*|balcony|terrace|patio|loggia|logia|veranda|deck)\b/],

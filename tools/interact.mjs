@@ -593,7 +593,7 @@ async function floorsEditBlock() {
 
   // a room picked on a floor goes when that floor goes
   await tapFloor('all'); await sleep(300);
-  const planFile = JSON.parse(readFileSync(new URL('../examples/duplex-1.plan.json', import.meta.url), 'utf8')), roomUp = planFile.levels[1]?.rooms?.[0]?.id;
+  const planFile = JSON.parse(readFileSync(new URL('../examples/duplex-2.plan.json', import.meta.url), 'utf8')), roomUp = planFile.levels[1]?.rooms?.[0]?.id;
   if (roomUp) {
     await ev(`window.__edit.session.selectRoom(${JSON.stringify(ids[1])}, ${JSON.stringify(roomUp)})`); await sleep(300);
     const rs1 = await ev('window.__edit.selectedRoomId()');
@@ -778,7 +778,12 @@ try {
 
     // select: a tap on a piece selects it (the outline shows), the id reported by the page is the one tapped
     let chosen = null, f = await frames(), picBeforeSel = pic;
-    for (const c of cands) {
+    // a piece with a room-mate on the picture goes first: the later drop on another piece of the same room needs one (the plan decides which rooms show two pieces)
+    const seen = new Map();
+    for (const c of cands) seen.set(c.id, inside(await ev(`window.__edit.screenOf(${JSON.stringify(c.id)})`)));
+    const mates = (c) => cands.filter((o) => o.id !== c.id && o.level === c.level && o.room === c.room && seen.get(o.id)).length;
+    const ordered = [...cands].sort((a, b) => Math.min(mates(b), 1) - Math.min(mates(a), 1));
+    for (const c of ordered) {
       const pt = await ev(`window.__edit.screenOf(${JSON.stringify(c.id)})`);
       if (!inside(pt)) continue;
       // the sheet of a selected piece opens over the bottom of the picture, and a piece under it cannot be grabbed again: look first (the selection is set
@@ -1372,15 +1377,17 @@ try {
       await tapAt('#ps-files-overlay button.ps-files-load'); await sleep(400);
     };
     const infoNow = async () => JSON.parse(await ev('JSON.stringify(window.__planInfo ? window.__planInfo() : null)'));
-    const lineNow = () => ev(`(document.querySelector('#ps-edit-msg') ?? document.querySelector('#ps-ui-msg'))?.textContent ?? ''`);
+    // a text the validator refuses stays in the box with the reason (#ps-files-error); the status line of the page says the rest
+    const lineNow = () => ev(`['#ps-files-error', '#ps-edit-msg', '#ps-ui-msg'].map((q) => document.querySelector(q)?.textContent ?? '').find(Boolean) ?? ''`);
     const before = await infoNow(), picBefore = await picture('40-plan-before');
-    planText = readFileSync(new URL(before?.levels === 2 ? '../examples/flat-1.plan.json' : '../examples/duplex-1.plan.json', import.meta.url), 'utf8');
+    planText = readFileSync(new URL(before?.levels === 2 ? '../examples/flat-1.plan.json' : '../examples/duplex-2.plan.json', import.meta.url), 'utf8');
     const opened = await openLoad();
     const dialog = await ev(`JSON.stringify({ title: document.querySelector('#ps-files-title')?.textContent ?? null, pick: !!document.querySelector('#ps-files-overlay .ps-files-pick') })`);
     await picture('41-plan-dialog');
     await fillAndLoad('{"not": "a plan"}');
     const badLine = await lineNow(), afterBad = await infoNow(), stillThere = await ev('!!document.querySelector("canvas") && !window.__fail');
     record('Load plan: a text that is not a plan gives a message and changes nothing', opened && /Could not load the plan|Nie wczytano planu/.test(badLine) && JSON.stringify(afterBad) === JSON.stringify(before) && stillThere, { dialog: JSON.parse(dialog), line: badLine.slice(0, 120), before, afterBad });
+    await tapAt('#ps-files-overlay button.ps-files-cancel'); await waitFor("!document.querySelector('#ps-files-overlay')", 10); // the box kept the refused text open: close it like a visitor, then load the plan
     const f0 = await frames();
     await openLoad(); await fillAndLoad(planText);
     const swapped = await waitFor(`window.__planInfo && window.__planInfo().levels !== ${before?.levels ?? -1}`, 30);

@@ -394,7 +394,7 @@ export const recolorRoom = guarded((state, levelId, roomId, part, color, opts) =
 export const resetToAuto = guarded((state, model, opts) => {
   const o = optsOf(opts);
   let layout;
-  try { layout = autoFurnish(model, { seed: fin(o.seed) ? o.seed : state.layout.seed, allowedTypes: o.allowedTypes }); } catch { return fail(state, 'engine-error'); }
+  try { layout = autoFurnish(model, { seed: fin(o.seed) ? o.seed : state.layout.seed, allowedTypes: o.allowedTypes, strict: true }); } catch { return fail(state, 'engine-error'); }
   if (!validLayout(layout)) return fail(state, 'engine-error');
   return { state: commit(state, layout, { selection: null }), ok: true };
 });

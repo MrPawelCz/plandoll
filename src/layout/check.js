@@ -27,7 +27,7 @@ export function checkLayout(model, layout, { allowedTypes } = {}) {
     const level = model.levels.find((l) => l.id === L.id);
     if (!level) { out.push({ kind: 'outside-room', level: L.id, detail: 'unknown level' }); continue; }
     if (L.pieces.length > LIMITS.perLevel) out.push({ kind: 'too-many-pieces', level: L.id, detail: `${L.pieces.length} pieces` });
-    const zones = levelZones(level, model);
+    const zones = levelZones(level, model, 0.8); // the engine keeps 0.9 m when it can, 0.8 m is the floor
     const interiors = new Map();
     for (const r of level.rooms) { let ip = null; try { ip = roomInterior(level, r); } catch { ip = null; } interiors.set(r.id, ip); }
     const items = [];

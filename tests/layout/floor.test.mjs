@@ -1,4 +1,4 @@
-// The floor step of the prop layer: open floor in the middle of a room gets a rug and an armchair that faces it, and every rule of the
+// The floor step of the prop layer: open floor in the middle of a room gets a reading corner (no lone rug and armchair), and every rule of the
 // layout still holds. The study of the first example plan has a wide bare stretch between its desk and its window.
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -15,13 +15,10 @@ const model = buildModel(modelOf(analyzePlan(plan)));
 const layout = autoFurnish(model, { seed: 7, allowedTypes: ALL });
 const study = layout.levels.flatMap((lv) => lv.pieces).filter((p) => p.room === 'study');
 
-test('the bare middle of the study gets a rug with an armchair on it', () => {
+test('the bare middle of the study gets no lone rug and no armchair on a rug of its own', () => {
   const rug = study.find((p) => p.type === 'rug');
-  const chair = study.find((p) => p.type === 'armchair');
-  assert.ok(rug && chair, 'a rug and an armchair');
-  assert.ok(Math.abs(chair.x - rug.x) < rug.size[0] / 2 && Math.abs(chair.y - rug.y) < rug.size[1] / 2, 'the armchair stands on the rug');
-  const [fx, fy] = frontOf(chair.rot);
-  assert.ok((rug.x - chair.x) * fx + (rug.y - chair.y) * fy > 0, 'the armchair faces the middle of the rug');
+  if (rug) assert.ok(study.some((p) => p !== rug && p.size[2] > 0.2 && !p.on && Math.abs(p.x - rug.x) < rug.size[0] / 2 + 0.2 && Math.abs(p.y - rug.y) < rug.size[1] / 2 + 0.2), 'a rug lies under a piece');
+  for (const chair of study.filter((p) => p.type === 'armchair')) assert.ok(!rug || Math.abs(chair.x - rug.x) > rug.size[0] / 2 || Math.abs(chair.y - rug.y) > rug.size[1] / 2 || study.some((p) => p.type === 'desk' || p.type === 'coffee-table'), 'the armchair does not stand alone on the rug');
 });
 
 test('the floor step keeps every rule and gives the same result twice', () => {

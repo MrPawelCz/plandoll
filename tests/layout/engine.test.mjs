@@ -71,7 +71,7 @@ test('allowedTypes limits the engine and different seeds stay valid', () => {
     const l = autoFurnish(model, { seed });
     assert.deepEqual(checkLayout(model, l).filter((v) => GEOMETRY_KINDS.includes(v.kind)), []);
   }
-  assert.ok(defaultAllowed().has('sofa2') && !defaultAllowed().has('bench'));
+  assert.ok(defaultAllowed().has('sofa2') && !defaultAllowed().has('bar-stool'));
 });
 
 test('the seed changes colours, never positions', () => {

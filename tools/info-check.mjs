@@ -12,6 +12,7 @@ import { spawn } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
+import { readFileSync } from 'node:fs';
 import { pathToFileURL, fileURLToPath } from 'node:url';
 
 const argv = process.argv.slice(2);
@@ -26,6 +27,14 @@ for (let i = 0; i < argv.length; i++) {
   else { console.error('usage: node tools/info-check.mjs [--html dist/plandoll.html | --html https://host/path/] [--out DIR] [--timeout S] [--phone | --small] [--allow-origin=ORIGIN]'); process.exit(2); }
 }
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
+
+// What the list of rooms must show for an example file, worked out from the plan file by the same words-and-areas code the page uses (info.js), not typed in here.
+const { analyzePlan, modelOf } = await import(pathToFileURL(join(root, 'src/core/validate.js')).href);
+const { roomsData, roomsView } = await import(pathToFileURL(join(root, 'src/app/info.js')).href);
+const expectedList = (file, lang) => {
+  const res = analyzePlan(JSON.parse(readFileSync(join(root, 'examples', file), 'utf8'))), v = roomsView(roomsData(modelOf(res)), lang);
+  return { rows: v.groups.flatMap((g) => g.rooms.map((r) => r.area)), heads: v.groups.map((g) => g.title).filter(Boolean), groupAreas: v.groups.map((g) => g.area), total: v.total };
+};
 const live = /^https?:\/\//i.test(opt.html ?? '');
 const page = live ? opt.html : pathToFileURL(resolve(opt.html ?? join(root, 'dist/plandoll.html'))).href;
 const ownOrigin = live ? new URL(opt.html).origin : 'file://';
@@ -235,7 +244,8 @@ async function plainPage(lang) {
   const list = await rectOf('#ps-rooms');
   const rows = await texts('.psd-row');
   check(`${lang}: the Rooms button opens the list, pressed`, opened && list.shown && await ev(`document.querySelector('#ps-ui button.tool[data-tool="rooms"]').getAttribute('aria-pressed') === 'true' && window.__info.roomsOpen()`), JSON.stringify(list));
-  check(`${lang}: the list has the five rooms with their areas, and the total under them`, rows.length === 5 && rows[0].endsWith(L.area) && (await texts('.psd-total')).join('').includes(L.total) && (await texts('.psd-total')).join('').includes('42 m²'), `${rows.join(' | ')} | ${(await texts('.psd-total')).join('')}`);
+  const flatList = expectedList('flat-2.plan.json', lang);
+  check(`${lang}: the list has the rooms of the flat (${flatList.rows.length}) with their areas, and the total under them`, rows.length === flatList.rows.length && flatList.rows.every((a, i) => rows[i].endsWith(a)) && (await texts('.psd-total')).join('').includes(L.total) && (await texts('.psd-total')).join('').endsWith(flatList.total), `${rows.join(' | ')} | ${(await texts('.psd-total')).join('')}`);
   const rowRect = await rectOf('.psd-row');
   check(`${lang}: the list is on the picture (${phone ? 'at the top' : 'at the left'}) and a row is a comfortable target`, inside(list) && (phone ? list.y < (await dockTop()) + 80 && list.w > W - 40 : list.x < 24 && list.w < 320) && rowRect.h >= (phone ? 43.5 : 34), `${JSON.stringify(list)} row ${rowRect.h}`);
   if (phone) { const bar = await rectOf('#ps-ui'); check(`${lang}: the list stops above the control bar`, list.b <= bar.y + 1, `list bottom ${Math.round(list.b)}, bar top ${Math.round(bar.y)}`); }
@@ -317,20 +327,21 @@ async function languageAndPlan() {
   await tapSel('#ps-ui button.lang'); await sleep(500);
   const pl = await ev(`({ title: document.querySelector('.psd-rooms-title').textContent, total: document.querySelector('.psd-total').textContent, row: document.querySelector('.psd-row .psd-row-area').textContent,
     dims: [...document.querySelectorAll('.psd-dim dt')].map((n) => n.textContent), btn: document.querySelector('#ps-ui button.tool[data-tool="rooms"]').textContent })`);
-  check('the language button redraws the list and the open card in place', pl.title === 'Pokoje' && pl.total.startsWith('Razem') && pl.row === '13,4 m²' && pl.btn === 'Pokoje' && (!p || pl.dims.join() === 'szer.,głęb.,wys.'), JSON.stringify(pl));
+  check('the language button redraws the list and the open card in place', pl.title === 'Pokoje' && pl.total.startsWith('Razem') && pl.row === expectedList('flat-2.plan.json', 'pl').rows[0] && pl.btn === 'Pokoje' && (!p || pl.dims.join() === 'szer.,głęb.,wys.'), JSON.stringify(pl));
   await tapSel('#ps-ui button.lang'); await sleep(300);
+  const dupList = expectedList('duplex-2.plan.json', 'en'); dupList.perFloor = [0, 1].map((k) => { const v = roomsView(roomsData(modelOf(analyzePlan(JSON.parse(readFileSync(join(root, 'examples/duplex-2.plan.json'), 'utf8'))))), 'en'); return v.groups[k].rooms.length; });
   await tapSel('#ps-ui button[data-plan="duplex-1"]'); await sleep(1500);
   const duplex = await ev(`({ rows: document.querySelectorAll('.psd-row').length, heads: [...document.querySelectorAll('.psd-group-head')].map((n) => n.textContent.replace(/\\s+/g, ' ')), total: document.querySelector('.psd-total').textContent, card: window.__info.cardOpen(), outline: window.__info.outlineOn(), listOpen: window.__info.roomsOpen() })`);
-  check('a new plan closes the card, keeps the list open and lists the new rooms with a heading per floor', duplex.rows === 8 && duplex.heads.length === 2 && /Ground floor/.test(duplex.heads[0]) && /Upper floor/.test(duplex.heads[1]) && duplex.total.includes('102.6') && !duplex.card && !duplex.outline && duplex.listOpen, JSON.stringify(duplex));
+  check('a new plan closes the card, keeps the list open and lists the new rooms with a heading per floor', duplex.rows === dupList.rows.length && duplex.heads.length === dupList.heads.length && duplex.heads.every((h, i) => h.includes(dupList.heads[i])) && duplex.heads.every((h, i) => h.endsWith(dupList.groupAreas[i])) && duplex.total.endsWith(dupList.total) && !duplex.card && !duplex.outline && duplex.listOpen, JSON.stringify(duplex));
   await shot('5-duplex');
   // a card on the ground floor goes when that floor goes
   const down = await findPiece({ level: 'L0' });
-  if (down) { await tap(down.x, down.y); check('a piece of the ground floor opens its card with the floor named', await ev(`window.__info.cardOpen() && /Ground floor/.test(document.querySelector('.psd-where').textContent)`), (await texts('.psd-where')).join()); }
+  if (down) { await tap(down.x, down.y); check('a piece of the ground floor opens its card with the floor named', await ev(`window.__info.cardOpen() && document.querySelector('.psd-where').textContent.includes(${JSON.stringify(dupList.heads[0])})`), (await texts('.psd-where')).join()); }
   await tapSel('#ps-ui button[data-floor="1"]'); await sleep(1200);
   const up = await ev(`({ rows: document.querySelectorAll('.psd-row').length, heads: document.querySelectorAll('.psd-group-head').length, total: document.querySelector('.psd-total').textContent, card: window.__info.cardOpen(), outline: window.__info.outlineOn() })`);
-  check('showing the upper floor only closes the card of a piece below and lists the four rooms upstairs with their total', up.rows === 4 && up.heads === 1 && up.total.includes('51.3') && (!down || (!up.card && !up.outline)), JSON.stringify(up));
+  check('showing the upper floor only closes the card of a piece below and lists the rooms upstairs with their total', up.rows === dupList.perFloor[1] && up.heads === 1 && up.total.endsWith(dupList.groupAreas[1]) && (!down || (!up.card && !up.outline)), JSON.stringify(up));
   await tapSel('#ps-ui button[data-floor="all"]'); await sleep(1000);
-  check('both floors back: the list has all eight rooms again', await ev(`document.querySelectorAll('.psd-row').length === 8`));
+  check('both floors back: the list has all the rooms again', await ev(`document.querySelectorAll('.psd-row').length === ${dupList.rows.length}`));
 }
 
 async function shellOpen() {

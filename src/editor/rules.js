@@ -37,7 +37,7 @@ function levelCtx(model, levelId) {
   let c = levelCache.get(level);
   if (!c) {
     let zones;
-    try { zones = levelZones(level, model); } catch { zones = { doors: [], windows: [], stairs: [] }; }
+    try { zones = levelZones(level, model, 0.8); } catch { zones = { doors: [], windows: [], stairs: [] }; }
     c = { level, zones, interiors: new Map() };
     levelCache.set(level, c);
   }

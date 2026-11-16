@@ -1,0 +1,1202 @@
+{
+ "version": 1,
+ "name": "Two-storey house with a closed stair (193 m2 gross)",
+ "units": "m",
+ "meta": {
+  "source": "synthetic",
+  "notes": "Hand-written reference example. CC0. Ground floor: entrance hall with a straight stair in a closed stairwell, living room, kitchen open to the dining room, study, WC and a utility room. First floor: main bedroom with ensuite and dressing room, two more bedrooms, a family bathroom and a landing with a gallery. The stair has 16 risers of 0.18 m and a 0.26 m tread."
+ },
+ "levels": [
+  {
+   "id": "L0",
+   "name": "Ground floor",
+   "height": 2.7,
+   "walls": [
+    {
+     "id": "w1",
+     "from": [
+      4.2,
+      1.34
+     ],
+     "to": [
+      5.32,
+      1.34
+     ]
+    },
+    {
+     "id": "w2",
+     "from": [
+      5.32,
+      0
+     ],
+     "to": [
+      5.32,
+      1.34
+     ]
+    },
+    {
+     "id": "w3",
+     "from": [
+      5.32,
+      1.34
+     ],
+     "to": [
+      5.32,
+      3
+     ]
+    },
+    {
+     "id": "w4",
+     "from": [
+      5.32,
+      3
+     ],
+     "to": [
+      5.32,
+      5.62
+     ]
+    },
+    {
+     "id": "w5",
+     "from": [
+      4.2,
+      5.62
+     ],
+     "to": [
+      5.32,
+      5.62
+     ]
+    },
+    {
+     "id": "w6",
+     "from": [
+      5.32,
+      5.62
+     ],
+     "to": [
+      6.8,
+      5.62
+     ]
+    },
+    {
+     "id": "w7",
+     "from": [
+      4.2,
+      1.34
+     ],
+     "to": [
+      4.2,
+      2.8
+     ]
+    },
+    {
+     "id": "w8",
+     "from": [
+      4.2,
+      2.8
+     ],
+     "to": [
+      4.2,
+      5.62
+     ]
+    },
+    {
+     "id": "w9",
+     "from": [
+      4.2,
+      5.62
+     ],
+     "to": [
+      4.2,
+      8.8
+     ]
+    },
+    {
+     "id": "w10",
+     "from": [
+      6.8,
+      0
+     ],
+     "to": [
+      6.8,
+      3
+     ]
+    },
+    {
+     "id": "w11",
+     "from": [
+      6.8,
+      3
+     ],
+     "to": [
+      6.8,
+      4.6
+     ]
+    },
+    {
+     "id": "w12",
+     "from": [
+      6.8,
+      4.6
+     ],
+     "to": [
+      6.8,
+      5.62
+     ]
+    },
+    {
+     "id": "w13",
+     "from": [
+      6.8,
+      5.62
+     ],
+     "to": [
+      6.8,
+      8.8
+     ]
+    },
+    {
+     "id": "w14",
+     "from": [
+      0,
+      8.8
+     ],
+     "to": [
+      4.2,
+      8.8
+     ],
+     "kind": "exterior"
+    },
+    {
+     "id": "w15",
+     "from": [
+      4.2,
+      8.8
+     ],
+     "to": [
+      6.8,
+      8.8
+     ],
+     "kind": "exterior"
+    },
+    {
+     "id": "w16",
+     "from": [
+      6.8,
+      8.8
+     ],
+     "to": [
+      11,
+      8.8
+     ],
+     "kind": "exterior"
+    },
+    {
+     "id": "w17",
+     "from": [
+      0,
+      2.8
+     ],
+     "to": [
+      4.2,
+      2.8
+     ]
+    },
+    {
+     "id": "w18",
+     "from": [
+      0,
+      0
+     ],
+     "to": [
+      0,
+      2.8
+     ],
+     "kind": "exterior"
+    },
+    {
+     "id": "w19",
+     "from": [
+      0,
+      2.8
+     ],
+     "to": [
+      0,
+      8.8
+     ],
+     "kind": "exterior"
+    },
+    {
+     "id": "w20",
+     "from": [
+      0,
+      0
+     ],
+     "to": [
+      5.32,
+      0
+     ],
+     "kind": "exterior"
+    },
+    {
+     "id": "w21",
+     "from": [
+      5.32,
+      0
+     ],
+     "to": [
+      6.8,
+      0
+     ],
+     "kind": "exterior"
+    },
+    {
+     "id": "w22",
+     "from": [
+      6.8,
+      0
+     ],
+     "to": [
+      11,
+      0
+     ],
+     "kind": "exterior"
+    },
+    {
+     "id": "w23",
+     "from": [
+      5.32,
+      3
+     ],
+     "to": [
+      6.8,
+      3
+     ]
+    },
+    {
+     "id": "w24",
+     "from": [
+      11,
+      0
+     ],
+     "to": [
+      11,
+      4.6
+     ],
+     "kind": "exterior"
+    },
+    {
+     "id": "w25",
+     "from": [
+      11,
+      4.6
+     ],
+     "to": [
+      11,
+      8.8
+     ],
+     "kind": "exterior"
+    },
+    {
+     "id": "w26",
+     "from": [
+      6.8,
+      4.6
+     ],
+     "to": [
+      11,
+      4.6
+     ]
+    }
+   ],
+   "openings": [
+    {
+     "id": "front",
+     "wall": "w15",
+     "type": "door",
+     "offset": 0.8,
+     "width": 1,
+     "hinge": "end"
+    },
+    {
+     "id": "stair-foot",
+     "wall": "w5",
+     "type": "passage",
+     "offset": 0,
+     "width": 1.12
+    },
+    {
+     "id": "d-hall-living",
+     "wall": "w9",
+     "type": "door",
+     "offset": 1.03,
+     "width": 0.9,
+     "opens_to": "right"
+    },
+    {
+     "id": "d-hall-dining",
+     "wall": "w13",
+     "type": "door",
+     "offset": 1.03,
+     "width": 0.9,
+     "hinge": "end"
+    },
+    {
+     "id": "d-wc",
+     "wall": "w6",
+     "type": "door",
+     "offset": 0.38,
+     "width": 0.7,
+     "hinge": "end",
+     "opens_to": "right"
+    },
+    {
+     "id": "d-study",
+     "wall": "w17",
+     "type": "door",
+     "offset": 1.05,
+     "width": 0.9,
+     "opens_to": "right"
+    },
+    {
+     "id": "d-utility",
+     "wall": "w10",
+     "type": "door",
+     "offset": 0.65,
+     "width": 0.7
+    },
+    {
+     "id": "p-kitchen-dining",
+     "wall": "w26",
+     "type": "passage",
+     "offset": 1.2,
+     "width": 2
+    },
+    {
+     "id": "w-living-s",
+     "wall": "w14",
+     "type": "window",
+     "offset": 1.5,
+     "width": 1.8
+    },
+    {
+     "id": "w-living-w",
+     "wall": "w19",
+     "type": "window",
+     "offset": 2,
+     "width": 1.6
+    },
+    {
+     "id": "w-study-n",
+     "wall": "w20",
+     "type": "window",
+     "offset": 1.45,
+     "width": 1.5
+    },
+    {
+     "id": "w-study-w",
+     "wall": "w18",
+     "type": "window",
+     "offset": 0.8,
+     "width": 1.2
+    },
+    {
+     "id": "w-utility",
+     "wall": "w21",
+     "type": "window",
+     "offset": 0.34,
+     "width": 0.8
+    },
+    {
+     "id": "w-kitchen-e",
+     "wall": "w24",
+     "type": "window",
+     "offset": 0.8,
+     "width": 1.6
+    },
+    {
+     "id": "w-kitchen-n",
+     "wall": "w22",
+     "type": "window",
+     "offset": 1.4,
+     "width": 1.6
+    },
+    {
+     "id": "w-dining-e",
+     "wall": "w25",
+     "type": "window",
+     "offset": 1.2,
+     "width": 1.8
+    },
+    {
+     "id": "w-dining-s",
+     "wall": "w16",
+     "type": "window",
+     "offset": 1.4,
+     "width": 1.6
+    }
+   ],
+   "rooms": [
+    {
+     "id": "stair",
+     "name": "Stairwell",
+     "polygon": [
+      [
+       4.2,
+       1.34
+      ],
+      [
+       5.32,
+       1.34
+      ],
+      [
+       5.32,
+       5.62
+      ],
+      [
+       4.2,
+       5.62
+      ]
+     ],
+     "use": "hall",
+     "floor": "tile"
+    },
+    {
+     "id": "hall",
+     "name": "Entrance hall",
+     "polygon": [
+      [
+       4.2,
+       5.62
+      ],
+      [
+       6.8,
+       5.62
+      ],
+      [
+       6.8,
+       8.8
+      ],
+      [
+       4.2,
+       8.8
+      ]
+     ],
+     "use": "hall",
+     "floor": "tile"
+    },
+    {
+     "id": "living",
+     "name": "Living room",
+     "polygon": [
+      [
+       0,
+       2.8
+      ],
+      [
+       4.2,
+       2.8
+      ],
+      [
+       4.2,
+       8.8
+      ],
+      [
+       0,
+       8.8
+      ]
+     ],
+     "use": "living",
+     "floor": "wood"
+    },
+    {
+     "id": "study",
+     "name": "Study",
+     "polygon": [
+      [
+       0,
+       0
+      ],
+      [
+       5.32,
+       0
+      ],
+      [
+       5.32,
+       1.34
+      ],
+      [
+       4.2,
+       1.34
+      ],
+      [
+       4.2,
+       2.8
+      ],
+      [
+       0,
+       2.8
+      ]
+     ],
+     "use": "office",
+     "floor": "wood"
+    },
+    {
+     "id": "utility",
+     "name": "Utility room",
+     "polygon": [
+      [
+       5.32,
+       0
+      ],
+      [
+       6.8,
+       0
+      ],
+      [
+       6.8,
+       3
+      ],
+      [
+       5.32,
+       3
+      ]
+     ],
+     "use": "storage",
+     "floor": "tile"
+    },
+    {
+     "id": "wc",
+     "name": "WC",
+     "polygon": [
+      [
+       5.32,
+       3
+      ],
+      [
+       6.8,
+       3
+      ],
+      [
+       6.8,
+       5.62
+      ],
+      [
+       5.32,
+       5.62
+      ]
+     ],
+     "use": "bathroom",
+     "floor": "tile"
+    },
+    {
+     "id": "kitchen",
+     "name": "Kitchen",
+     "polygon": [
+      [
+       6.8,
+       0
+      ],
+      [
+       11,
+       0
+      ],
+      [
+       11,
+       4.6
+      ],
+      [
+       6.8,
+       4.6
+      ]
+     ],
+     "use": "kitchen",
+     "floor": "tile"
+    },
+    {
+     "id": "dining",
+     "name": "Dining room",
+     "polygon": [
+      [
+       6.8,
+       4.6
+      ],
+      [
+       11,
+       4.6
+      ],
+      [
+       11,
+       8.8
+      ],
+      [
+       6.8,
+       8.8
+      ]
+     ],
+     "use": "dining",
+     "floor": "wood"
+    }
+   ],
+   "stairs": [
+    {
+     "id": "stair-1",
+     "from": [
+      4.76,
+      5.43
+     ],
+     "to": [
+      4.76,
+      1.5299999999999998
+     ],
+     "width": 1,
+     "steps": 16,
+     "to_level": "L1"
+    }
+   ]
+  },
+  {
+   "id": "L1",
+   "name": "First floor",
+   "height": 2.7,
+   "walls": [
+    {
+     "id": "w1",
+     "from": [
+      0,
+      0
+     ],
+     "to": [
+      4.2,
+      0
+     ],
+     "kind": "exterior"
+    },
+    {
+     "id": "w2",
+     "from": [
+      4.2,
+      0
+     ],
+     "to": [
+      6.42,
+      0
+     ],
+     "kind": "exterior"
+    },
+    {
+     "id": "w3",
+     "from": [
+      6.42,
+      0
+     ],
+     "to": [
+      11,
+      0
+     ],
+     "kind": "exterior"
+    },
+    {
+     "id": "w4",
+     "from": [
+      6.42,
+      0
+     ],
+     "to": [
+      6.42,
+      4.4
+     ]
+    },
+    {
+     "id": "w5",
+     "from": [
+      6.42,
+      4.4
+     ],
+     "to": [
+      6.42,
+      5.62
+     ]
+    },
+    {
+     "id": "w6",
+     "from": [
+      6.42,
+      5.62
+     ],
+     "to": [
+      6.42,
+      8.8
+     ]
+    },
+    {
+     "id": "w7",
+     "from": [
+      4.2,
+      5.62
+     ],
+     "to": [
+      6.42,
+      5.62
+     ]
+    },
+    {
+     "id": "w8",
+     "from": [
+      4.2,
+      0
+     ],
+     "to": [
+      4.2,
+      5
+     ]
+    },
+    {
+     "id": "w9",
+     "from": [
+      4.2,
+      5
+     ],
+     "to": [
+      4.2,
+      5.62
+     ]
+    },
+    {
+     "id": "w10",
+     "from": [
+      4.2,
+      5.62
+     ],
+     "to": [
+      4.2,
+      8.8
+     ]
+    },
+    {
+     "id": "w11",
+     "from": [
+      0,
+      8.8
+     ],
+     "to": [
+      2.3,
+      8.8
+     ],
+     "kind": "exterior"
+    },
+    {
+     "id": "w12",
+     "from": [
+      2.3,
+      8.8
+     ],
+     "to": [
+      4.2,
+      8.8
+     ],
+     "kind": "exterior"
+    },
+    {
+     "id": "w13",
+     "from": [
+      4.2,
+      8.8
+     ],
+     "to": [
+      6.42,
+      8.8
+     ],
+     "kind": "exterior"
+    },
+    {
+     "id": "w14",
+     "from": [
+      6.42,
+      8.8
+     ],
+     "to": [
+      11,
+      8.8
+     ],
+     "kind": "exterior"
+    },
+    {
+     "id": "w15",
+     "from": [
+      0,
+      5
+     ],
+     "to": [
+      2.3,
+      5
+     ]
+    },
+    {
+     "id": "w16",
+     "from": [
+      2.3,
+      5
+     ],
+     "to": [
+      4.2,
+      5
+     ]
+    },
+    {
+     "id": "w17",
+     "from": [
+      0,
+      0
+     ],
+     "to": [
+      0,
+      5
+     ],
+     "kind": "exterior"
+    },
+    {
+     "id": "w18",
+     "from": [
+      0,
+      5
+     ],
+     "to": [
+      0,
+      8.8
+     ],
+     "kind": "exterior"
+    },
+    {
+     "id": "w19",
+     "from": [
+      2.3,
+      5
+     ],
+     "to": [
+      2.3,
+      8.8
+     ]
+    },
+    {
+     "id": "w20",
+     "from": [
+      11,
+      0
+     ],
+     "to": [
+      11,
+      4.4
+     ],
+     "kind": "exterior"
+    },
+    {
+     "id": "w21",
+     "from": [
+      11,
+      4.4
+     ],
+     "to": [
+      11,
+      8.8
+     ],
+     "kind": "exterior"
+    },
+    {
+     "id": "w22",
+     "from": [
+      6.42,
+      4.4
+     ],
+     "to": [
+      11,
+      4.4
+     ]
+    }
+   ],
+   "openings": [
+    {
+     "id": "d-master",
+     "wall": "w8",
+     "type": "door",
+     "offset": 0.4,
+     "width": 0.9,
+     "opens_to": "right"
+    },
+    {
+     "id": "d-bed2",
+     "wall": "w4",
+     "type": "door",
+     "offset": 0.4,
+     "width": 0.9
+    },
+    {
+     "id": "d-bed3",
+     "wall": "w5",
+     "type": "door",
+     "offset": 0.15,
+     "width": 0.9,
+     "hinge": "start"
+    },
+    {
+     "id": "d-bath",
+     "wall": "w7",
+     "type": "door",
+     "offset": 1.25,
+     "width": 0.8,
+     "hinge": "end",
+     "opens_to": "right"
+    },
+    {
+     "id": "d-dress",
+     "wall": "w15",
+     "type": "door",
+     "offset": 0.65,
+     "width": 0.7
+    },
+    {
+     "id": "d-ens",
+     "wall": "w16",
+     "type": "door",
+     "offset": 0.85,
+     "width": 0.8,
+     "hinge": "end"
+    },
+    {
+     "id": "w-master-n",
+     "wall": "w1",
+     "type": "window",
+     "offset": 1.3,
+     "width": 1.8
+    },
+    {
+     "id": "w-master-w",
+     "wall": "w17",
+     "type": "window",
+     "offset": 1.7,
+     "width": 1.6
+    },
+    {
+     "id": "w-ens",
+     "wall": "w12",
+     "type": "window",
+     "offset": 0.5,
+     "width": 1
+    },
+    {
+     "id": "w-bath",
+     "wall": "w13",
+     "type": "window",
+     "offset": 0.65,
+     "width": 0.9
+    },
+    {
+     "id": "w-landing",
+     "wall": "w2",
+     "type": "window",
+     "offset": 0.5,
+     "width": 1.2
+    },
+    {
+     "id": "w-bed2-n",
+     "wall": "w3",
+     "type": "window",
+     "offset": 1.48,
+     "width": 1.8
+    },
+    {
+     "id": "w-bed2-e",
+     "wall": "w20",
+     "type": "window",
+     "offset": 1.4,
+     "width": 1.6
+    },
+    {
+     "id": "w-bed3-e",
+     "wall": "w21",
+     "type": "window",
+     "offset": 1.4,
+     "width": 1.6
+    },
+    {
+     "id": "w-bed3-s",
+     "wall": "w14",
+     "type": "window",
+     "offset": 1.48,
+     "width": 1.8
+    }
+   ],
+   "rooms": [
+    {
+     "id": "landing",
+     "name": "Landing and gallery",
+     "polygon": [
+      [
+       4.2,
+       0
+      ],
+      [
+       6.42,
+       0
+      ],
+      [
+       6.42,
+       5.62
+      ],
+      [
+       4.2,
+       5.62
+      ]
+     ],
+     "use": "hall",
+     "floor": "wood"
+    },
+    {
+     "id": "bath",
+     "name": "Family bathroom",
+     "polygon": [
+      [
+       4.2,
+       5.62
+      ],
+      [
+       6.42,
+       5.62
+      ],
+      [
+       6.42,
+       8.8
+      ],
+      [
+       4.2,
+       8.8
+      ]
+     ],
+     "use": "bathroom",
+     "floor": "tile"
+    },
+    {
+     "id": "master",
+     "name": "Main bedroom",
+     "polygon": [
+      [
+       0,
+       0
+      ],
+      [
+       4.2,
+       0
+      ],
+      [
+       4.2,
+       5
+      ],
+      [
+       0,
+       5
+      ]
+     ],
+     "use": "bedroom",
+     "floor": "wood"
+    },
+    {
+     "id": "dress",
+     "name": "Dressing room",
+     "polygon": [
+      [
+       0,
+       5
+      ],
+      [
+       2.3,
+       5
+      ],
+      [
+       2.3,
+       8.8
+      ],
+      [
+       0,
+       8.8
+      ]
+     ],
+     "use": "storage",
+     "floor": "wood"
+    },
+    {
+     "id": "ens",
+     "name": "Ensuite bathroom",
+     "polygon": [
+      [
+       2.3,
+       5
+      ],
+      [
+       4.2,
+       5
+      ],
+      [
+       4.2,
+       8.8
+      ],
+      [
+       2.3,
+       8.8
+      ]
+     ],
+     "use": "bathroom",
+     "floor": "tile"
+    },
+    {
+     "id": "bed2",
+     "name": "Bedroom 2",
+     "polygon": [
+      [
+       6.42,
+       0
+      ],
+      [
+       11,
+       0
+      ],
+      [
+       11,
+       4.4
+      ],
+      [
+       6.42,
+       4.4
+      ]
+     ],
+     "use": "bedroom",
+     "floor": "wood"
+    },
+    {
+     "id": "bed3",
+     "name": "Bedroom 3",
+     "polygon": [
+      [
+       6.42,
+       4.4
+      ],
+      [
+       11,
+       4.4
+      ],
+      [
+       11,
+       8.8
+      ],
+      [
+       6.42,
+       8.8
+      ]
+     ],
+     "use": "bedroom",
+     "floor": "wood"
+    }
+   ],
+   "stairs": []
+  }
+ ]
+}

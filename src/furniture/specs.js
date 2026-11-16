@@ -9,7 +9,7 @@
 // `slots` are the named material slots of the piece (the editor recolours a slot, not a mesh): every slot listed must exist
 // on the built object as a mesh whose userData.slot equals the slot name.
 
-export const ROOM_TYPES = ['living', 'dining', 'kitchen', 'bedroom', 'kids', 'bath', 'wc', 'hall', 'office', 'utility', 'balcony', 'storage'];
+export const ROOM_TYPES = ['living', 'dining', 'kitchen', 'bedroom', 'kids', 'bath', 'wc', 'hall', 'office', 'utility', 'balcony', 'storage', 'stair'];
 export const GROUPS = ['living', 'dining', 'sleep', 'work', 'kitchen', 'bath', 'hall', 'decor'];
 // place.mode: floor (stands on the floor), floor-flat (lies on the floor and does not block: rugs), corner (prefers a room corner),
 // wall-mount (hangs on a wall at place.elevation), window (follows an opening), ceiling (hangs from the ceiling, place.drop = length of
@@ -70,7 +70,7 @@ export const SPECS = [
   P('toilet', 'bath', 2, 'Toilet', 'Toaleta', [0.38, 0.7, 0.78], { place: { against: 'back', clearFront: 0.6, clearSide: 0.2 }, rooms: ['bath', 'wc'], slots: ['ceramic', 'seat'], tall: false, maxTris: 4500, legacy: 'toilet' }),
   P('washbasin', 'bath', 2, 'Washbasin with vanity', 'Umywalka z szafką', [0.65, 0.5, 0.85], { range: { w: [0.45, 1.2] }, place: { against: 'back', clearFront: 0.7 }, rooms: ['bath', 'wc'], slots: ['vanity', 'basin', 'tap'], tall: false, maxTris: 4500, legacy: 'basin' }),
   P('shower', 'bath', 2, 'Shower', 'Prysznic', [0.9, 0.9, 2.05], { range: { w: [0.8, 1.2], d: [0.8, 1.2] }, place: { mode: 'corner', against: 'back', clearFront: 0.6 }, rooms: ['bath'], slots: ['tray', 'glass', 'fittings'], maxTris: 4000, legacy: 'shower' }),
-  P('bathtub', 'bath', 2, 'Bathtub', 'Wanna', [1.7, 0.75, 0.58], { range: { w: [1.5, 1.9] }, place: { against: 'back', clearFront: 0.6 }, rooms: ['bath'], slots: ['shell', 'fittings'], tall: false, maxTris: 5000, legacy: 'bathtub' }),
+  P('bathtub', 'bath', 2, 'Bathtub', 'Wanna', [1.7, 0.75, 0.58], { range: { w: [1.5, 1.9] }, place: { against: 'back', clearFront: 0.7 }, rooms: ['bath'], slots: ['shell', 'fittings'], tall: false, maxTris: 5000, legacy: 'bathtub' }),
   P('washing-machine', 'bath', 2, 'Washing machine', 'Pralka', [0.6, 0.6, 0.85], { place: { against: 'back', clearFront: 0.7 }, rooms: ['bath', 'utility', 'kitchen'], slots: ['body', 'door'], tall: false, maxTris: 3000 }),
 
   // ---- extras ----
@@ -83,7 +83,8 @@ export const SPECS = [
   P('rug-runner', 'decor', 3, 'Runner rug', 'Chodnik', [0.8, 2.4, 0.012], { range: { w: [0.6, 1.0], d: [1.2, 4.0] }, place: { mode: 'floor-flat', against: 'free' }, rooms: ['hall', 'kitchen'], slots: ['fabric', 'border'], tall: false, maxTris: 1200, legacy: 'rug' }),
   P('shoe-cabinet', 'hall', 3, 'Shoe cabinet', 'Szafka na buty', [0.8, 0.35, 0.95], { range: { w: [0.5, 1.2] }, place: { against: 'back', clearFront: 0.8 }, rooms: ['hall'], slots: ['body', 'top', 'handles'], tall: false, maxTris: 3000 }),
   P('coat-rack', 'hall', 3, 'Wall coat rack', 'Wieszak ścienny', [0.6, 0.1, 0.3], { range: { w: [0.4, 1.2] }, place: { mode: 'wall-mount', against: 'back', elevation: 1.6 }, rooms: ['hall'], slots: ['board', 'hooks'], tall: false, maxTris: 2000 }),
-  P('bench', 'hall', 3, 'Bench', 'Ławka', [1.0, 0.35, 0.45], { range: { w: [0.6, 1.6] }, place: { against: 'back-or-free', clearFront: 0.6 }, rooms: ['hall', 'bedroom'], slots: ['seat', 'frame'], tall: false, maxTris: 2500 }),
+  P('pouf', 'living', 2, 'Pouf', 'Puf', [0.45, 0.45, 0.42], { range: { w: [0.35, 0.7], d: [0.35, 0.7] }, place: { against: 'free' }, rooms: ['living', 'bedroom', 'office', 'hall', 'storage'], slots: ['seat'], tall: false, maxTris: 1500 }),
+  P('bench', 'hall', 2, 'Bench', 'Ławka', [1.0, 0.35, 0.45], { range: { w: [0.6, 1.6] }, place: { against: 'back-or-free', clearFront: 0.6 }, rooms: ['hall', 'bedroom'], slots: ['seat', 'frame'], tall: false, maxTris: 2500 }),
   P('kitchen-island', 'kitchen', 3, 'Kitchen island', 'Wyspa kuchenna', [1.6, 0.9, 0.9], { range: { w: [1.2, 2.6] }, place: { against: 'free', clearFront: 1.0, clearSide: 1.0 }, rooms: ['kitchen'], slots: ['body', 'fronts', 'worktop'], tall: false, maxTris: 5000, legacy: 'counter' }),
   P('bar-stool', 'kitchen', 3, 'Bar stool', 'Hoker', [0.38, 0.38, 0.75], { place: { against: 'free' }, rooms: ['kitchen', 'dining'], slots: ['seat', 'frame'], tall: false, maxTris: 2500, legacy: 'chair' }),
   P('wardrobe-small', 'sleep', 3, 'Small wardrobe', 'Szafa mała', [0.9, 0.55, 1.9], { range: { w: [0.6, 1.2], h: [1.5, 2.2] }, place: { against: 'back', clearFront: 0.8 }, rooms: ['bedroom', 'hall', 'kids'], slots: ['body', 'doors', 'handles'], maxTris: 3500 }),

@@ -7,11 +7,11 @@ export const MAP_SIZE = 180; // px of the map canvas (the style makes it smaller
 
 export const SPACER_TEXT = Object.freeze({
   en: Object.freeze({
-    hint: 'Click to look around. W S walk, A D step aside, arrows turn, Shift runs, Space jumps or opens and shuts doors, Esc goes back.',
+    hint: 'Click to look around. W S walk, A D step aside, arrows turn, Shift runs, [ ] change the time of day, Space jumps or opens and shuts doors, Esc goes back.',
     touchHint: 'Drag the left half to walk, the right half to look', left: 'Walk', right: 'Look around', map: 'Map of the floor', doorway: 'Step out of the doorway to shut the door',
   }),
   pl: Object.freeze({
-    hint: 'Kliknij, żeby się rozglądać. W S: naprzód i wstecz, A D: bokiem, strzałki: obrót, Shift: bieg, spacja: skok albo drzwi, Esc: powrót.',
+    hint: 'Kliknij, żeby się rozglądać. W S: naprzód i wstecz, A D: bokiem, strzałki: obrót, Shift: bieg, [ ]: pora dnia, spacja: skok albo drzwi, Esc: powrót.',
     touchHint: 'Lewa połowa: idź, prawa: rozglądaj się', left: 'Idź', right: 'Rozglądaj się', map: 'Plan piętra', doorway: 'Wyjdź z progu, żeby zamknąć drzwi',
   }),
 });

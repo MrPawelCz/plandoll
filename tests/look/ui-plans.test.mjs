@@ -44,10 +44,10 @@ test('the words are in both languages and without long dashes', () => {
   const doc = makeDoc(), ui = createUI({ onPreset() {}, onTime() {}, onQuality() {}, onLang() {} }, { ...base, plan: 'flat-1' }, doc);
   const group = every(ui.root).find((n) => n.className === 'plans'), buttons = group.children;
   ui.update({ lang: 'pl' });
-  assert.deepEqual(buttons.map((b) => b.textContent), ['Mieszkanie', 'Dupleks']);
+  assert.deepEqual(buttons.map((b) => b.textContent), ['Mieszkanie', 'Dom']);
   assert.equal(group.attrs['aria-label'], 'Przykładowe plany');
   for (const b of buttons) assert.ok(!`${b.textContent}${b.title}`.match(/[\u2013\u2014]/), b.textContent);
-  assert.match(buttons[0].title, /jedno piętro/); assert.match(buttons[1].title, /dwa piętra/);
+  assert.match(buttons[0].title, /jedno piętro/); assert.match(buttons[1].title, /dwa piętra/); // the house example is a two-storey house, so Polish calls it Dom
   ui.update({ lang: 'en' });
   assert.match(buttons[0].title, /one floor/); assert.match(buttons[1].title, /two floors/);
 });

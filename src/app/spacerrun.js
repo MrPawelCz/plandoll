@@ -7,6 +7,7 @@
 //   win, doc      the window and the document (addEventListener, removeEventListener; doc.pointerLockElement, doc.exitPointerLock, doc.visibilityState)
 //   canvas        the picture (addEventListener, requestPointerLock, setPointerCapture, getBoundingClientRect)
 //   host.model()        the model now (the page replaces it when a plan is loaded)
+//   host.margin()      optional: metres the walker may go beyond the flat (6 when it is missing or says undefined)
 //   host.refusal()      '' when Spacer may start, else why not ('edit', 'loading', 'no-model')
 //   host.snapshot()     everything the page has to get back, as the page likes it (opaque here)
 //   host.begin()        the page puts on the eyes: the shell shut, every floor on show, the walls full height, the ceilings on, the camera of the eyes
@@ -123,7 +124,7 @@ export function createSpacerRun({ host, win, doc, canvas }) {
     if (why) { denied = why; return false; }
     const model = host.model();
     try { // the world and the start are made before the page is touched, so a model that cannot be walked leaves it as it was
-      world = createWorld(model);
+      world = createWorld(model, host.margin?.());
       const s = defaultSpawn(model);
       player = createPlayer(world, { level: s.level, x: s.x, y: s.y, yawDeg: s.yawDeg });
     } catch { world = null; player = null; denied = 'error'; return false; }

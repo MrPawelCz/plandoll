@@ -81,7 +81,7 @@ export function buildPlanParts(next, seed, deps) {
     for (const lv of p.levels) lv.furniture = [];
     const res = deps.analyzePlan(p), model = deps.buildModel(deps.modelOf(res)), ext = deps.modelExtent(model);
     scene = deps.makeScene(model);
-    const layout = deps.autoFurnish(model, { seed, allowedTypes: deps.piecesImplemented() });
+    const layout = deps.autoFurnish(model, { seed, allowedTypes: deps.piecesImplemented(), strict: true });
     return { model, ext, scene, layout };
   } catch {
     try { scene?.dispose?.(); } catch { /* the scene is dropped anyway */ }

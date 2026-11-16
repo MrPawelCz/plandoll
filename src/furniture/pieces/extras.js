@@ -14,6 +14,12 @@ export function bench(b) {
   b.box('frame', 'f:wood', [0, legH - 0.04, 0], [w - 0.12, 0.04, 0.03], 0.006);
 }
 
+// A round pouf: a padded drum on a low base.
+export function pouf(b) {
+  const h = b.h - 0.04;
+  b.add('seat', b.cush(b.w, h, b.d, { r: 0.12, puff: 0.02, dent: 0, top: 4 }), 'f:fabric', M(0, h / 2 + 0.005, 0));
+}
+
 export function barStool(b) {
   const { w, d, h } = b;
   const r = Math.min(w, d) / 2;
@@ -143,6 +149,6 @@ export const bedKing = bedDouble;
 export const rugRunner = rug;
 
 export const builders = {
-  'bed-king': bedKing, 'rug-runner': rugRunner, bench, 'bar-stool': barStool, 'coffee-table-round': coffeeTableRound, 'books-stack': booksStack,
+  'bed-king': bedKing, 'rug-runner': rugRunner, bench, pouf, 'bar-stool': barStool, 'coffee-table-round': coffeeTableRound, 'books-stack': booksStack,
   sideboard, 'shoe-cabinet': shoeCabinet, vase, centerpiece, 'coat-rack': coatRack, 'kitchen-island': kitchenIsland,
 };

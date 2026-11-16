@@ -59,8 +59,9 @@ export function parseParams(hash, env = {}) {
   // az (degrees round the model, 0 = from the south, 90 = from the east) and pol (degrees from the vertical) set the view the page opens with
   // floor: the floors on show, 'all' or the index of one level (a plan with fewer levels than that shows all of them)
   // share: the text of a share link (share.js unpacks it; null when there is none)
+  // outside=0 leaves the lawn, the path and the sky out of Spacer
   // walk=1 opens in Spacer (no intro, like intro=0; never while editing), walk=0 takes the Spacer button away (spacer: whether the button is there)
-  return { preset: presetName, t, q: parseQualityParam(kv.q), cam: kv.cam === 'close' ? 'close' : 'main', plan: parsePlanParam(kv.plan), frames, lang, ui: kv.ui !== '0', live: kv.live === '1', tmSet: kv.t !== undefined, seed, merge: kv.merge !== '0', edit: kv.edit === '1', btn: kv.btn !== '0', shell: kv.shell !== '0', az: num(kv.az), pol: num(kv.pol), floor: parseFloorParam(kv.floor), share: kv.share ? kv.share : null, rooms: kv.rooms === '1', intro: kv.intro !== '0', walk: kv.walk === '1', spacer: kv.walk !== '0' };
+  return { preset: presetName, t, q: parseQualityParam(kv.q), cam: kv.cam === 'close' ? 'close' : 'main', plan: parsePlanParam(kv.plan), frames, lang, ui: kv.ui !== '0', live: kv.live === '1', tmSet: kv.t !== undefined, seed, merge: kv.merge !== '0', edit: kv.edit === '1', btn: kv.btn !== '0', shell: kv.shell !== '0', az: num(kv.az), pol: num(kv.pol), floor: parseFloorParam(kv.floor), share: kv.share ? kv.share : null, rooms: kv.rooms === '1', intro: kv.intro !== '0', walk: kv.walk === '1', spacer: kv.walk !== '0', outside: kv.outside !== '0' };
 }
 
 // Hash string for a parameter object (inverse of parseParams for the fields the page changes).

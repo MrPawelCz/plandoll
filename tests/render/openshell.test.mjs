@@ -278,7 +278,8 @@ test('a ray at a hung piece on a fallen wall finds the piece with the matrix of 
     }
   }
   assert.ok(hung > 20, `${hung} hung pieces`);
-  assert.ok(found >= hung * 0.9, `with the matrix ${found} of ${hung} hung pieces are found where they are drawn`);
+  // 0.8, not 0.9: the layout now hangs wall cabinets over the kitchen runs, and from above a hung piece can lie under another one
+  assert.ok(found >= hung * 0.8, `with the matrix ${found} of ${hung} hung pieces are found where they are drawn`);
   assert.ok(foundWithout <= hung * 0.2, `without it only ${foundWithout} of ${hung} are (picking in the closed place was the defect)`);
   assert.ok(ghostWithout >= hung * 0.5, `the closed place answered for ${ghostWithout} of ${hung} before (furniture in front of a wall blocks the rest)`);
   assert.ok(ghostWith <= hung * 0.1, `and answers for ${ghostWith} now`);
