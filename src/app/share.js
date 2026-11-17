@@ -182,8 +182,10 @@ export function setViewParams(base, view = {}, value = null) {
   const set = {};
   if (isPreset(view.preset)) set.preset = view.preset;
   if (fin(view.t)) set.t = Math.min(1, Math.max(0, view.t)).toFixed(3);
-  if (fin(view.az)) set.az = String(+view.az.toFixed(2)); // two decimals: a whole degree would open the view up to half a degree off, a few pixels at the edges of the furniture
-  if (fin(view.pol)) set.pol = String(+view.pol.toFixed(2));
+  // four decimals: with a whole degree the view opens up to half a degree off, a few pixels at the edges of the furniture, and even with two the page that opens the link looks
+  // from up to 0.005 degrees off, which a small pane of a fine pattern shows as a few levels of brightness (the browser check "and it looks the same" found it); four keep it to 0.00005
+  if (fin(view.az)) set.az = String(+view.az.toFixed(4));
+  if (fin(view.pol)) set.pol = String(+view.pol.toFixed(4));
   const floor = parseFloorParam(String(view.floor ?? ALL));
   if (floor !== ALL) set.floor = String(floor);
   if (PLAN_NAMES.includes(view.plan) && view.plan !== 'flat-1') set.plan = view.plan;

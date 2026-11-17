@@ -231,7 +231,12 @@ test('hostile content is data: keys like __proto__ do not reach Object.prototype
 test('setViewParams: the view of the page goes in the address, defaults stay out, the long part comes last', () => {
   const view = { preset: 'lamplit', t: 0.7, az: 41.6, pol: 52.2, floor: 1, plan: 'duplex-1', seed: 1 };
   assert.equal(setViewParams('', view, 'z1.abc'), 'preset=lamplit&t=0.700&az=41.6&pol=52.2&floor=1&plan=duplex-1&share=z1.abc');
-  assert.equal(setViewParams('', { az: 35.4567, pol: 51 }, ''), 'az=35.46&pol=51', 'two decimals at most, no trailing zeros');
+  assert.equal(setViewParams('', { az: 35.4567, pol: 51 }, ''), 'az=35.4567&pol=51', 'four decimals at most, no trailing zeros');
+  assert.equal(setViewParams('', { az: 35.537712, pol: 50.863649 }, ''), 'az=35.5377&pol=50.8636', 'the default view of the house, rounded to four decimals');
+  const back = parseParams(`#${setViewParams('', { az: 35.537712, pol: 50.863649 }, '')}`);
+  assert.ok(Math.abs(back.az - 35.537712) <= 0.00005 && Math.abs(back.pol - 50.863649) <= 0.00005, 'the page that opens the link looks from the same place to 0.00005 degrees (with two decimals it was 0.005, and a small pane of a fine pattern showed it)');
+  const old = parseParams('#az=35.54&pol=50.86');
+  assert.deepEqual([old.az, old.pol], [35.54, 50.86], 'a link made with two decimals still opens');
   const p = parseParams(`#${setViewParams('', view, 'z1.abc')}`);
   assert.deepEqual([p.preset, p.t, p.az, p.pol, p.floor, p.plan.name, p.share], ['lamplit', 0.7, 41.6, 52.2, 1, 'duplex-1', 'z1.abc']);
   assert.equal(setViewParams('', { preset: 'amber', t: 0.25, floor: 'all', plan: 'flat-1', seed: 1 }, 'u1.x'), 'preset=amber&t=0.250&share=u1.x', 'all floors, the flat and the seed 1 are defaults');
