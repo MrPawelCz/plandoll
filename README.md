@@ -80,7 +80,7 @@ Node 20 or newer. The test that starts Chrome and clicks through the page runs o
 
 The built page carries a content security policy that lets the browser itself refuse network requests and foreign scripts.
 
-The page shows its version in the lower right corner, for example `v0.2.0 · 3bcb848`: the version of `package.json` and the first seven characters of the commit the page was built from (a `+` after them when tracked files had uncommitted changes, `dev` outside git). The version goes up with every publication, so the number on a host tells which build it serves. `ui=0` leaves the picture alone and shows no mark; `docs/DESIGN.md` section 6i says how it is made.
+The page shows its version in the lower right corner, for example `2026-11-17v04 · 3bcb848`: the day of the commit the page was built from (UTC), the number of that commit among the commits of the same day (`v01` is the first) and the first seven characters of the commit (a `+` after them when tracked files had uncommitted changes, `dev` outside git). So the mark on a host tells how old the build it serves is. `ui=0` leaves the picture alone and shows no mark; `docs/DESIGN.md` section 6i says how it is made.
 
 The prompts that the Load plan box copies are the text of `docs/PROMPT.md` and `docs/PROMPT.pl.md`: `src/app/prompts.js` is generated from them (`npm run sync-prompts`, run it after editing a prompt and commit both) and a test fails when the two disagree. `node tools/help-check.mjs` clicks through the box in a real browser, on a desktop window and with `--phone`.
 
@@ -96,7 +96,7 @@ Strona w przeglądarce, która z rzutu mieszkania robi urządzoną, oświetloną
 
 Własny rzut: zrób zdjęcie, zrzut ekranu albo weź stronę PDF z rzutem, wklej go do asystenta AI do czatu, który czyta obrazy, razem z poleceniem z `docs/PROMPT.pl.md` (okno Wczytaj plan na stronie ma ten sam opis i przycisk Kopiuj polecenie), potem skopiuj całą odpowiedź do okna Wczytaj plan. Porównaj makietę z rysunkiem: słabszy asystent może pominąć okna albo przesunąć ścianę. Jeśli strona wskaże problemy, komunikat zostaje w oknie, ze wszystkimi naraz: skopiuj go z powrotem do czatu i poproś o poprawiony plan. Obraz trafia do wybranego asystenta, na jego zasadach; plandoll nie wysyła nigdzie obrazu, planu ani układu. Kopia na plandoll.com ma wokół tego pliku własny anonimowy licznik odwiedzin; sam plik go nie ma.
 
-Numer wersji: w prawym dolnym rogu strony widać numer wersji i skrót zmiany, z której strona powstała (na przykład `v0.2.0 · 3bcb848`); numer rośnie przy każdej publikacji, więc po nim widać, którą wersję pokazuje dany adres. Przy `ui=0` napisu nie ma.
+Numer wersji: w prawym dolnym rogu strony widać dzień zmiany, z której strona powstała (czas UTC), numer tej zmiany wśród zmian z tego dnia i jej skrót (na przykład `2026-11-17v04 · 3bcb848`), więc po napisie widać, jak stara jest wersja, którą pokazuje dany adres. Przy `ui=0` napisu nie ma.
 
 Opis dla programów: w nagłówku strony jest jej opis jako dane (schema.org `WebApplication`, JSON-LD), a obok strony leżą `llms.txt` (czym jest plandoll, jak zrobić plan ze zdjęcia, odnośniki do instrukcji i formatu) oraz `sitemap.xml`. Wszystkie trzy pisze `tools/agent-files.mjs` z jednego źródła, więc każdy serwer mówi to samo pod swoim adresem.
 

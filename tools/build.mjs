@@ -15,9 +15,9 @@ const dist = outIdx >= 0 ? resolve(process.argv[outIdx + 1]) : join(root, 'dist'
 
 const TITLE = 'plandoll';
 
-const version = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')).version;
-// The version mark in the corner of the page (tools/version.mjs): the version of package.json and the commit the page is built from.
-const mark = versionMark({ version, ...gitState(root) });
+const version = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')).version; // what softwareVersion in the description for programs says; the mark below does not use it
+// The version mark in the corner of the page (tools/version.mjs): the day of the commit the page is built from, its number among the commits of that day, and the commit.
+const mark = versionMark(gitState(root));
 // The description of the page for programs (tools/agent-files.mjs), in the head, with the address of GitHub Pages: a host with an address of its own swaps the block for its own.
 const ld = jsonLdBlock(jsonLd({ base: PAGES_URL, version }));
 

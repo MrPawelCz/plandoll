@@ -152,7 +152,7 @@ async function open(hash, ready = `!!window.__info || !!window.__edit`) {
   await waitFor('!window.__camera || window.__camera.busy === false', 20000).catch(() => {}); // the first tap of a check is not a race with the camera still settling on its first view
 }
 
-// The version mark (tools/version.mjs): small print in the lower right corner that reads like a version, stands inside the window, and overlaps no bar, card, list or mark of the page.
+// The version mark (tools/version.mjs): small print in the lower right corner that reads like a version (the day, the number of the day and the commit), stands inside the window, and overlaps no bar, card, list or mark of the page.
 async function markCheck(label) {
   const g = await ev(`(() => {
     const box = (n) => { if (!n || n.hidden) return null; const r = n.getBoundingClientRect(), cs = getComputedStyle(n); return r.width > 0 && cs.display !== 'none' ? { x: r.left, y: r.top, r: r.right, b: r.bottom } : null; };
@@ -162,7 +162,7 @@ async function markCheck(label) {
   })()`);
   const m = g.mark, hit = m ? g.others.filter(([, r]) => m.x < r.r && r.x < m.r && m.y < r.b && r.y < m.b).map(([s]) => s) : [];
   check(`${label}: the version mark reads like a version, stands in the lower right corner of the window, and overlaps nothing`,
-    !!m && /^v\d+\.\d+\.\d+ · ([0-9a-f]{7}\+?|dev)$/.test(g.text ?? '') && m.x >= 0 && m.y >= 0 && m.r <= g.w + 1 && m.b <= g.h + 1 && m.r > g.w * 0.5 && m.y > g.h * 0.9 && hit.length === 0,
+    !!m && /^(\d{4}-\d{2}-\d{2}v\d{2,} · [0-9a-f]{7}\+?|dev)$/.test(g.text ?? '') && m.x >= 0 && m.y >= 0 && m.r <= g.w + 1 && m.b <= g.h + 1 && m.r > g.w * 0.5 && m.y > g.h * 0.9 && hit.length === 0,
     `${g.text}; mark ${m ? `${Math.round(m.x)},${Math.round(m.y)}..${Math.round(m.r)},${Math.round(m.b)}` : 'missing'} of ${g.w}x${g.h}${hit.length ? `; overlaps ${hit.join(', ')}` : ''}`);
 }
 
