@@ -35,7 +35,8 @@ export function gitState(root, run = execFileSync, ref = 'HEAD') {
   const dayOf = (t) => new Date(t * 1000).toISOString().slice(0, 10);
   const date = times.length ? dayOf(times[0]) : '';
   let seq = 0;
-  if (date && git('rev-parse', '--is-shallow-repository') !== 'true') for (const t of times) { if (dayOf(t) !== date) break; seq++; }
+  // only the answer false counts as a whole history: a git too old to know the question echoes it (and exits 0), and no answer is no answer; both leave the number out, never wrong
+  if (date && git('rev-parse', '--is-shallow-repository') === 'false') for (const t of times) { if (dayOf(t) !== date) break; seq++; }
   return { head, dirty, date, seq };
 }
 

@@ -10,6 +10,10 @@ import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { MARK_CSS, gitState, markHtml, versionMark } from '../../tools/version.mjs';
 
+// The day of the mark is the day in UTC, wherever the commit was made and wherever the page is built. These tests run in a zone 13 hours ahead of UTC in October (New Zealand summer time),
+// so that a day taken from the local calendar fails them on every machine: in CI (which runs in UTC) and here (London is UTC in winter) alike it would pass unnoticed.
+process.env.TZ = 'Pacific/Auckland';
+
 const root = fileURLToPath(new URL('../../', import.meta.url));
 const SHA = '3bcb848f0e1d2c3b4a5968778695a4b3c2d1e0f9';
 const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
@@ -77,6 +81,8 @@ test('the number counts the commits of the same day in UTC from the newest, and 
 test('a shallow clone gives the day but no number, and a commit that is not the head is never dirty', () => {
   const log = [unix('2026-10-27T15:00:00Z')];
   assert.deepEqual(gitState('/t', standIn({ log, shallow: 'true' })), { head: SHA, dirty: false, date: '2026-10-27', seq: 0 });
+  assert.equal(gitState('/t', standIn({ log, shallow: '--is-shallow-repository' })).seq, 0, 'a git too old to know the question echoes it: no number rather than a wrong one');
+  assert.equal(gitState('/t', standIn({ log, shallow: '' })).seq, 0, 'no answer, no number');
   const calls = [];
   assert.deepEqual(gitState('/t', standIn({ log, status: ' M src/app/main.js\n', calls }), 'v1.0'), { head: SHA, dirty: false, date: '2026-10-27', seq: 1 });
   assert.ok(!calls.some((c) => c.args[0] === 'status'), 'a tag or a hash is a commit, not a tree');
@@ -97,9 +103,9 @@ test('changed tracked files make the tree dirty, and no git, no repository or an
 // Real repositories, made for the test: the commits get the times of the test, so the day and the number do not depend on the day the test runs.
 const scratch = mkdtempSync(join(tmpdir(), 'plandoll-version-git-'));
 after(() => rmSync(scratch, { recursive: true, force: true }));
-const git = (cwd, args, when) => execFileSync('git', ['-c', 'commit.gpgsign=false', '-c', 'core.hooksPath=/dev/null', '-c', 'user.name=Test', '-c', 'user.email=test@example.com', ...args], {
+const git = (cwd, args, when, authored = when) => execFileSync('git', ['-c', 'commit.gpgsign=false', '-c', 'core.hooksPath=/dev/null', '-c', 'user.name=Test', '-c', 'user.email=test@example.com', ...args], {
   cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'],
-  env: { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_SYSTEM: '/dev/null', ...(when ? { GIT_AUTHOR_DATE: when, GIT_COMMITTER_DATE: when } : {}) },
+  env: { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_SYSTEM: '/dev/null', ...(when ? { GIT_AUTHOR_DATE: authored, GIT_COMMITTER_DATE: when } : {}) },
 }).trim();
 
 test('in real repositories: the day goes by UTC, the number counts the day on the main line, a shallow clone has none', () => {
@@ -124,6 +130,27 @@ test('in real repositories: the day goes by UTC, the number counts the day on th
   assert.deepEqual(gitState(shallow), { head: c4, dirty: false, date: '2026-10-27', seq: 0 }, 'a clone with a cut history knows the day but cannot count, so it gives no number');
   assert.equal(versionMark(gitState(shallow)).text, `2026-10-27 · ${c4.slice(0, 7)}`, 'the page of a workflow that forgot the whole history differs from the local build at once, in the open');
   assert.deepEqual(gitState(join(scratch, 'nowhere-at-all')), { head: '', dirty: false, date: '', seq: 0 });
+});
+
+test('in a real repository with a merge: the commits of the side branch are not counted, and the day is the day the commit was made, not the day it was written', () => {
+  const repo = join(scratch, 'merge');
+  git(scratch, ['init', '-q', '-b', 'main', repo]);
+  const commit = (name, when, authored, file = 'file.txt') => { writeFileSync(join(repo, file), `${name}\n`); git(repo, ['add', file]); git(repo, ['commit', '-q', '-m', name], when, authored); return git(repo, ['rev-parse', 'HEAD']); };
+  commit('base', '2026-10-26T12:00:00+00:00');
+  git(repo, ['checkout', '-q', '-b', 'side']);
+  commit('side one', '2026-10-27T08:00:00+00:00', undefined, 'side.txt'); // another file, so that the merge has no conflict
+  commit('side two', '2026-10-27T08:30:00+00:00', undefined, 'side.txt');
+  git(repo, ['checkout', '-q', 'main']);
+  const one = commit('main one', '2026-10-27T09:00:00+00:00');
+  git(repo, ['merge', '-q', '--no-ff', '-m', 'merge side', 'side'], '2026-10-27T10:00:00+00:00');
+  const merged = git(repo, ['rev-parse', 'HEAD']);
+  assert.equal(git(repo, ['rev-list', '--count', 'HEAD']), '5', 'five commits are reachable, three of them on the main line');
+  assert.deepEqual(gitState(repo), { head: merged, dirty: false, date: '2026-10-27', seq: 2 }, 'the merge and the commit before it: the two commits of the side branch are not on the main line');
+  assert.deepEqual(gitState(repo, execFileSync, one), { head: one, dirty: false, date: '2026-10-27', seq: 1 });
+  // a commit written on the 25th and made (rebased, cherry-picked, amended) on the 27th belongs to the 27th
+  const later = commit('rewritten', '2026-10-27T11:00:00+00:00', '2026-10-25T09:00:00+00:00');
+  assert.equal(git(repo, ['log', '-1', '--format=%as'], undefined), '2026-10-25', 'the author date of the commit is the 25th');
+  assert.deepEqual(gitState(repo), { head: later, dirty: false, date: '2026-10-27', seq: 3 }, 'the committer date decides: the 27th, the third commit of the day on the main line');
 });
 
 test('the element is plain HTML with the words escaped, and the day only when there is one', () => {

@@ -163,7 +163,7 @@ async function markCheck(label) {
   const m = g.mark, hit = m ? g.others.filter(([, r]) => m.x < r.r && r.x < m.r && m.y < r.b && r.y < m.b).map(([s]) => s) : [];
   check(`${label}: the version mark reads like a version, stands in the lower right corner of the window, and overlaps nothing`,
     !!m && /^(\d{4}-\d{2}-\d{2}v\d{2,} · [0-9a-f]{7}\+?|dev)$/.test(g.text ?? '') && m.x >= 0 && m.y >= 0 && m.r <= g.w + 1 && m.b <= g.h + 1 && m.r > g.w * 0.5 && m.y > g.h * 0.9 && hit.length === 0,
-    `${g.text}; mark ${m ? `${Math.round(m.x)},${Math.round(m.y)}..${Math.round(m.r)},${Math.round(m.b)}` : 'missing'} of ${g.w}x${g.h}${hit.length ? `; overlaps ${hit.join(', ')}` : ''}`);
+    `${g.text}${/^(\d{4}-\d{2}-\d{2} · )?[0-9a-f]{7}\+?$/.test(g.text ?? '') ? ' (a mark without a number: the page was built from a shallow or unreadable git history)' : ''}; mark ${m ? `${Math.round(m.x)},${Math.round(m.y)}..${Math.round(m.r)},${Math.round(m.b)}` : 'missing'} of ${g.w}x${g.h}${hit.length ? `; overlaps ${hit.join(', ')}` : ''}`);
 }
 
 async function plainPage(lang) {
