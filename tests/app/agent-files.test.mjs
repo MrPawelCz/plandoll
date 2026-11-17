@@ -70,6 +70,9 @@ test('counter: the words for a host with an anonymous visit counter say so and d
   const onText = JSON.stringify(on) + llmsTxt({ base: SITE_URL, counter: true });
   assert.ok(!onText.includes('no analytics') && !onText.includes('no network requests') && !onText.includes('makes no network requests'));
   assert.ok(llmsTxt({ base: SITE_URL, counter: true }).includes('anonymous visit counter'));
+  assert.ok(!onText.includes('no cookies or browser storage'), 'the counter reads one marker of the visitor from localStorage, so the words must not claim that no browser storage is used');
+  assert.ok(on.description.includes('writes nothing to browser storage') && on.featureList.some((f) => f.includes('nothing written to browser storage')));
+  assert.ok(llmsTxt({ base: SITE_URL, counter: true }).includes('only reads a "do not count my visits" marker'));
   assert.ok(on.featureList.some((f) => f.includes('anonymous visit counter')) && on.featureList.length === def.featureList.length);
   assert.deepEqual(jsonLd({ base: SITE_URL, version: '1.2.3', counter: false }), def);
   assert.equal(llmsTxt({ base: SITE_URL, counter: false }), llmsTxt({ base: SITE_URL }));

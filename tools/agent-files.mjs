@@ -22,7 +22,7 @@ const MIT = 'https://spdx.org/licenses/MIT.html';
 // Only what the page itself does: what happens to a picture or a copied link after the visitor sends it elsewhere is not the page's to promise.
 const DESCRIPTION = 'PlanDoll turns a floor plan into a furnished, lit 3D miniature of the flat, in the browser. Free, with no account. The page makes no network requests and uses no cookies or browser storage.';
 // The words for a host that adds an anonymous visit counter around the page (plandoll.com): the page itself still sends no plan, picture or layout.
-const DESCRIPTION_COUNTER = 'PlanDoll turns a floor plan into a furnished, lit 3D miniature of the flat, in the browser. Free, with no account. It sends no plan, picture or layout anywhere and uses no cookies or browser storage; the only request it makes is an anonymous visit counter.';
+const DESCRIPTION_COUNTER = 'PlanDoll turns a floor plan into a furnished, lit 3D miniature of the flat, in the browser. Free, with no account. It sends no plan, picture or layout anywhere, uses no cookies and writes nothing to browser storage; the only request it makes is an anonymous visit counter.';
 // What the page does, in the words of the README. No counts: a number here would go stale the day a piece is added.
 const FEATURES = [
   'Reads a floor plan as a small JSON file (plan format v1) and builds a 3D miniature of the flat',
@@ -36,7 +36,7 @@ const FEATURES = [
   'Works from a single HTML file: no account, no analytics, no network requests, no cookies or browser storage',
   'Interface in English and Polish',
 ];
-const FEATURE_COUNTER = 'Works from a single HTML file: no account, no cookies or browser storage; it sends no plan, picture or layout anywhere (an anonymous visit counter is the only request)';
+const FEATURE_COUNTER = 'Works from a single HTML file: no account, no cookies, nothing written to browser storage; it sends no plan, picture or layout anywhere (an anonymous visit counter is the only request)';
 
 const checkBase = (base) => {
   if (!/^https:\/\/[a-z0-9.-]+(?::\d+)?\/(?:[A-Za-z0-9._~-]+\/)*$/.test(String(base))) throw new Error(`the address of the site must be an https address that ends with a slash, not "${base}"`);
@@ -95,7 +95,7 @@ export function llmsTxt({ base, maker = AUTHOR, also = otherAddresses(base), cou
   const own = maker.name === AUTHOR.name && maker.url === AUTHOR.url;
   const makerLine = own ? 'Source and author: MrPawelCz on GitHub, MIT licence.' : `Made by ${maker.name} (${maker.url}). The source is open, MIT licence.`;
   const opening = counter
-    ? 'free, no account. It sends no plan, picture or layout anywhere and uses no cookies or browser storage; the only request it makes is an anonymous visit counter (page, referring site, country, device type, language, time open).'
+    ? 'free, no account. It sends no plan, picture or layout anywhere, uses no cookies and writes nothing to browser storage (the visit counter only reads a "do not count my visits" marker, if you have set one yourself); the only request it makes is an anonymous visit counter (page, referring site, country, device type, language, time open).'
     : 'free, no account, no analytics. The page makes no network requests and uses no cookies or browser storage.';
   const alsoLines = also.map((a) => `- [The same page at another address](${checkBase(a)}): the same application, served from a second host`);
   const text = `# PlanDoll

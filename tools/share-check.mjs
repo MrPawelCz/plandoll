@@ -48,7 +48,7 @@ let ws, id = 0;
 const pend = new Map(), logs = new Set(), requests = new Set();
 const send = (method, params = {}) => new Promise((res, rej) => { const i = ++id; pend.set(i, { res, rej }); ws.send(JSON.stringify({ id: i, method, params })); });
 const text = (a) => String(a.value ?? a.description ?? '').slice(0, 300);
-const cleanup = async () => { try { ws?.close(); } catch {} chrome.kill('SIGTERM'); await sleep(400); chrome.kill('SIGKILL'); rmSync(profile, { recursive: true, force: true }); };
+const cleanup = async () => { try { ws?.close(); } catch {} chrome.kill('SIGTERM'); await sleep(400); chrome.kill('SIGKILL'); rmSync(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }); };
 for (const s of ['SIGINT', 'SIGTERM']) process.on(s, async () => { await cleanup(); process.exit(130); });
 
 const steps = [];
